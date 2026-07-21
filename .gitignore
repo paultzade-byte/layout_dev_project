@@ -1,0 +1,47 @@
+# 1. Віртуальні середовища
+venv/
+env/
+.venv/
+
+# 2. Системний кеш Python 
+__pycache__/
+*.pyc
+*.pyo
+
+# 3. Кеш та тимчасові файли Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 4. Кеш та звіти Playwright 
+test-results/
+playwright-report/
+playwright/.cache/
+
+# 5. Системне сміття
+Thumbs.db
+
+# 6. Файли з секретами, паролями чи локальними налаштуваннями
+.env
+
+# 7. data bases trashe
+*.sqlite3
+*.sqlite3-journal
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 8. another trash
+pytest/
+generated/
+test_validation.py
+pstruct.txt
+.mypy_cache/
+.idea/
+.ignore*
+
+logs/
+vis_mon_system/logs/

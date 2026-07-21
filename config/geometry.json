@@ -1,0 +1,66 @@
+{
+  "active_layout": "generic_105_alpha",
+  "layouts": {
+    "generic_105_alpha": {
+      "key_width": 50,
+      "key_height": 50,
+      "tolerance_x": 25,
+      "positions": [
+        { "id": 0, "row": 0, "col": 0, "offset_x": 0, "finger": "L_pinky" },
+        { "id": 1, "row": 0, "col": 1, "offset_x": 0, "finger": "L_ring" },
+        { "id": 2, "row": 0, "col": 2, "offset_x": 0, "finger": "L_middle" },
+        { "id": 3, "row": 0, "col": 3, "offset_x": 0, "finger": "L_index" },
+        { "id": 4, "row": 0, "col": 4, "offset_x": 0, "finger": "L_index" },
+
+        { "id": 5, "row": 1, "col": 0, "offset_x": 15, "finger": "L_pinky" },
+        { "id": 6, "row": 1, "col": 1, "offset_x": 15, "finger": "L_ring" },
+        { "id": 7, "row": 1, "col": 2, "offset_x": 15, "finger": "L_middle" },
+        { "id": 8, "row": 1, "col": 3, "offset_x": 15, "finger": "L_index" },
+        { "id": 9, "row": 1, "col": 4, "offset_x": 15, "finger": "L_index" },
+
+        { "id": 10, "row": 2, "col": 0, "offset_x": -10, "finger": "L_pinky" },
+        { "id": 11, "row": 2, "col": 0, "offset_x": 45, "finger": "L_pinky" },
+        { "id": 12, "row": 2, "col": 1, "offset_x": 45, "finger": "L_ring" },
+        { "id": 13, "row": 2, "col": 2, "offset_x": 45, "finger": "L_middle" },
+        { "id": 14, "row": 2, "col": 3, "offset_x": 45, "finger": "L_index" },
+        { "id": 15, "row": 2, "col": 4, "offset_x": 45, "finger": "L_index" },
+
+        { "id": 16, "row": 0, "col": 5, "offset_x": 0, "finger": "R_index" },
+        { "id": 17, "row": 0, "col": 6, "offset_x": 0, "finger": "R_index" },
+        { "id": 18, "row": 0, "col": 7, "offset_x": 0, "finger": "R_middle" },
+        { "id": 19, "row": 0, "col": 8, "offset_x": 0, "finger": "R_ring" },
+        { "id": 20, "row": 0, "col": 9, "offset_x": 0, "finger": "R_pinky" },
+
+        { "id": 21, "row": 1, "col": 5, "offset_x": 15, "finger": "R_index" },
+        { "id": 22, "row": 1, "col": 6, "offset_x": 15, "finger": "R_index" },
+        { "id": 23, "row": 1, "col": 7, "offset_x": 15, "finger": "R_middle" },
+        { "id": 24, "row": 1, "col": 8, "offset_x": 15, "finger": "R_ring" },
+        { "id": 25, "row": 1, "col": 9, "offset_x": 15, "finger": "R_pinky" },
+
+        { "id": 26, "row": 2, "col": 5, "offset_x": 45, "finger": "R_index" },
+        { "id": 27, "row": 2, "col": 6, "offset_x": 45, "finger": "R_index" },
+        { "id": 28, "row": 2, "col": 7, "offset_x": 45, "finger": "R_middle" },
+        { "id": 29, "row": 2, "col": 8, "offset_x": 45, "finger": "R_ring" },
+        { "id": 30, "row": 2, "col": 9, "offset_x": 45, "finger": "R_pinky" },
+        { "id": 31, "row": 2, "col": 10, "offset_x": 45, "finger": "R_pinky" },
+
+        { "id": 32, "row": 0, "col": 10, "offset_x": 0, "finger": "R_pinky" },
+        { "id": 33, "row": 1, "col": 10, "offset_x": 15, "finger": "R_pinky" },
+        { "id": 34, "row": 0, "col": 11, "offset_x": 0, "finger": "R_pinky" },
+        { "id": 35, "row": 0, "col": 12, "offset_x": 0, "finger": "R_pinky" },
+
+        { "id": 36, "row": 3, "col": 4, "offset_x": 10, "finger": "L_thumb"},
+        { "id": 37, "row": 3, "col": 5, "offset_x": 45, "finger": "R_thumb"}
+      ]
+    }
+    },
+    "corne_ortho": {
+      "key_width": 50,
+      "key_height": 50,
+      "tolerance_x": 25,
+      "positions": [
+        {"id": 0, "row": 0, "col": 0, "offset_x": 0},
+        {"id": 1, "row": 0, "col": 1, "offset_x": 0}
+      ]
+    }
+  }
