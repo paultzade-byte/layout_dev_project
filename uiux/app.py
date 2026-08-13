@@ -1,6 +1,6 @@
+import importlib
 import tkinter as tk
 import math
-import json
 from config.main_config import GEOMETRY_CONFIG, INITIAL_LAYOUT_L
 
 
@@ -18,11 +18,11 @@ class LayoutBuilderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Аналізатор розкладки - Матриця")
-        self.root.geometry("870x400")
+        self.root.geometry("960x400")
 
         # UI Елементи (Повзунок працює незалежно через стандартний біндинг)
-        self.slider = tk.Scale(self.root, from_=0, to=100, orient="horizontal", label="Вага параметра SFB")
-        self.slider.pack(pady=10, fill="x", padx=20)
+        #self.slider = tk.Scale(self.root, from_=0, to=100, orient="horizontal", label="Вага параметра SFB")
+        #self.slider.pack(pady=10, fill="x", padx=20)
 
         self.board = tk.Frame(self.root, bg="#2b2b2b", relief="sunken", bd=2)
         self.board.pack(fill="both", expand=True, padx=20, pady=10)
@@ -31,11 +31,10 @@ class LayoutBuilderApp:
         self.key_width = GEOMETRY_CONFIG["key_width"]
         self.key_height = GEOMETRY_CONFIG["key_height"]
         self.tolerance = GEOMETRY_CONFIG["tolerance_x"]
-
+        self.stages = GEOMETRY_CONFIG["stages"]
+        self.HAND_GAP_KEYS = 6
         self.build_grid()
-        self.populate_initial_keys(INITIAL_LAYOUT_L)
-
-
+        self.populate_initial_keys()
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
 
     def build_grid(self):
@@ -44,21 +43,27 @@ class LayoutBuilderApp:
         gap = 5  # Відстань між кнопками
 
         for pos in GEOMETRY_CONFIG["positions"]:
-            x = base_x + pos["offset_x"] + pos["col"] * (self.key_width + gap)
-            y = base_y + pos["row"] * (self.key_height + gap)
+            if self.stages == 1:
+                x = base_x + pos["offset_x"] + pos["col"] * (self.key_width + gap)
+                y = base_y + pos["row"] * (self.key_height + gap)
+            elif self.stages == 0:
+                x = base_x + pos["col"] * (self.key_width + gap)
+                y = base_y + pos["row"] * (self.key_height + gap)
+            else:
+                raise KeyError
+
+            if pos.get("hand") == "R":
+                x += self.HAND_GAP_KEYS * (self.key_width + gap)
 
             # Малюємо заглушку (контур слота) для візуалізації
             tk.Frame(self.board, bg="#404040", width=self.key_width, height=self.key_height).place(x=x, y=y)
 
             self.slots.append(Slot(pos["id"], x, y, self.key_width, self.key_height))
 
-    def populate_initial_keys(self, chars):
+    def populate_initial_keys(self):
         """Автоматична прив'язка літер до гріда"""
-        for i, char in enumerate(chars):
-            if i >= len(self.slots):
-                break
-
-            slot = self.slots[i]
+        for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
+            char = pos.get("default", "")
             key_widget = tk.Label(
                 self.board, text=char, bg="lightgreen", font=("Arial", 14, "bold"),
                 relief="raised", bd=3
@@ -193,3 +198,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = LayoutBuilderApp(root)
     root.mainloop()
+
+    importlib

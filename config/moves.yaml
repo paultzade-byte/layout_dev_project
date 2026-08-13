@@ -1,0 +1,35 @@
+version: 1
+
+# Every detected event adds `count * weight` to the score. A lower total is
+# better; negative weights are bonuses.
+base_effort:
+  row_multiplier:
+    top: 1.25
+    home: 1.00
+    bottom: 1.40
+    other: 1.00
+  finger_multiplier:
+    pinky: 1.80
+    ring: 1.40
+    middle: 1.10
+    index: 1.00
+    thumb: 0.80
+
+same_finger:
+  double_tap: 1.00
+  adjacent_row: 5.00
+  skip_row: 10.00
+
+shape_multiplier:
+  vertical: 1.00
+  diagonal: 1.30
+  horizontal: 0.70
+
+roll:
+  inward: 2.00
+  outward: 5.00
+  awkward: 8.00
+
+hand:
+  alternation: -0.25
+  strict_alternation: 3.00

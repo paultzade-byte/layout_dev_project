@@ -1,9 +1,13 @@
 import unittest
 
+from core.sanitizer import DataSanitizer
 
-class MyTestCase(unittest.TestCase):
-    def test_something(self):
-        self.assertEqual(True, False)  # add assertion here
+
+class DataSanitizerTests(unittest.TestCase):
+    def test_clean_line_normalizes_case_and_whitespace(self):
+        sanitizer = DataSanitizer()
+
+        self.assertEqual("привіт, світе!", sanitizer.clean_line("Привіт,   Світе!"))
 
 
 if __name__ == '__main__':
