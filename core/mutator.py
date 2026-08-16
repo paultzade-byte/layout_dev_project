@@ -1,14 +1,18 @@
-
 import copy
 import math
 import random
 import uuid
+import json
+import threading
+
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, List
 
 import core.scorer as scoring
-from core.models import Layout
+from core.models import Layout, Key, clone_layout
 
+with open(Path(__file__).resolve().parents[1] / "config" / "statistic.json") as f:
+    statistics = json.load(f)
 
 class LayoutOptimizerSA:
     """Simulated-annealing optimizer for a validated keyboard ``Layout``."""
@@ -16,28 +20,20 @@ class LayoutOptimizerSA:
     def __init__(
         self,
         initial_layout: Layout,
-        text_data: str,
+        statistics: Dict[str, Any],
+        moves_config: Dict[str, Any],
         config: Optional[Dict[str, Any]] = None,
+        stop_event: Optional[threading.Event] = None,
     ):
-        if not isinstance(initial_layout, Layout):
-            raise TypeError("initial_layout must be a Layout")
-        if not isinstance(text_data, str) or not text_data:
-            raise ValueError("text_data must be a non-empty string")
-
-        config = config or {}
-        self.moves_config = config.get("moves_config") or scoring.load_moves_config(
-            config.get(
-                "moves_path",
-                Path(__file__).resolve().parents[1] / "config" / "moves.yaml",
-            )
-        )
+        self.stop_event = stop_event
+        self.moves_config = moves_config
         self.best_layout = copy.deepcopy(initial_layout)
-        self.text_data = text_data
+        self.statistics = statistics
         self.best_score = self._score(self.best_layout)
         self.best_id = str(uuid.uuid4())[:8]
-
-        self.start_temp = config.get("start_temp", 2.0)
-        self.end_temp = config.get("end_temp", 0.01)
+        config = config or {}
+        self.start_temp = config.get("start_temp", 0.01)
+        self.end_temp = config.get("end_temp", 0.0001)
         self.stall_window = config.get("stall_window", 300)
         self.reheat_factor = config.get("reheat_factor", 1.6)
         self.tabu_size = config.get("tabu_size", 50)
@@ -55,13 +51,18 @@ class LayoutOptimizerSA:
         self.history = [{"iter": 0, "id": self.best_id, "score": self.best_score, "event": "seed"}]
         self.tabu = [self._signature(self.current_layout)]
 
+    # access to current layout keys
+    @property
+    def keys(self) -> List[Key]:
+        return self.current_layout.keys
+
     def _score(self, layout: Layout) -> float:
         return scoring.calculate_total_penalty(
-            layout, self.text_data, self.moves_config
+            layout, self.statistics, self.moves_config
         )
 
     # -----------------------------------------------------------
-    # Мутаційні оператори — усі працюють у ТВОЄМУ форматі (list[Key])
+    # Мутаційні оператори — усі працюють у форматі (list[Key])
     # -----------------------------------------------------------
 
     def _unfrozen(self, layout: Layout):
@@ -80,7 +81,7 @@ class LayoutOptimizerSA:
             )
 
     def _mutate_single_swap(self, layout: Layout) -> Layout:
-        candidate = copy.deepcopy(layout)
+        candidate = clone_layout(layout)
         unfrozen = self._unfrozen(candidate)
         self._require_mutable_keys(unfrozen, 2)
         k1, k2 = self.rng.sample(unfrozen, 2)
@@ -89,7 +90,7 @@ class LayoutOptimizerSA:
 
     def _mutate_segment_shift(self, layout: Layout) -> Layout:
         """3-циклічний зсув: недосяжний одним swap."""
-        candidate = copy.deepcopy(layout)
+        candidate = clone_layout(layout)
         unfrozen = self._unfrozen(candidate)
         self._require_mutable_keys(unfrozen, 3)
         k1, k2, k3 = self.rng.sample(unfrozen, 3)
@@ -98,7 +99,7 @@ class LayoutOptimizerSA:
 
     def _mutate_double_swap(self, layout: Layout) -> Layout:
         """Два незалежні swap за один хід (4 позиції рухаються разом)."""
-        candidate = copy.deepcopy(layout)
+        candidate = clone_layout(layout)
         unfrozen = self._unfrozen(candidate)
         self._require_mutable_keys(unfrozen, 4)
         k1, k2, k3, k4 = self.rng.sample(unfrozen, 4)
@@ -128,6 +129,9 @@ class LayoutOptimizerSA:
         iterations: int = 10000,
         ui_callback: Optional[Callable[..., None]] = None,
     ) -> Layout:
+
+        tabu_hits = 0
+
         if iterations < 1:
             raise ValueError("iterations must be at least 1")
         self._require_mutable_keys(self._unfrozen(self.current_layout), 2)
@@ -136,13 +140,21 @@ class LayoutOptimizerSA:
         temp = self.start_temp
         cooling = (self.end_temp / self.start_temp) ** (1.0 / max(iterations, 1))
 
+        accepted_count = 0
+        improved_count = 0
+
         for i in range(1, iterations + 1):
+
+            if self.stop_event is not None and self.stop_event.is_set():
+                break
+
             candidate = self._apply_mutation(self.current_layout, ladder_index)
             sig = self._signature(candidate)
 
             if sig in self.tabu:
                 # цей стан вже недавно відвідували — пропускаємо ітерацію,
                 # без витрати на переоцінку
+                tabu_hits += 1
                 continue
 
             candidate_score = self._score(candidate)
@@ -152,11 +164,13 @@ class LayoutOptimizerSA:
             if delta < 0:
                 accepted = True
             else:
-                p = math.exp(-delta / max(temp, 1e-9))
+                relative_delta = delta / max(abs(self.current_score), 1.0)
+                p = math.exp(-relative_delta / max(temp, 1e-9))
                 if self.rng.random() < p:
                     accepted = True
 
             if accepted:
+                accepted_count += 1
                 self.current_layout = candidate
                 self.current_score = candidate_score
                 self.tabu.append(sig)
@@ -164,6 +178,7 @@ class LayoutOptimizerSA:
                     self.tabu.pop(0)
 
             if candidate_score < self.best_score:
+                improved_count += 1
                 self.best_layout = copy.deepcopy(candidate)
                 self.best_score = candidate_score
                 self.best_id = str(uuid.uuid4())[:8]
@@ -194,10 +209,17 @@ class LayoutOptimizerSA:
 
             temp *= cooling
 
-            if ui_callback and i % 500 == 0:
+            if ui_callback and i % 50 == 0:
                 ui_callback(self.best_layout, self.best_score, current_iteration=i)
+
+            if i == 500:
+                print(f"tabu_hits so far: {tabu_hits}/500")
+                print(f"accepted_count: {accepted_count}, improved_count: {improved_count}")
+
+            #if i < 10:
+            #    print(f"i={i} ... candidate_score={candidate_score} ... self.current_score={self.current_score} ... self.best_score={self.best_score} ... delta={delta}")
 
         self.best_layout.score = scoring.MovementScoringEngine(
             self.best_layout.keys, self.moves_config
-        ).score_movements(self.text_data)
+        ).score_from_statistics(self.statistics)
         return copy.deepcopy(self.best_layout)

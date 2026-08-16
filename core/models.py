@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import List, Optional
-
+from dataclasses import replace
 # клас типів символів
 class KeyType(Enum):
     LETTER = auto()
@@ -50,7 +50,6 @@ class ScoreMetrics:
     # SFB та SFS
     sfb_penalty: float = 0.0
     sfs_penalty: float = 0.0
-    severe_penalty: float = 0.0  # Для жорстких перескоків
     double_tap_penalty: float = 0.0
 
     # Триграми (перекати та чергування)
@@ -62,6 +61,11 @@ class ScoreMetrics:
     alternation_bonus: float = 0.0
     # Загальний бал
     total_penalty: float = 0.0
+
+    # Skipgram
+    skipgram_same_finger_penalty: float = 0.0
+    skipgram_same_hand_penalty: float = 0.0
+
 
 @dataclass
 class Layout:
@@ -76,3 +80,10 @@ class Layout:
             if key.char == char:
                 return key
         return None
+
+def clone_layout(layout: Layout) -> Layout:
+    return Layout(
+        keys=[replace(k) for k in layout.keys],
+        iteration_number = layout.iteration_number,
+        score=layout.score,
+    )

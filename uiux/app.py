@@ -1,8 +1,12 @@
-import importlib
+
 import tkinter as tk
 import math
-from config.main_config import GEOMETRY_CONFIG, INITIAL_LAYOUT_L
+import threading
 
+from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
+from core.layout_factory import build_layout
+from core.models import Layout
+from uiux.processors import OptimizationProcessor
 
 class Slot:
     def __init__(self, slot_id, x, y, width, height):
@@ -11,21 +15,47 @@ class Slot:
         self.y = y
         self.center_x = x + width / 2
         self.center_y = y + height / 2
-        self.current_key = None  # Посилання на віджет, який тут лежить
+        self.current_key = None  # the tkinter widget permanently anchored here
 
 
 class LayoutBuilderApp:
-    def __init__(self, root):
+    def __init__(
+        self,
+        root,
+        statistic: dict,
+        moves_config: dict,
+        layout: Layout | None = None,
+        on_layout_changed=None,
+    ):
         self.root = root
         self.root.title("Аналізатор розкладки - Матриця")
         self.root.geometry("960x400")
 
-        # UI Елементи (Повзунок працює незалежно через стандартний біндинг)
-        #self.slider = tk.Scale(self.root, from_=0, to=100, orient="horizontal", label="Вага параметра SFB")
-        #self.slider.pack(pady=10, fill="x", padx=20)
+        # the real domain object -- drag/drop mutates this directly, so
+        # whatever the UI shows is exactly what a headless run would score
+        self.layout = layout or build_layout(GEOMETRY_CONFIG)
+        self.keys_by_position = {key.position_id: key for key in self.layout.keys}
+
+        self.on_layout_changed = on_layout_changed
+
+        # --- оптимізатор живе тут, а не на рівні модуля ---
+        self.processor = OptimizationProcessor(statistic, moves_config)
+
+        self.status_var = tk.StringVar(value="Score: -")
+        tk.Label(
+            self.root,
+            textvariable=self.status_var,
+            bg="#1e1e1e",
+            fg="white",
+            font=("Arial", 12, "bold"),
+            anchor="w"
+        ).pack(fill="x", padx=20, pady=(10, 0))
 
         self.board = tk.Frame(self.root, bg="#2b2b2b", relief="sunken", bd=2)
         self.board.pack(fill="both", expand=True, padx=20, pady=10)
+
+        self.button = tk.Button(self.root, text="Start", command=self.toggle_optimization)
+        self.button.pack(pady=10)
 
         self.slots = []
         self.key_width = GEOMETRY_CONFIG["key_width"]
@@ -36,6 +66,54 @@ class LayoutBuilderApp:
         self.build_grid()
         self.populate_initial_keys()
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
+        self._notify_layout_changed()
+
+    # ------------------------------------------------------------------
+    # Start / Stop
+    # ------------------------------------------------------------------
+    def toggle_optimization(self):
+        if not self.processor.is_running:
+            self.button.config(text="Stop")
+            self.status_var.set("Оптимізую...")
+            self.processor.start(
+                self.layout,
+                on_progress=self._on_progress,
+                on_done=self._on_done,
+            )
+        else:
+            self.processor.stop()
+            self.status_var.set("Зупиняю...")
+
+    def _on_progress(self, layout, score, current_iteration):
+        # викликається з робочого потоку -> завжди через root.after
+        self.root.after(
+            0,
+            lambda: self.status_var.set(f"Оптимізую... ітерація {current_iteration}, score={score:.2f}")
+        )
+
+    def _on_done(self, result_layout: Layout):
+        def update():
+            self.layout = result_layout
+            self.keys_by_position = {key.position_id: key for key in self.layout.keys}
+            self.redraw_keys()
+            self.button.config(text="Start")
+            self._notify_layout_changed()
+        self.root.after(0, update)
+
+    def redraw_keys(self):
+        """Перемальовує клавіші на дошці згідно з поточним self.layout після оптимізації."""
+        for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
+            key = self.keys_by_position[pos["id"]]
+            widget = slot.current_key
+            if widget is None:
+                continue
+            widget.key = key
+            widget.is_frozen = key.is_frozen
+            widget.config(
+                text=f"{key.char}\n(L)" if key.is_frozen else f"{key.char}",
+                bg="tomato" if key.is_frozen else "lightgreen",
+                font=("Arial", 9, "bold") if key.is_frozen else ("Arial", 14, "bold"),
+            )
 
     def build_grid(self):
         """Побудова сітки слотів на основі геометрії"""
@@ -56,23 +134,32 @@ class LayoutBuilderApp:
                 x += self.HAND_GAP_KEYS * (self.key_width + gap)
 
             # Малюємо заглушку (контур слота) для візуалізації
-            tk.Frame(self.board, bg="#404040", width=self.key_width, height=self.key_height).place(x=x, y=y)
-
+            tk.Frame(
+                self.board,
+                bg="#404040",
+                width=self.key_width,
+                height=self.key_height).place(x=x, y=y)
             self.slots.append(Slot(pos["id"], x, y, self.key_width, self.key_height))
 
     def populate_initial_keys(self):
-        """Автоматична прив'язка літер до гріда"""
+        """Автоматична прив'язка літер до гріда
+        Прив'язує кожен tkinter-віджет до реального доменного Key."""
         for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
-            char = pos.get("default", "")
+            key = self.keys_by_position[pos["id"]]
+            #char = pos.get("default", "")
+            frozen = key.is_frozen
             key_widget = tk.Label(
-                self.board, text=char, bg="lightgreen", font=("Arial", 14, "bold"),
-                relief="raised", bd=3
+                self.board,
+                text=f"{key.char}\n(L)" if frozen else f"{key.char}",
+                bg="tomato" if frozen else "lightgreen",
+                font=("Arial", 9, "bold") if frozen else ("Arial", 14, "bold"),
+                relief="raised", bd=4  # board outline
             )
             key_widget.place(x=slot.x, y=slot.y, width=self.key_width, height=self.key_height)
 
             # Внутрішній стан кнопки
-            key_widget.char = char
-            key_widget.is_frozen = False
+            key_widget.key = key
+            key_widget.is_frozen = frozen
             key_widget.current_slot = slot
             slot.current_key = key_widget
 
@@ -188,15 +275,22 @@ class LayoutBuilderApp:
     def toggle_freeze(self, event):
         widget = event.widget
         widget.is_frozen = not widget.is_frozen
-        if widget.is_frozen:
-            widget.config(bg="tomato", text=f"{widget.char}\n(L)", font=("Arial", 9, "bold"))
+        widget.key.is_frozen = widget.is_frozen
+        char = widget.key.char
+        if widget.key.is_frozen:
+            widget.config(bg="tomato", text=f"{char}\n(L)", font=("Arial", 9, "bold"))
         else:
-            widget.config(bg="lightgreen", text=widget.char, font=("Arial", 14, "bold"))
+            widget.config(bg="lightgreen", text=char, font=("Arial", 14, "bold"))
+        self._notify_layout_changed()
 
+    def _notify_layout_changed(self):
+        if self.on_layout_changed:
+            self.status_var.set(self.on_layout_changed(self.layout))
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = LayoutBuilderApp(root)
-    root.mainloop()
+    statistic = STATISTIC
+    moves_config = MOVES_CONFIG
 
-    importlib
+    root = tk.Tk()
+    app = LayoutBuilderApp(root, statistic=statistic, moves_config=moves_config)
+    root.mainloop()

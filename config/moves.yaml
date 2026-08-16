@@ -17,8 +17,8 @@ base_effort:
 
 same_finger:
   double_tap: 1.00
-  adjacent_row: 5.00
-  skip_row: 10.00
+  adjacent_row: 3.00
+  skip_row: 5.00
 
 shape_multiplier:
   vertical: 1.00
@@ -33,3 +33,7 @@ roll:
 hand:
   alternation: -0.25
   strict_alternation: 3.00
+
+skip_bigram:
+  same_finger: 1.00
+  same_hand: 0.10
