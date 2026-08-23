@@ -2,10 +2,41 @@
 
 The scorer detects events from physical keys and applies the numeric policy in
 ``config/moves.yaml``.  Lower scores represent easier layouts.
+
+PERFORMANCE NOTE
+-----------------
+There are two very different costs hiding in this file:
+
+1. Turning the statistics dict (``config/statistic.json`` — thousands of
+   bigrams/trigrams/skipgrams) into index arrays. This is a pure-Python loop
+   over the whole corpus and is *expensive*. It only needs to happen ONCE per
+   optimization run, because the statistics never change while SA is running.
+
+2. Reading the *current* position/hand/finger of every character. This is
+   cheap (O(number of characters), ~30-40), because it only touches the
+   layout, not the corpus. It has to happen on every mutation, because that's
+   exactly what a mutation changes.
+
+The old version mixed these two together inside ``score_from_statistics`` and
+``calculate_total_penalty`` (called fresh every SA iteration), so cost #1 was
+being paid on every single iteration instead of once. That's what made NumPy
+vectorization a no-op in practice: the vectorized math was fast, but it was
+preceded by a full corpus-sized Python loop every time.
+
+``MovementScoringEngine`` now exposes:
+
+- ``prepare_statistics(statistics)`` — call once, does the expensive part.
+- ``update_layout(layout_keys)`` — call on every mutation, cheap.
+- ``score()`` — pure NumPy, uses whatever was cached by the two calls above.
+
+``score_from_statistics(statistics)`` and ``calculate_total_penalty(...)`` are
+kept as slow, self-contained convenience wrappers for one-off scoring (tests,
+scripts) — they rebuild everything from scratch every call, same as before.
+Do NOT use them inside a hot loop.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 import yaml
@@ -68,61 +99,206 @@ def calculate_total_penalty(
     statistics: Dict[str, Any],
     moves_config: Dict[str, Any] | None = None,
 ) -> float:
-    """Compatibility entry point for callers that need only the total score."""
+    """Slow, self-contained one-off scorer. Rebuilds everything from scratch.
+
+    Fine for tests/scripts/one-shot calls. Do NOT call this inside an SA loop —
+    use a single long-lived ``MovementScoringEngine`` with ``prepare_statistics``
+    + ``update_layout`` + ``score`` instead (see ``LayoutOptimizerSA``).
+    """
     if moves_config is None:
         moves_config = load_moves_config(
             Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
         )
-    # return the class object and here it could be created
-    return MovementScoringEngine(layout.keys, moves_config).score_from_statistics(statistics).total_penalty
+    engine = MovementScoringEngine(layout.keys, moves_config)
+    engine.prepare_statistics(statistics)
+    return engine.score().total_penalty
 
 
 class MovementScoringEngine:
     def __init__(self, layout_keys: List[Key], moves_config: Dict[str, Any]):
-        self.char_map: Dict[str, Key] = {
-            key.char: key for key in layout_keys if key.char
-        }
         self.moves = validate_moves_config(moves_config)
 
-        # static massives preparation
-        # список символів у фіксованому порядку -> індекс
-        self.chars = list(self.char_map.keys())
+        # Vocabulary: the SET of chars never changes during optimization —
+        # only WHICH position each char sits at changes. So the char->index
+        # mapping is fixed for the engine's whole lifetime.
+        self.chars = [key.char for key in layout_keys if key.char]
         self.char_to_idx = {c: i for i, c in enumerate(self.chars)}
-
         n = len(self.chars)
-        self.row = np.array([self.char_map[c].row for c in self.chars])
-        self.col = np.array([self.char_map[c].col for c in self.chars])
-        self.hand = np.array([self.char_map[c].hand.value for c in self.chars])
-        self.finger = np.array([self.char_map[c].finger.value for c in self.chars])
-        self.base_cost = np.array([self.char_map[c].base_cost for c in self.chars])
 
+        # Per-char geometry arrays. These DO depend on current positions,
+        # so they get refreshed by update_layout() — cheaply (O(n) here).
+        self.row = np.empty(n, dtype=np.int64)
+        self.col = np.empty(n, dtype=np.int64)
+        self.hand = np.empty(n, dtype=object)
+        self.finger = np.empty(n, dtype=np.int64)
+        self.base_cost = np.empty(n, dtype=np.float64)
 
-    def prepare_bigram_array(self, bigrams: dict):
-        # called once when statistics are importing than it becomes cached
-        idx1, idx2, weight = [], [], []
-        for bg, freq in bigrams.items():
-            if bg[0] in self.char_to_idx and bg[1] in self.char_to_idx:
-                idx1.append(self.char_to_idx[bg[0]])
-                idx2.append(self.char_to_idx[bg[1]])
-                weight.append(freq)
-        return np.array(idx1), np.array(idx2), np.array(weight, dtype=float)
+        # Small lookup tables derived from moves_config only (never change).
+        finger_mult = self.moves["base_effort"]["finger_multiplier"]
+        # index by Finger.value (1..5); index 0 unused.
+        self._finger_mult_by_value = np.zeros(6, dtype=np.float64)
+        for finger in Finger:
+            self._finger_mult_by_value[finger.value] = finger_mult[
+                self._get_finger_name(finger.value)
+            ]
 
-    def prepare_trigram_array(self, trigrams: dict):
-        idx1, idx2, idx3, weight = [], [], [], []
-        for tg, freq in trigrams.items():
-            if tg[0] in self.char_to_idx and tg[1] in self.char_to_idx and tg[2] in self.char_to_idx:
-                idx1.append(self.char_to_idx[tg[0]])
-                idx2.append(self.char_to_idx[tg[1]])
-                idx3.append(self.char_to_idx[tg[2]])
-                weight.append(freq)
-        return np.array(idx1), np.array(idx2), np.array(idx3), np.array(weight, dtype=float)
+        self.update_layout(layout_keys)
 
-    def _evaluate_unigrams(self, statistics, metrics):
-        for char, freq in statistics.get('unigrams', {}).items():
-            key = self.char_map.get(char)
-            if key is None:
+        # Statistics-derived index arrays — expensive to build, so they are
+        # cached and only rebuilt when prepare_statistics() is called again.
+        self._bigram_idx: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+        self._trigram_idx: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = None
+        self._skipgram_idx: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+        self._unigram_idx: Optional[np.ndarray] = None
+        self._unigram_weight: Optional[np.ndarray] = None
+        self._statistics_prepared = False
+
+    # -----------------------------------------------------------
+    # Expensive, one-time-per-run setup
+    # -----------------------------------------------------------
+
+    def prepare_statistics(self, statistics: Dict[str, Any]) -> "MovementScoringEngine":
+        """Convert the statistics dict into cached index arrays.
+
+        This is the part that walks the whole corpus (thousands of entries)
+        with a plain Python loop, so it is deliberately NOT called from
+        update_layout()/score(). Call it once per optimization run (or
+        whenever the statistics themselves change, which they don't during
+        a single SA run).
+        """
+        self._bigram_idx = self._prepare_pair_arrays(statistics.get("bigrams", {}))
+        self._trigram_idx = self._prepare_triple_arrays(statistics.get("trigrams", {}))
+        self._skipgram_idx = self._prepare_pair_arrays(statistics.get("skipgrams", {}))
+
+        uni_idx, uni_w = [], []
+        for char, freq in statistics.get("unigrams", {}).items():
+            i = self.char_to_idx.get(char)
+            if i is None:
                 continue
-            metrics.base_effort += key.base_cost * self._base_effort_multiplier(key) * freq
+            uni_idx.append(i)
+            uni_w.append(freq)
+        self._unigram_idx = np.array(uni_idx, dtype=np.int64)
+        self._unigram_weight = np.array(uni_w, dtype=np.float64)
+
+        self._statistics_prepared = True
+        return self
+
+    def _prepare_pair_arrays(self, pairs: Dict[str, float]):
+        idx1, idx2, w = [], [], []
+        for pair, freq in pairs.items():
+            if len(pair) != 2:
+                continue
+            i1 = self.char_to_idx.get(pair[0])
+            i2 = self.char_to_idx.get(pair[1])
+            if i1 is None or i2 is None:
+                continue
+            idx1.append(i1)
+            idx2.append(i2)
+            w.append(freq)
+        return np.array(idx1, dtype=np.int64), np.array(idx2, dtype=np.int64), np.array(w, dtype=np.float64)
+
+    def _prepare_triple_arrays(self, triples: Dict[str, float]):
+        idx1, idx2, idx3, w = [], [], [], []
+        for tri, freq in triples.items():
+            if len(tri) != 3:
+                continue
+            i1 = self.char_to_idx.get(tri[0])
+            i2 = self.char_to_idx.get(tri[1])
+            i3 = self.char_to_idx.get(tri[2])
+            if i1 is None or i2 is None or i3 is None:
+                continue
+            idx1.append(i1); idx2.append(i2); idx3.append(i3)
+            w.append(freq)
+        return (
+            np.array(idx1, dtype=np.int64), np.array(idx2, dtype=np.int64),
+            np.array(idx3, dtype=np.int64), np.array(w, dtype=np.float64),
+        )
+
+    # -----------------------------------------------------------
+    # Cheap, per-mutation update
+    # -----------------------------------------------------------
+
+    def update_layout(self, layout_keys: List[Key]) -> "MovementScoringEngine":
+        """Refresh per-char geometry after a mutation. O(number of chars).
+
+        IMPORTANT: the set of chars in ``layout_keys`` must be exactly the
+        vocabulary this engine was built with — mutations may move chars
+        between positions, but must not introduce or remove chars.
+        """
+        char_map = {key.char: key for key in layout_keys if key.char}
+        for char, idx in self.char_to_idx.items():
+            key = char_map[char]
+            self.row[idx] = key.row
+            self.col[idx] = key.col
+            self.hand[idx] = key.hand.value
+            self.finger[idx] = key.finger.value
+            self.base_cost[idx] = key.base_cost
+        return self
+
+    # -----------------------------------------------------------
+    # Scoring — pure NumPy, no Python-level loop over the corpus
+    # -----------------------------------------------------------
+
+    def score(self) -> ScoreMetrics:
+        """Fast path: score the layout currently loaded via update_layout(),
+        against the statistics currently cached via prepare_statistics().
+        """
+        if not self._statistics_prepared:
+            raise RuntimeError(
+                "prepare_statistics() must be called at least once before score()"
+            )
+
+        metrics = ScoreMetrics()
+
+        self._evaluate_unigrams_vectorized(metrics)
+
+        idx1, idx2, weight = self._bigram_idx
+        if len(idx1) > 0:
+            self._evaluate_bigrams_vectorized(idx1, idx2, weight, metrics)
+
+        t1, t2, t3, tw = self._trigram_idx
+        if len(t1) > 0:
+            self._evaluate_trigrams_vectorized(t1, t2, t3, tw, metrics)
+
+        s1, s2, sw = self._skipgram_idx
+        if len(s1) > 0:
+            self._evaluate_skipgrams_vectorized(s1, s2, sw, metrics)
+
+        metrics.total_penalty = sum((
+            metrics.base_effort, metrics.sfb_penalty, metrics.sfs_penalty,
+            metrics.double_tap_penalty, metrics.oht_inward_penalty,
+            metrics.oht_outward_penalty, metrics.oht_awkward_penalty,
+            metrics.strict_alternation_penalty, metrics.alternation_bonus,
+            metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
+        ))
+        return metrics
+
+    def score_from_statistics(self, statistics: Dict[str, Any]) -> ScoreMetrics:
+        """Slow, self-contained convenience path for one-off calls (tests,
+        scripts). Re-does the expensive statistics prep every call — do not
+        use this inside the SA loop.
+        """
+        self.prepare_statistics(statistics)
+        return self.score()
+
+    def _evaluate_unigrams_vectorized(self, metrics: ScoreMetrics) -> None:
+        idx = self._unigram_idx
+        if idx is None or len(idx) == 0:
+            return
+        weight = self._unigram_weight
+        row = self.row[idx]
+        finger = self.finger[idx]
+        base_cost = self.base_cost[idx]
+
+        row_cfg = self.moves["base_effort"]["row_multiplier"]
+        row_weight = np.select(
+            [row == 0, row == 1, row == 2],
+            [row_cfg["top"], row_cfg["home"], row_cfg["bottom"]],
+            default=row_cfg["other"],
+        )
+        finger_weight = self._finger_mult_by_value[finger]
+
+        metrics.base_effort += float(np.sum(base_cost * row_weight * finger_weight * weight))
 
     def _evaluate_bigrams_vectorized(self, idx1, idx2, weight, metrics):
         hand1, hand2 = self.hand[idx1], self.hand[idx2]
@@ -132,7 +308,6 @@ class MovementScoringEngine:
 
         same_hand = hand1 == hand2
         same_finger = same_hand & (finger1 == finger2)
-        diff_finger_same_hand = same_hand & ~same_finger
 
         # alternation bonus (різні руки)
         alternation_mask = ~same_hand
@@ -142,7 +317,6 @@ class MovementScoringEngine:
 
         # серед same_finger - рахуємо row_difference і shape
         row_diff = np.abs(row1[same_finger] - row2[same_finger])
-        # shape: vertical/horizontal/diagonal через col/row порівняння
         same_row = row1[same_finger] == row2[same_finger]
         same_col = col1[same_finger] == col2[same_finger]
         shape_mult = np.where(
@@ -150,7 +324,7 @@ class MovementScoringEngine:
             np.where(same_col, self.moves["shape_multiplier"]["vertical"],
                 self.moves["shape_multiplier"]["diagonal"])
         )
-        finger_mult = self._finger_multiplier_array(finger1[same_finger])
+        finger_mult = self._finger_mult_by_value[finger1[same_finger]]
         w_sf = weight[same_finger]
         mult = shape_mult * finger_mult
 
@@ -205,112 +379,9 @@ class MovementScoringEngine:
             weight[same_hand & ~same_finger] * self.moves.get("skip_bigram", {}).get("same_hand", 0.1)
         )
 
-    #########################################################################
-    def score_from_statistics(self, statistics: Dict[str, Any]) -> ScoreMetrics:
-        metrics = ScoreMetrics()
-
-        # unigrams - поки лишаємо як є (дешево, або теж векторизуй окремо)
-        for char, freq in statistics.get("unigrams", {}).items():
-            key = self.char_map.get(char)
-            if key is None:
-                continue
-            metrics.base_effort += key.base_cost * self._base_effort_multiplier(key) * freq
-
-        # bigrams - збираємо ВСІ idx/weights одразу, викликаємо evaluate ОДИН раз
-        idx1, idx2, weights = self._prepare_pair_arrays(statistics.get("bigrams", {}), n=2)
-        if len(idx1) > 0:
-            self._evaluate_bigrams_vectorized(idx1, idx2, weights, metrics)
-
-        # trigrams
-        t1, t2, t3, tw = self._prepare_triple_arrays(statistics.get("trigrams", {}))
-        if len(t1) > 0:
-            self._evaluate_trigrams_vectorized(t1, t2, t3, tw, metrics)
-
-        # skipgrams
-        s1, s2, sw = self._prepare_pair_arrays(statistics.get("skipgrams", {}), n=2)
-        if len(s1) > 0:
-            self._evaluate_skipgrams_vectorized(s1, s2, sw, metrics)
-
-        metrics.total_penalty = sum((
-            metrics.base_effort, metrics.sfb_penalty, metrics.sfs_penalty,
-            metrics.double_tap_penalty, metrics.oht_inward_penalty,
-            metrics.oht_outward_penalty, metrics.oht_awkward_penalty,
-            metrics.strict_alternation_penalty, metrics.alternation_bonus,
-            metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
-        ))
-        return metrics
-
-    def _prepare_pair_arrays(self, pairs: Dict[str, float], n: int):
-        idx1, idx2, w = [], [], []
-        for pair, freq in pairs.items():
-            if len(pair) != n:
-                continue
-            i1 = self.char_to_idx.get(pair[0])
-            i2 = self.char_to_idx.get(pair[1])
-            if i1 is None or i2 is None:
-                continue
-            idx1.append(i1)
-            idx2.append(i2)
-            w.append(freq)
-        return np.array(idx1), np.array(idx2), np.array(w, dtype=float)
-
-    def _prepare_triple_arrays(self, triples: Dict[str, float]):
-        idx1, idx2, idx3, w = [], [], [], []
-        for tri, freq in triples.items():
-            if len(tri) != 3:
-                continue
-            i1 = self.char_to_idx.get(tri[0])
-            i2 = self.char_to_idx.get(tri[1])
-            i3 = self.char_to_idx.get(tri[2])
-            if i1 is None or i2 is None or i3 is None:
-                continue
-            idx1.append(i1); idx2.append(i2); idx3.append(i3)
-            w.append(freq)
-        return np.array(idx1), np.array(idx2), np.array(idx3), np.array(w, dtype=float)
-
-    def _base_effort_multiplier(self, key: Key) -> float:
-        row_name = self.get_row_name(key.row)
-        row_weight = self.moves["base_effort"]["row_multiplier"].get(
-            row_name, self.moves["base_effort"]["row_multiplier"]["other"]
-        )
-        return row_weight * self._finger_multiplier(key.finger)  # скалярна, не _array
-
-    def _finger_multiplier(self, finger: Finger) -> float:
-        """Скалярна версія — для одиночного Key (unigram-цикл)."""
-        return self.moves["base_effort"]["finger_multiplier"][
-            self._get_finger_name(finger)
-        ]
-
-    def _finger_multiplier_array(self, finger_values: np.ndarray) -> np.ndarray:
-        """Векторизована версія — для масиву finger-значень (bigram/trigram)."""
-        lookup = self.moves["base_effort"]["finger_multiplier"]
-        return np.array([lookup[self._get_finger_name(f)] for f in finger_values])
-        """
-    def _finger_multiplier_array(self, finger_values: np.ndarray) -> np.ndarray:
-        #Векторизована версія _finger_multiplier: масив Finger.value -> масив множників.
-        # мапа Finger.value -> назва (той самий порядок, що в _get_finger_name)
-        finger_names = {
-            Finger.PINKY.value: "pinky",
-            Finger.RING.value: "ring",
-            Finger.MIDDLE.value: "middle",
-            Finger.INDEX.value: "index",
-            Finger.THUMB.value: "thumb",
-        }
-        lookup = self.moves["base_effort"]["finger_multiplier"]
-        # будуємо масив значень через vectorized mapping
-        return np.array([lookup[finger_names[f]] for f in finger_values])
-        """
     @staticmethod
     def get_row_name(row_index: int) -> str:
         return {0: "top", 1: "home", 2: "bottom"}.get(row_index, "other")
-
-    @staticmethod
-    def _get_shape(k1: Key, k2: Key) -> str:
-        if k1.row == k2.row:
-            return "horizontal"
-        if k1.col == k2.col:
-            return "vertical"
-        return "diagonal"
 
     @staticmethod
     def _get_finger_name(finger_value) -> str:
@@ -322,4 +393,4 @@ class MovementScoringEngine:
             Finger.MIDDLE.value: "middle",
             Finger.INDEX.value: "index",
             Finger.THUMB.value: "thumb",
-            }[int(finger_value)]
+        }[int(finger_value)]

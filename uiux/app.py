@@ -6,7 +6,14 @@ import threading
 from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
 from core.layout_factory import build_layout
 from core.models import Layout
+from core.scorer import calculate_total_penalty
 from uiux.processors import OptimizationProcessor
+
+def make_score_display(statistic, moves_config):
+    def on_layout_changed(layout):
+        score = calculate_total_penalty(layout, statistic, moves_config)
+        return f"Score: {score:.2f}"
+    return on_layout_changed
 
 class Slot:
     def __init__(self, slot_id, x, y, width, height):
@@ -67,6 +74,7 @@ class LayoutBuilderApp:
         self.populate_initial_keys()
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
         self._notify_layout_changed()
+
 
     # ------------------------------------------------------------------
     # Start / Stop
@@ -292,5 +300,9 @@ if __name__ == "__main__":
     moves_config = MOVES_CONFIG
 
     root = tk.Tk()
-    app = LayoutBuilderApp(root, statistic=statistic, moves_config=moves_config)
+    app = LayoutBuilderApp(
+        root,
+        statistic=statistic,
+        moves_config=moves_config,
+        on_layout_changed=make_score_display(statistic, moves_config))
     root.mainloop()

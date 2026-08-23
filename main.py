@@ -1,4 +1,5 @@
 import yaml
+import time
 import json
 from pathlib import Path
 
@@ -29,7 +30,10 @@ def main():
 
 
     # here we run the mutator
-    initial_layout = mutate(initial_layout, statistics, moves).run_optimization()
+    initial_layout = mutate(
+        initial_layout, statistics, moves,
+        config={"seed": int(time.time() * 1000) % (2**32)},
+    ).run_optimization()
 
     # here we run the scorer
     score = sc(initial_layout, statistics, moves)

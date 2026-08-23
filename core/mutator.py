@@ -29,6 +29,14 @@ class LayoutOptimizerSA:
         self.moves_config = moves_config
         self.best_layout = copy.deepcopy(initial_layout)
         self.statistics = statistics
+
+        # One long-lived scoring engine for the whole run: the expensive
+        # corpus-parsing step (prepare_statistics) happens exactly once here,
+        # not on every iteration. _score() below only does the cheap
+        # per-mutation update_layout() + vectorized score().
+        self.engine = scoring.MovementScoringEngine(self.best_layout.keys, moves_config)
+        self.engine.prepare_statistics(statistics)
+
         self.best_score = self._score(self.best_layout)
         self.best_id = str(uuid.uuid4())[:8]
         config = config or {}
@@ -56,10 +64,34 @@ class LayoutOptimizerSA:
     def keys(self) -> List[Key]:
         return self.current_layout.keys
 
+    # -----------------------------------------------------------
+    # Sync UI-side edits (e.g. freeze toggles made while paused)
+    # -----------------------------------------------------------
+
+    def sync_frozen_state(self, reference_layout: Layout) -> None:
+        """Pull is_frozen flags from ``reference_layout`` (the UI's copy) into
+        the optimizer's own current/best layouts, matched by position_id.
+
+        This does NOT reset char positions or SA progress — it only updates
+        which keys are allowed to move, so a freeze/unfreeze toggled while
+        paused actually takes effect on resume instead of being silently
+        ignored (which is what used to happen when the optimizer object was
+        reused across stop/resume without ever looking at the new
+        initial_layout again).
+        """
+        frozen_by_position = {
+            key.position_id: key.is_frozen for key in reference_layout.keys
+        }
+        for target in (self.current_layout, self.best_layout):
+            for key in target.keys:
+                if key.position_id in frozen_by_position:
+                    key.is_frozen = frozen_by_position[key.position_id]
+
     def _score(self, layout: Layout) -> float:
-        return scoring.calculate_total_penalty(
-            layout, self.statistics, self.moves_config
-        )
+        # Cheap path: only refresh per-char geometry (O(num_chars)), then
+        # score using the statistics arrays cached once in __init__.
+        self.engine.update_layout(layout.keys)
+        return self.engine.score().total_penalty
 
     # -----------------------------------------------------------
     # Мутаційні оператори — усі працюють у форматі (list[Key])
@@ -219,7 +251,6 @@ class LayoutOptimizerSA:
             #if i < 10:
             #    print(f"i={i} ... candidate_score={candidate_score} ... self.current_score={self.current_score} ... self.best_score={self.best_score} ... delta={delta}")
 
-        self.best_layout.score = scoring.MovementScoringEngine(
-            self.best_layout.keys, self.moves_config
-        ).score_from_statistics(self.statistics)
+        self.engine.update_layout(self.best_layout.keys)
+        self.best_layout.score = self.engine.score()
         return copy.deepcopy(self.best_layout)

@@ -46,6 +46,13 @@ class OptimizationProcessor:
                     config=config,
                     stop_event=self.stop_event,
                 )
+            else:
+                # Resuming an existing optimizer: don't silently ignore
+                # initial_layout. The user may have frozen/unfrozen keys
+                # while paused (self.layout in the UI) -- pull that into
+                # the still-running optimizer's actual state so it's
+                # respected on the next run_optimization() call.
+                self.optimizer.sync_frozen_state(initial_layout)
             result = self.optimizer.run_optimization(
                 iterations=n_iterations,
                 ui_callback=on_progress,
@@ -58,6 +65,14 @@ class OptimizationProcessor:
 
     def stop(self):
         self.stop_event.set()
+
+    def reset(self):
+        """Discard in-progress optimizer state. Next start() begins fresh
+        from whatever initial_layout is passed in, instead of resuming.
+        Use this when loading a genuinely different layout/geometry, not for
+        an ordinary pause/resume (that should go through sync_frozen_state).
+        """
+        self.optimizer = None
 
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
