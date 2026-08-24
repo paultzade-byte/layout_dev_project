@@ -93,27 +93,6 @@ class LayoutOptimizerSA:
         self.current_score = self._score(self.current_layout)
         self.best_score = self._score(self.best_layout)
 
-    # def sync_frozen_state(self, reference_layout: Layout) -> None:
-    #     """Pull is_frozen flags from ``reference_layout`` (the UI's copy) into
-    #     the optimizer's own current/best layouts, matched by position_id.
-
-    #     This does NOT reset char positions or SA progress — it only updates
-    #     which keys are allowed to move, so a freeze/unfreeze toggled while
-    #     paused actually takes effect on resume instead of being silently
-    #     ignored (which is what used to happen when the optimizer object was
-    #     reused across stop/resume without ever looking at the new
-    #     initial_layout again).
-    #     """
-    #     frozen_by_position = {
-    #         key.position_id: key.is_frozen for key in reference_layout.keys
-    #     }
-    #     for target in (self.current_layout, self.best_layout):
-    #         for key in target.keys:
-    #             if key.position_id in frozen_by_position:
-    #                 key.is_frozen = frozen_by_position[key.position_id]
-
-
-
 
     # -----------------------------------------------------------
     # Мутаційні оператори — усі працюють у форматі (list[Key])
@@ -124,7 +103,7 @@ class LayoutOptimizerSA:
         return [
             key
             for key in layout.keys
-            if not key.is_frozen and key.char and len(key.char) == 1
+            if key.is_frozen == False and key.char and len(key.char) == 1
         ]
 
     @staticmethod

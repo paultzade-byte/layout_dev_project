@@ -12,6 +12,7 @@ from uiux.processors import OptimizationProcessor
 def make_score_display(statistic, moves_config):
     def on_layout_changed(layout):
         score = calculate_total_penalty(layout, statistic, moves_config)
+
         return f"Score: {score:.2f}"
     return on_layout_changed
 
@@ -99,13 +100,15 @@ class LayoutBuilderApp:
             lambda: self.status_var.set(f"Оптимізую... ітерація {current_iteration}, score={score:.2f}")
         )
 
+    def _update_layout(self, result_layout: Layout):
+        self.layout = result_layout
+        self.keys_by_position = {key.position_id: key for key in self.layout.keys}
+        self.redraw_keys()
+        self.button.config(text="Start")
+        self._notify_layout_changed()
+
     def _on_done(self, result_layout: Layout):
-        def update():
-            self.layout = result_layout
-            self.keys_by_position = {key.position_id: key for key in self.layout.keys}
-            self.redraw_keys()
-            self.button.config(text="Start")
-            self._notify_layout_changed()
+        update = lambda: self._update_layout(result_layout)
         self.root.after(0, update)
 
     def redraw_keys(self):
@@ -249,7 +252,10 @@ class LayoutBuilderApp:
         min_distance = float('inf')
 
         for slot in self.slots:
-            dist = math.hypot(drop_center_x - slot.center_x, drop_center_y - slot.center_y)
+            dist = math.hypot(
+                drop_center_x - slot.center_x,
+                drop_center_y - slot.center_y
+            )
             if dist < min_distance:
                 min_distance = dist
                 closest_slot = slot
@@ -264,8 +270,10 @@ class LayoutBuilderApp:
 
             original_slot = widget.current_slot
 
+
             if target_key:
                 self.snap_to_slot(target_key, original_slot)
+
             else:
                 original_slot.current_key = None
 
@@ -273,6 +281,30 @@ class LayoutBuilderApp:
 
         else:
             self.snap_to_slot(widget, widget.current_slot)
+
+
+        self._sync_layout_from_ui()
+
+    def _sync_layout_from_ui(self):
+        for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
+            widget = slot.current_key
+
+            if widget is None:
+                continue
+
+            widget.key.position_id = pos["id"]
+            self.keys_by_position[pos["id"]] = widget.key
+
+        self.layout.keys = list(self.keys_by_position.values())
+        self._notify_layout_changed()
+
+
+    # def _update_backend_from_ui(self, result_layout: Layout, slots: list[Slot]):
+    #     """Оновлює бекенд на основі ручних змін."""
+
+    #     update = lambda: self._update_layout(result_layout)
+    #     self.root.after(0, update)
+    #     self._notify_layout_changed()
 
     def snap_to_slot(self, widget, slot):
         """Жорстка прив'язка віджета до координат слота"""
@@ -294,6 +326,7 @@ class LayoutBuilderApp:
     def _notify_layout_changed(self):
         if self.on_layout_changed:
             self.status_var.set(self.on_layout_changed(self.layout))
+            print('layout changed')
 
 if __name__ == "__main__":
     statistic = STATISTIC
