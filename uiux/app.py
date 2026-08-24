@@ -179,14 +179,14 @@ class LayoutBuilderApp:
 
     def on_drag_start(self, event):
         widget = event.widget
-        if widget.is_frozen: return
+        if widget.is_frozen or self.processor.is_running: return
         widget.start_x = event.x
         widget.start_y = event.y
         widget.lift()
 
     def on_drag_motion(self, event):
         widget = event.widget
-        if widget.is_frozen: return
+        if widget.is_frozen or self.processor.is_running: return
 
         # 1. Рухаємо перетягувану кнопку
         new_x = widget.winfo_x() - widget.start_x + event.x
@@ -234,7 +234,7 @@ class LayoutBuilderApp:
 
     def on_drag_release(self, event):
         widget = event.widget
-        if widget.is_frozen: return
+        if widget.is_frozen or self.processor.is_running: return
 
         # Скидаємо підсвічування цільової кнопки
         if self.hovered_key and self.hovered_key.winfo_exists():

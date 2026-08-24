@@ -52,7 +52,7 @@ class OptimizationProcessor:
                 # while paused (self.layout in the UI) -- pull that into
                 # the still-running optimizer's actual state so it's
                 # respected on the next run_optimization() call.
-                self.optimizer.sync_frozen_state(initial_layout)
+                self.optimizer.sync_full_state(initial_layout)
             result = self.optimizer.run_optimization(
                 iterations=n_iterations,
                 ui_callback=on_progress,

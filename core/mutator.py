@@ -68,30 +68,52 @@ class LayoutOptimizerSA:
     # Sync UI-side edits (e.g. freeze toggles made while paused)
     # -----------------------------------------------------------
 
-    def sync_frozen_state(self, reference_layout: Layout) -> None:
-        """Pull is_frozen flags from ``reference_layout`` (the UI's copy) into
-        the optimizer's own current/best layouts, matched by position_id.
-
-        This does NOT reset char positions or SA progress — it only updates
-        which keys are allowed to move, so a freeze/unfreeze toggled while
-        paused actually takes effect on resume instead of being silently
-        ignored (which is what used to happen when the optimizer object was
-        reused across stop/resume without ever looking at the new
-        initial_layout again).
-        """
-        frozen_by_position = {
-            key.position_id: key.is_frozen for key in reference_layout.keys
-        }
-        for target in (self.current_layout, self.best_layout):
-            for key in target.keys:
-                if key.position_id in frozen_by_position:
-                    key.is_frozen = frozen_by_position[key.position_id]
-
     def _score(self, layout: Layout) -> float:
         # Cheap path: only refresh per-char geometry (O(num_chars)), then
         # score using the statistics arrays cached once in __init__.
         self.engine.update_layout(layout.keys)
         return self.engine.score().total_penalty
+
+    def sync_full_state(self, reference_layout: Layout) -> None:
+        """Тягне і char, і is_frozen з reference_layout (копії UI) у робочі
+            копії оптимізатора, за position_id. Потрібно тому що drag/freeze на
+            паузі міняють self.layout в App, а не внутрішні current_layout/
+            best_layout оптимізатора."""
+        state_by_position = {
+            key.position_id: (key.char, key.is_frozen)
+            for key in reference_layout.keys
+        }
+        for target in (self.current_layout, self.best_layout):
+            for key in target.keys:
+                if key.position_id in state_by_position:
+                    char, frozen = state_by_position[key.position_id]
+                    key.char = char
+                    key.is_frozen = frozen
+
+        self.current_score = self._score(self.current_layout)
+        self.best_score = self._score(self.best_layout)
+
+    # def sync_frozen_state(self, reference_layout: Layout) -> None:
+    #     """Pull is_frozen flags from ``reference_layout`` (the UI's copy) into
+    #     the optimizer's own current/best layouts, matched by position_id.
+
+    #     This does NOT reset char positions or SA progress — it only updates
+    #     which keys are allowed to move, so a freeze/unfreeze toggled while
+    #     paused actually takes effect on resume instead of being silently
+    #     ignored (which is what used to happen when the optimizer object was
+    #     reused across stop/resume without ever looking at the new
+    #     initial_layout again).
+    #     """
+    #     frozen_by_position = {
+    #         key.position_id: key.is_frozen for key in reference_layout.keys
+    #     }
+    #     for target in (self.current_layout, self.best_layout):
+    #         for key in target.keys:
+    #             if key.position_id in frozen_by_position:
+    #                 key.is_frozen = frozen_by_position[key.position_id]
+
+
+
 
     # -----------------------------------------------------------
     # Мутаційні оператори — усі працюють у форматі (list[Key])
