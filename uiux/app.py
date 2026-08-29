@@ -1,17 +1,34 @@
 
 import tkinter as tk
 import math
-import threading
 
 from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
-from core.layout_factory import build_layout
-from core.models import Layout
-from core.scorer import calculate_total_penalty
+from core.layout_factory import build_layout, build_key_from_position
+from core.models import Layout, Key
+from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
 
+from log.loggers.state_hasher import StateHasher
+
+# необхідно для перезапису при свопах
+POSITIONS_BY_ID = {p["id"]: p for p in GEOMETRY_CONFIG["positions"]}
+
 def make_score_display(statistic, moves_config):
+    engine_holder = {}
+
     def on_layout_changed(layout):
-        score = calculate_total_penalty(layout, statistic, moves_config)
+        engine = engine_holder.get("engine")
+        if engine is None:
+             # дорогий prepare_statistics() — рівно один раз, на перший виклик
+             engine = MovementScoringEngine(layout.keys, moves_config)
+             engine.prepare_statistics(statistic)
+             engine_holder["engine"] = engine
+        else:
+            # усі наступні виклики — дешевий шлях, той самий, що і в SA-циклі
+            engine.update_layout(layout.keys)
+        # print("викликаю скорер")
+        score = engine.score().total_penalty
+        # print(f"score: {score:.2f}")
 
         return f"Score: {score:.2f}"
     return on_layout_changed
@@ -25,6 +42,10 @@ class Slot:
         self.center_y = y + height / 2
         self.current_key = None  # the tkinter widget permanently anchored here
 
+class KeyLabel(tk.Label):
+    key: Key
+    is_frozen: bool
+    current_slot: Slot
 
 class LayoutBuilderApp:
     def __init__(
@@ -37,11 +58,11 @@ class LayoutBuilderApp:
     ):
         self.root = root
         self.root.title("Аналізатор розкладки - Матриця")
-        self.root.geometry("960x400")
+        self.root.geometry("900x400")
 
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
-        self.layout = layout or build_layout(GEOMETRY_CONFIG)
+        self.layout = (layout if layout is not None else build_layout(GEOMETRY_CONFIG))
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
 
         self.on_layout_changed = on_layout_changed
@@ -62,28 +83,41 @@ class LayoutBuilderApp:
         self.board = tk.Frame(self.root, bg="#2b2b2b", relief="sunken", bd=2)
         self.board.pack(fill="both", expand=True, padx=20, pady=10)
 
-        self.button = tk.Button(self.root, text="Start", command=self.toggle_optimization)
-        self.button.pack(pady=10)
+        # frame for buttons
+        self.button_frame = tk.Frame(self.root)
+        self.button_frame.pack(fill="x", padx=20, pady=10)
+
+        # centering our two buttons
+        self.button_frame.columnconfigure(0, weight=1)
+        self.button_frame.columnconfigure(3, weight=1)
+
+        self.button_start = tk.Button(self.button_frame, text="Start", command=self.toggle_optimization)
+        self.button_start.grid(row=0, column=1, padx=10, pady=10)
+
+        self.button_reheat = tk.Button(self.button_frame, text="Reheat", command=lambda: self.processor.optimizer.reheat() if self.processor.optimizer else None)
+        self.button_reheat.grid(row=0, column=2, padx=10, pady=10)
 
         self.slots = []
         self.key_width = GEOMETRY_CONFIG["key_width"]
         self.key_height = GEOMETRY_CONFIG["key_height"]
         self.tolerance = GEOMETRY_CONFIG["tolerance_x"]
         self.stages = GEOMETRY_CONFIG["stages"]
-        self.HAND_GAP_KEYS = 6
+        self.HAND_GAP_KEYS = 4
         self.build_grid()
         self.populate_initial_keys()
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
         self._notify_layout_changed()
-
+        self.engine = MovementScoringEngine(self.layout.keys, moves_config)
+        self.engine.update_layout(self.layout.keys)
 
     # ------------------------------------------------------------------
     # Start / Stop
     # ------------------------------------------------------------------
     def toggle_optimization(self):
         if not self.processor.is_running:
-            self.button.config(text="Stop")
+            self.button_start.config(text="Stop")
             self.status_var.set("Оптимізую...")
+            # print(self.layout.keys, "-> before start")
             self.processor.start(
                 self.layout,
                 on_progress=self._on_progress,
@@ -92,6 +126,9 @@ class LayoutBuilderApp:
         else:
             self.processor.stop()
             self.status_var.set("Зупиняю...")
+            self.engine.prepare_statistics(statistic)
+            self.score = self.engine.score().total_penalty
+            self.status_var.set(f"Score: {self.score:.2f}")
 
     def _on_progress(self, layout, score, current_iteration):
         # викликається з робочого потоку -> завжди через root.after
@@ -104,7 +141,7 @@ class LayoutBuilderApp:
         self.layout = result_layout
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
         self.redraw_keys()
-        self.button.config(text="Start")
+        self.button_start.config(text="Start")
         self._notify_layout_changed()
 
     def _on_done(self, result_layout: Layout):
@@ -121,7 +158,7 @@ class LayoutBuilderApp:
             widget.key = key
             widget.is_frozen = key.is_frozen
             widget.config(
-                text=f"{key.char}\n(L)" if key.is_frozen else f"{key.char}",
+                text=f"{key.char}\n(L)" if key.is_frozen else key.char,
                 bg="tomato" if key.is_frozen else "lightgreen",
                 font=("Arial", 9, "bold") if key.is_frozen else ("Arial", 14, "bold"),
             )
@@ -129,7 +166,7 @@ class LayoutBuilderApp:
     def build_grid(self):
         """Побудова сітки слотів на основі геометрії"""
         base_x, base_y = 50, 50
-        gap = 5  # Відстань між кнопками
+        gap = 1  # Відстань між кнопками
 
         for pos in GEOMETRY_CONFIG["positions"]:
             if self.stages == 1:
@@ -142,7 +179,12 @@ class LayoutBuilderApp:
                 raise KeyError
 
             if pos.get("hand") == "R":
-                x += self.HAND_GAP_KEYS * (self.key_width + gap)
+                if ACTIVE == "generic_105_alpha":
+                    x = x
+                elif ACTIVE == "corne_42":
+                    x += 400  # self.HAND_GAP_KEYS + self.key_width + gap
+                else:
+                    raise KeyError("Unknown active layout")
 
             # Малюємо заглушку (контур слота) для візуалізації
             tk.Frame(
@@ -158,27 +200,26 @@ class LayoutBuilderApp:
         for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
             key = self.keys_by_position[pos["id"]]
             #char = pos.get("default", "")
-            frozen = key.is_frozen
-            key_widget = tk.Label(
+            widget = KeyLabel(
                 self.board,
-                text=f"{key.char}\n(L)" if frozen else f"{key.char}",
-                bg="tomato" if frozen else "lightgreen",
-                font=("Arial", 9, "bold") if frozen else ("Arial", 14, "bold"),
-                relief="raised", bd=4  # board outline
+                text=f"{key.char}\n(L)" if key.is_frozen else key.char,
+                bg="tomato" if key.is_frozen else "lightgreen",
+                font=("Arial", 9, "bold") if key.is_frozen else ("Arial", 14, "bold"),
+                relief="raised", bd=3  # board outline
             )
-            key_widget.place(x=slot.x, y=slot.y, width=self.key_width, height=self.key_height)
+            widget.place(x=slot.x, y=slot.y, width=self.key_width, height=self.key_height)
 
             # Внутрішній стан кнопки
-            key_widget.key = key
-            key_widget.is_frozen = frozen
-            key_widget.current_slot = slot
-            slot.current_key = key_widget
+            widget.key = key
+            widget.is_frozen = key.is_frozen
+            widget.current_slot = slot
+            slot.current_key = widget
 
             # Бінди подій
-            key_widget.bind("<Button-1>", self.on_drag_start)
-            key_widget.bind("<B1-Motion>", self.on_drag_motion)
-            key_widget.bind("<ButtonRelease-1>", self.on_drag_release)
-            key_widget.bind("<Button-3>", self.toggle_freeze)
+            widget.bind("<Button-1>", self.on_drag_start)
+            widget.bind("<B1-Motion>", self.on_drag_motion)
+            widget.bind("<ButtonRelease-1>", self.on_drag_release)
+            widget.bind("<Button-3>", self.toggle_freeze)
 
     def on_drag_start(self, event):
         widget = event.widget
@@ -236,7 +277,14 @@ class LayoutBuilderApp:
             self.hovered_key = target_key
 
     def on_drag_release(self, event):
+
+        # debug print layout hash to identify any differences
+        a = 'start' # locator
+        state_hasher = StateHasher()
+        state_hasher(self.layout, "app.on_drag_release." + a)
+
         widget = event.widget
+        # don't allow drag release if frozen or running
         if widget.is_frozen or self.processor.is_running: return
 
         # Скидаємо підсвічування цільової кнопки
@@ -260,7 +308,7 @@ class LayoutBuilderApp:
                 min_distance = dist
                 closest_slot = slot
 
-        # Логіка заміни залишається без змін
+        # Логіка заміни
         if closest_slot and min_distance < self.tolerance:
             target_key = closest_slot.current_key
 
@@ -282,29 +330,40 @@ class LayoutBuilderApp:
         else:
             self.snap_to_slot(widget, widget.current_slot)
 
-
         self._sync_layout_from_ui()
+        # debug print layout hash to identify any differences
+        a = 'end'
+        state_hasher = StateHasher()
+        state_hasher(self.layout, "app.on_drag_release." + a)
 
     def _sync_layout_from_ui(self):
-        for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
-            widget = slot.current_key
-
-            if widget is None:
+        updated_keys = []
+        for slot in self.slots:
+            if slot.current_key is None:
                 continue
+            widget = slot.current_key
+            if widget is not None:
+                widget.key.position_id = slot.id
+                self._resync_key_geometry(widget.key)
+                updated_keys.append(widget.key)
 
-            widget.key.position_id = pos["id"]
-            self.keys_by_position[pos["id"]] = widget.key
-
-        self.layout.keys = list(self.keys_by_position.values())
+        # гарантуємо, що ключі відсортовані за position_id
+        sorted_keys = sorted(updated_keys, key=lambda k: k.position_id)
+        self.layout.keys = sorted_keys
+        self.keys_by_position = {key.position_id: key for key in self.layout.keys}
         self._notify_layout_changed()
 
-
-    # def _update_backend_from_ui(self, result_layout: Layout, slots: list[Slot]):
-    #     """Оновлює бекенд на основі ручних змін."""
-
-    #     update = lambda: self._update_layout(result_layout)
-    #     self.root.after(0, update)
-    #     self._notify_layout_changed()
+    def _resync_key_geometry(self, key):
+        """Оновлює геометричні поля key під його поточний position_id,
+        зберігаючи char/is_frozen (доменний, а не геометричний стан)."""
+        fresh = build_key_from_position(POSITIONS_BY_ID[key.position_id])
+        key.x = fresh.x
+        key.y = fresh.y
+        key.row = fresh.row
+        key.col = fresh.col
+        key.hand = fresh.hand
+        key.finger = fresh.finger
+        key.base_cost = fresh.base_cost
 
     def snap_to_slot(self, widget, slot):
         """Жорстка прив'язка віджета до координат слота"""
@@ -326,12 +385,11 @@ class LayoutBuilderApp:
     def _notify_layout_changed(self):
         if self.on_layout_changed:
             self.status_var.set(self.on_layout_changed(self.layout))
-            print('layout changed')
+        # print('layout changed')
 
 if __name__ == "__main__":
     statistic = STATISTIC
     moves_config = MOVES_CONFIG
-
     root = tk.Tk()
     app = LayoutBuilderApp(
         root,

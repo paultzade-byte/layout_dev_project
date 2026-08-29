@@ -32,7 +32,9 @@ class Key:
     x: float
     y: float
     row: int
+    home_row: int
     col: int
+    home_col: int
     hand: Hand
     finger: Finger
     base_cost: float

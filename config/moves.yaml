@@ -4,35 +4,41 @@ version: 1
 # better; negative weights are bonuses.
 base_effort:
   row_multiplier:
-    top: 1.25
-    home: 1.00
-    bottom: 1.40
+    top: 1.40
+    home_row: 1.00
+    bottom: 1.10
+    other: 1.00
+  column_multiplier:
+    home_col: 1.00
+    col: 1.10
     other: 1.00
   finger_multiplier:
-    pinky: 1.80
+    pinky: 1.50
     ring: 1.40
     middle: 1.10
     index: 1.00
-    thumb: 0.80
+    thumb: 1.00
 
 same_finger:
-  double_tap: 1.00
+  double_tap: 0.50
   adjacent_row: 3.00
   skip_row: 5.00
 
 shape_multiplier:
-  vertical: 1.00
-  diagonal: 1.30
-  horizontal: 0.70
+  vertical: 1.10
+  diagonal: 1.50
+  horizontal: 1.20
 
 roll:
-  inward: 2.00
-  outward: 5.00
+  inward: 1.00
+  outward: 3.00
   awkward: 8.00
 
 hand:
   alternation: -0.25
   strict_alternation: 3.00
+  left_mult: 1.2
+  right_mult: 1.1
 
 skip_bigram:
   same_finger: 1.00

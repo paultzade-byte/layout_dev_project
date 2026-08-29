@@ -1,0 +1,12 @@
+{
+  "start_temp": 0.1,
+  "end_temp": 0.0000001,
+  "stall_window": 300,
+  "reheat_factor": 1.6,
+  "tabu_size": 50,
+  "seed": 42,
+  "iterations": 10000,
+  "ladder_index": 1,
+  "temp": 0.01,
+  "cooling": 0.999
+}

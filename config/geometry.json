@@ -7,51 +7,51 @@
       "tolerance_x": 25,
       "stages": 1,
       "positions": [
-        { "id": 0, "row": 0, "col": 0, "offset_x": 0, "hand": "L", "finger": "L_pinky", "default": "й" },
-        { "id": 1, "row": 0, "col": 1, "offset_x": 0, "hand": "L", "finger": "L_ring", "default": "ц" },
-        { "id": 2, "row": 0, "col": 2, "offset_x": 0, "hand": "L", "finger": "L_middle", "default": "у" },
-        { "id": 3, "row": 0, "col": 3, "offset_x": 0, "hand": "L", "finger": "L_index", "default": "к" },
-        { "id": 4, "row": 0, "col": 4, "offset_x": 0, "hand": "L", "finger": "L_index", "default": "е" },
+        { "id": 0, "row": 0, "home_row": 0, "col": 0, "home_col": 1, "offset_x": 0, "hand": "L", "finger": "L_pinky", "default": "й" },
+        { "id": 1, "row": 0, "home_row": 0, "col": 1, "home_col": 1, "offset_x": 0, "hand": "L", "finger": "L_ring", "default": "ц" },
+        { "id": 2, "row": 0, "home_row": 0, "col": 2, "home_col": 1, "offset_x": 0, "hand": "L", "finger": "L_middle", "default": "у" },
+        { "id": 3, "row": 0, "home_row": 0, "col": 3, "home_col": 1, "offset_x": 0, "hand": "L", "finger": "L_index", "default": "к" },
+        { "id": 4, "row": 0, "home_row": 0, "col": 4, "home_col": 0, "offset_x": 0, "hand": "L", "finger": "L_index", "default": "е" },
 
-        { "id": 5, "row": 1, "col": 0, "offset_x": 15, "hand": "L", "finger": "L_pinky", "default": "ф" },
-        { "id": 6, "row": 1, "col": 1, "offset_x": 15, "hand": "L", "finger": "L_ring", "default": "і" },
-        { "id": 7, "row": 1, "col": 2, "offset_x": 15, "hand": "L", "finger": "L_middle", "default": "в" },
-        { "id": 8, "row": 1, "col": 3, "offset_x": 15, "hand": "L", "finger": "L_index", "default": "а" },
-        { "id": 9, "row": 1, "col": 4, "offset_x": 15, "hand": "L", "finger": "L_index", "default": "п" },
+        { "id": 5, "row": 1, "home_row": 1, "col": 0, "home_col": 1, "offset_x": 15, "hand": "L", "finger": "L_pinky", "default": "ф" },
+        { "id": 6, "row": 1, "home_row": 1, "col": 1, "home_col": 1, "offset_x": 15, "hand": "L", "finger": "L_ring", "default": "і" },
+        { "id": 7, "row": 1, "home_row": 1, "col": 2, "home_col": 1, "offset_x": 15, "hand": "L", "finger": "L_middle", "default": "в" },
+        { "id": 8, "row": 1, "home_row": 1, "col": 3, "home_col": 1, "offset_x": 15, "hand": "L", "finger": "L_index", "default": "а" },
+        { "id": 9, "row": 1, "home_row": 1, "col": 4, "home_col": 0, "offset_x": 15, "hand": "L", "finger": "L_index", "default": "п" },
 
-        { "id": 10, "row": 2, "col": 0, "offset_x": -10, "hand": "L", "finger": "L_pinky", "role": "mod", "default": "Shft" },
-        { "id": 11, "row": 2, "col": 0, "offset_x": 45, "hand": "L", "finger": "L_pinky", "default": "я" },
-        { "id": 12, "row": 2, "col": 1, "offset_x": 45, "hand": "L", "finger": "L_ring", "default": "ч" },
-        { "id": 13, "row": 2, "col": 2, "offset_x": 45, "hand": "L", "finger": "L_middle", "default": "с" },
-        { "id": 14, "row": 2, "col": 3, "offset_x": 45, "hand": "L", "finger": "L_index", "default": "м" },
-        { "id": 15, "row": 2, "col": 4, "offset_x": 45, "hand": "L", "finger": "L_index", "default": "и" },
+        { "id": 10, "row": 2, "home_row": 0, "col": 0, "home_col": 0, "offset_x": -5, "hand": "L", "finger": "L_pinky", "role": "mod", "default": "Shft" },
+        { "id": 11, "row": 2, "home_row": 0, "col": 0, "home_col": 1, "offset_x": 45, "hand": "L", "finger": "L_pinky", "default": "я" },
+        { "id": 12, "row": 2, "home_row": 0, "col": 1, "home_col": 1, "offset_x": 45, "hand": "L", "finger": "L_ring", "default": "ч" },
+        { "id": 13, "row": 2, "home_row": 0, "col": 2, "home_col": 1, "offset_x": 45, "hand": "L", "finger": "L_middle", "default": "с" },
+        { "id": 14, "row": 2, "home_row": 0, "col": 3, "home_col": 1, "offset_x": 45, "hand": "L", "finger": "L_index", "default": "м" },
+        { "id": 15, "row": 2, "home_row": 0, "col": 4, "home_col": 0, "offset_x": 45, "hand": "L", "finger": "L_index", "default": "и" },
 
-        { "id": 16, "row": 0, "col": 5, "offset_x": 0, "hand": "R", "finger": "R_index", "default": "н" },
-        { "id": 17, "row": 0, "col": 6, "offset_x": 0, "hand": "R", "finger": "R_index", "default": "г" },
-        { "id": 18, "row": 0, "col": 7, "offset_x": 0, "hand": "R", "finger": "R_middle", "default": "ш" },
-        { "id": 19, "row": 0, "col": 8, "offset_x": 0, "hand": "R", "finger": "R_ring", "default": "щ" },
-        { "id": 20, "row": 0, "col": 9, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "з" },
+        { "id": 16, "row": 0, "home_row": 0, "col": 5, "home_col": 0, "offset_x": 0, "hand": "R", "finger": "R_index", "default": "н" },
+        { "id": 17, "row": 0, "home_row": 0, "col": 6, "home_col": 1, "offset_x": 0, "hand": "R", "finger": "R_index", "default": "г" },
+        { "id": 18, "row": 0, "home_row": 0, "col": 7, "home_col": 1, "offset_x": 0, "hand": "R", "finger": "R_middle", "default": "ш" },
+        { "id": 19, "row": 0, "home_row": 0, "col": 8, "home_col": 1, "offset_x": 0, "hand": "R", "finger": "R_ring", "default": "щ" },
+        { "id": 20, "row": 0, "home_row": 0, "col": 9, "home_col": 1, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "з" },
 
-        { "id": 21, "row": 1, "col": 5, "offset_x": 15, "hand": "R", "finger": "R_index", "default": "р" },
-        { "id": 22, "row": 1, "col": 6, "offset_x": 15, "hand": "R", "finger": "R_index", "default": "о" },
-        { "id": 23, "row": 1, "col": 7, "offset_x": 15, "hand": "R", "finger": "R_middle", "default": "л" },
-        { "id": 24, "row": 1, "col": 8, "offset_x": 15, "hand": "R", "finger": "R_ring", "default": "д" },
-        { "id": 25, "row": 1, "col": 9, "offset_x": 15, "hand": "R", "finger": "R_pinky", "default": "ж" },
+        { "id": 21, "row": 1, "home_row": 1, "col": 5, "home_col": 0, "offset_x": 15, "hand": "R", "finger": "R_index", "default": "р" },
+        { "id": 22, "row": 1, "home_row": 1, "col": 6, "home_col": 1, "offset_x": 15, "hand": "R", "finger": "R_index", "default": "о" },
+        { "id": 23, "row": 1, "home_row": 1, "col": 7, "home_col": 1, "offset_x": 15, "hand": "R", "finger": "R_middle", "default": "л" },
+        { "id": 24, "row": 1, "home_row": 1, "col": 8, "home_col": 1, "offset_x": 15, "hand": "R", "finger": "R_ring", "default": "д" },
+        { "id": 25, "row": 1, "home_row": 1, "col": 9, "home_col": 1, "offset_x": 15, "hand": "R", "finger": "R_pinky", "default": "ж" },
 
-        { "id": 26, "row": 2, "col": 5, "offset_x": 45, "hand": "R", "finger": "R_index", "default": "т" },
-        { "id": 27, "row": 2, "col": 6, "offset_x": 45, "hand": "R", "finger": "R_index", "default": "ь" },
-        { "id": 28, "row": 2, "col": 7, "offset_x": 45, "hand": "R", "finger": "R_middle", "default": "б" },
-        { "id": 29, "row": 2, "col": 8, "offset_x": 45, "hand": "R", "finger": "R_ring", "default": "ю" },
-        { "id": 30, "row": 2, "col": 9, "offset_x": 45, "hand": "R", "finger": "R_pinky", "default": "." },
-        { "id": 31, "row": 2, "col": 10, "offset_x": 45, "hand": "R", "finger": "R_pinky", "role": "mod", "default": "Shft" },
+        { "id": 26, "row": 2, "home_row": 0, "col": 5, "home_col": 0, "offset_x": 45, "hand": "R", "finger": "R_index", "default": "т" },
+        { "id": 27, "row": 2, "home_row": 0, "col": 6, "home_col": 1, "offset_x": 45, "hand": "R", "finger": "R_index", "default": "ь" },
+        { "id": 28, "row": 2, "home_row": 0, "col": 7, "home_col": 1, "offset_x": 45, "hand": "R", "finger": "R_middle", "default": "б" },
+        { "id": 29, "row": 2, "home_row": 0, "col": 8, "home_col": 1, "offset_x": 45, "hand": "R", "finger": "R_ring", "default": "ю" },
+        { "id": 30, "row": 2, "home_row": 0, "col": 9, "home_col": 1, "offset_x": 45, "hand": "R", "finger": "R_pinky", "default": "." },
+        { "id": 31, "row": 2, "home_row": 0, "col": 10, "home_col": 0, "offset_x": 45, "hand": "R", "finger": "R_pinky", "role": "mod", "default": "Shft" },
 
-        { "id": 32, "row": 0, "col": 10, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "х" },
-        { "id": 33, "row": 1, "col": 10, "offset_x": 15, "hand": "R", "finger": "R_pinky", "default": "є" },
-        { "id": 34, "row": 0, "col": 11, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "ї" },
-        { "id": 35, "row": 0, "col": 12, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "ґ" },
+        { "id": 32, "row": 0, "home_row": 0, "col": 10, "home_col": 0, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "х" },
+        { "id": 33, "row": 1, "home_row": 1, "col": 10, "home_col": 0, "offset_x": 15, "hand": "R", "finger": "R_pinky", "default": "є" },
+        { "id": 34, "row": 0, "home_row": 0, "col": 11, "home_col": 0, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "ї" },
+        { "id": 35, "row": 0, "home_row": 0, "col": 12, "home_col": 0, "offset_x": 0, "hand": "R", "finger": "R_pinky", "default": "ґ" },
 
-        { "id": 36, "row": 3, "col": 4, "offset_x": 10, "hand": "L", "finger": "L_thumb", "role": "mod", "default": "SPA" },
-        { "id": 37, "row": 3, "col": 5, "offset_x": 45, "hand": "R", "finger": "R_thumb", "role": "mod", "default": "CE" }
+        { "id": 36, "row": 3, "home_row": 0, "col": 4, "home_col": 0, "offset_x": 10, "hand": "L", "finger": "L_thumb", "role": "mod", "default": "SPA" },
+        { "id": 37, "row": 3, "home_row": 0, "col": 5, "home_col": 0, "offset_x": 45, "hand": "R", "finger": "R_thumb", "role": "mod", "default": "CE" }
       ]
     },
     "corne_42": {
@@ -100,13 +100,13 @@
 
         { "id": 31, "row": 1, "home_row": 1, "col": 6, "home_col": 0, "hand": "R", "finger": "R_pinky", "role": "mod", "tap": null, "hold": "shift", "default": "Shft" },
 
-        { "id": 32, "row": 3, "col": 3, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
-        { "id": 33, "row": 3, "col": 4, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "SPA" },
-        { "id": 34, "row": 3, "col": 5, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
+        { "id": 32, "row": 3, "home_row": 3, "home_col": 3, "col": 3, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
+        { "id": 33, "row": 3, "home_row": 3, "home_col": 3, "col": 4, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "SPA" },
+        { "id": 34, "row": 3, "home_row": 3, "home_col": 3, "col": 5, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
 
-        { "id": 35, "row": 3, "col": 1, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
-        { "id": 36, "row": 3, "col": 2, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "CE" },
-        { "id": 37, "row": 3, "col": 3, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "" }
+        { "id": 35, "row": 3, "home_row": 3, "home_col": 3, "col": 1, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
+        { "id": 36, "row": 3, "home_row": 3, "home_col": 3, "col": 2, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "CE" },
+        { "id": 37, "row": 3, "home_row": 3, "home_col": 3, "col": 3, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "" }
       ]
     }
   }

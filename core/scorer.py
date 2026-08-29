@@ -46,13 +46,14 @@ from core.models import Finger, Key, Layout, ScoreMetrics
 
 _REQUIRED_MOVES_SCHEMA = {
     "base_effort": {
-        "row_multiplier": ("top", "home", "bottom", "other"),
+        "row_multiplier": ("top", "home_row", "bottom", "other"),
         "finger_multiplier": ("pinky", "ring", "middle", "index", "thumb"),
+        "column_multiplier": ("home_col", "col"),
     },
     "same_finger": ("double_tap", "adjacent_row", "skip_row"),
     "shape_multiplier": ("vertical", "diagonal", "horizontal"),
     "roll": ("inward", "outward", "awkward"),
-    "hand": ("alternation", "strict_alternation"),
+    "hand": ("alternation", "strict_alternation", "left_mult", "right_mult"),
 }
 
 
@@ -111,7 +112,7 @@ def calculate_total_penalty(
         )
     engine = MovementScoringEngine(layout.keys, moves_config)
     engine.prepare_statistics(statistics)
-    return engine.score().total_penalty
+    return engine.score().total_penalty / 1000000000
 
 
 class MovementScoringEngine:
@@ -129,10 +130,17 @@ class MovementScoringEngine:
         # so they get refreshed by update_layout() — cheaply (O(n) here).
         self.row = np.empty(n, dtype=np.int64)
         self.col = np.empty(n, dtype=np.int64)
+        self.home_row = np.empty(n, dtype=np.int64)
+        self.home_col = np.empty(n, dtype=np.int64)
         self.hand = np.empty(n, dtype=object)
         self.finger = np.empty(n, dtype=np.int64)
         self.base_cost = np.empty(n, dtype=np.float64)
 
+        col_cfg = self.moves["base_effort"]["column_multiplier"]
+        # індекс 0 -> flag=0 (розтяг) -> "col"; індекс 1 -> flag=1 (домашня) -> "home_col"
+        self._column_mult_by_flag = np.array(
+            [col_cfg["col"], col_cfg["home_col"], col_cfg["other"]], dtype=np.float64
+        )
         # Small lookup tables derived from moves_config only (never change).
         finger_mult = self.moves["base_effort"]["finger_multiplier"]
         # index by Finger.value (1..5); index 0 unused.
@@ -229,7 +237,9 @@ class MovementScoringEngine:
         for char, idx in self.char_to_idx.items():
             key = char_map[char]
             self.row[idx] = key.row
+            self.home_row[idx] = key.home_row
             self.col[idx] = key.col
+            self.home_col[idx] = key.home_col
             self.hand[idx] = key.hand.value
             self.finger[idx] = key.finger.value
             self.base_cost[idx] = key.base_cost
@@ -283,8 +293,13 @@ class MovementScoringEngine:
 
     def _evaluate_unigrams_vectorized(self, metrics: ScoreMetrics) -> None:
         idx = self._unigram_idx
+        column_weight = self._column_mult_by_flag[self.home_col[idx]]
         if idx is None or len(idx) == 0:
             return
+        left_mult = self.moves["hand"]["left_mult"]
+        right_mult = self.moves["hand"]["right_mult"]
+        hand = self.hand[idx]
+        hand_weight = np.where(hand == "left", left_mult, right_mult)
         weight = self._unigram_weight
         row = self.row[idx]
         finger = self.finger[idx]
@@ -293,12 +308,14 @@ class MovementScoringEngine:
         row_cfg = self.moves["base_effort"]["row_multiplier"]
         row_weight = np.select(
             [row == 0, row == 1, row == 2],
-            [row_cfg["top"], row_cfg["home"], row_cfg["bottom"]],
+            [row_cfg["top"], row_cfg["home_row"], row_cfg["bottom"]],
             default=row_cfg["other"],
         )
         finger_weight = self._finger_mult_by_value[finger]
 
-        metrics.base_effort += float(np.sum(base_cost * row_weight * finger_weight * weight))
+        metrics.base_effort += float(np.sum(
+            base_cost * row_weight * column_weight * finger_weight * hand_weight * weight
+        ))
 
     def _evaluate_bigrams_vectorized(self, idx1, idx2, weight, metrics):
         hand1, hand2 = self.hand[idx1], self.hand[idx2]
@@ -379,9 +396,13 @@ class MovementScoringEngine:
             weight[same_hand & ~same_finger] * self.moves.get("skip_bigram", {}).get("same_hand", 0.1)
         )
 
-    @staticmethod
-    def get_row_name(row_index: int) -> str:
-        return {0: "top", 1: "home", 2: "bottom"}.get(row_index, "other")
+    # @staticmethod
+    # def get_row_name(row_index: int) -> str:
+    #     return {0: "top", 1: "home_row", 2: "bottom"}.get(row_index, "other")
+
+    # @staticmethod
+    # def get_col_name(col_index: int) -> str:
+    #     return {1: "home_col", 0: "col"}.get(col_index, "other")
 
     @staticmethod
     def _get_finger_name(finger_value) -> str:

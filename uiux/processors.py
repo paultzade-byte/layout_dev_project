@@ -52,8 +52,12 @@ class OptimizationProcessor:
                 # while paused (self.layout in the UI) -- pull that into
                 # the still-running optimizer's actual state so it's
                 # respected on the next run_optimization() call.
+                # print(initial_layout.keys, "-> in worker before sync")
                 self.optimizer.sync_full_state(initial_layout)
+                self.optimizer.tabu.clear()  # очистка кеша при рестарті
+                self.optimizer.tabu.append(self.optimizer._signature(initial_layout))
             result = self.optimizer.run_optimization(
+                layout=self.optimizer.current_layout,
                 iterations=n_iterations,
                 ui_callback=on_progress,
             )
