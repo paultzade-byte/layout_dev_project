@@ -8,6 +8,7 @@ from core.models import Layout, Key
 from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
 
+from pathlib import Path
 from log.loggers.state_hasher import StateHasher
 
 # необхідно для перезапису при свопах
@@ -70,6 +71,7 @@ class LayoutBuilderApp:
         # --- оптимізатор живе тут, а не на рівні модуля ---
         self.processor = OptimizationProcessor(statistic, moves_config)
 
+        # tkinter / buttons
         self.status_var = tk.StringVar(value="Score: -")
         tk.Label(
             self.root,
@@ -80,23 +82,32 @@ class LayoutBuilderApp:
             anchor="w"
         ).pack(fill="x", padx=20, pady=(10, 0))
 
+        # frame main
         self.board = tk.Frame(self.root, bg="#2b2b2b", relief="sunken", bd=2)
         self.board.pack(fill="both", expand=True, padx=20, pady=10)
 
         # frame for buttons
         self.button_frame = tk.Frame(self.root)
-        self.button_frame.pack(fill="x", padx=20, pady=10)
+        self.button_frame.pack(fill="both", padx=20, pady=10)
 
-        # centering our two buttons
+        # Allow grid to stretch. Important for the very right button.
+        self.button_frame.rowconfigure(3, weight=1)
         self.button_frame.columnconfigure(0, weight=1)
-        self.button_frame.columnconfigure(3, weight=1)
+        self.button_frame.columnconfigure(4, weight=1)
 
         self.button_start = tk.Button(self.button_frame, text="Start", command=self.toggle_optimization)
-        self.button_start.grid(row=0, column=1, padx=10, pady=10)
+        self.button_start.grid(row=0, column=1, columnspan=1, padx=(160,20), pady=10)
 
         self.button_reheat = tk.Button(self.button_frame, text="Reheat", command=lambda: self.processor.optimizer.reheat() if self.processor.optimizer else None)
-        self.button_reheat.grid(row=0, column=2, padx=10, pady=10)
+        self.button_reheat.grid(row=0, column=2, columnspan=1, pady=10)
 
+        self.button_record = tk.Button(self.button_frame, text="Rec>>", command=lambda: self.processor.layout_record(self.layout) if self.processor else None)
+        self.button_record.grid(row=0, column=3, columnspan=2, sticky="se", padx=(0,20),  pady=10)
+
+        self.button_recall = tk.Button(self.button_frame, text="Rec<<", command=lambda: self.on_recall() if self.processor else None)
+        self.button_recall.grid(row=0, column=5, columnspan=2, sticky="se", pady=10)
+
+        # layout
         self.slots = []
         self.key_width = GEOMETRY_CONFIG["key_width"]
         self.key_height = GEOMETRY_CONFIG["key_height"]
@@ -165,7 +176,7 @@ class LayoutBuilderApp:
 
     def build_grid(self):
         """Побудова сітки слотів на основі геометрії"""
-        base_x, base_y = 50, 50
+        base_x, base_y = 50, 40
         gap = 1  # Відстань між кнопками
 
         for pos in GEOMETRY_CONFIG["positions"]:
@@ -386,6 +397,41 @@ class LayoutBuilderApp:
         if self.on_layout_changed:
             self.status_var.set(self.on_layout_changed(self.layout))
         # print('layout changed')
+
+
+    # ------------------------------------------------------------------
+    # Recall the layout
+    # ------------------------------------------------------------------
+
+    def on_recall(self):
+        path = Path(__file__).resolve().parents[1] / "config" / "recorded_layout.json"
+        data = self.processor.layout_recall(path)
+        print("before data print")
+        print(data)
+        self._apply_recorded_state(data)
+
+    def _apply_recorded_state(self, data: list[dict]):
+        state_by_position = {
+            p["position_id"]: (p["char"], p["is_frozen"]) for p in data
+        }
+        # rewrite the layout
+        for key in self.layout.keys:
+            if key.position_id in state_by_position:
+                char, is_frozen = state_by_position[key.position_id]
+                key.char = char
+                key.is_frozen = is_frozen
+        # rebuild the layout UI matrix
+        for slot in self.slots:
+            widget = slot.current_key
+            if widget is None:
+                continue
+            key = widget.key
+            widget.is_frozen = key.is_frozen
+            widget.config(
+                text=f"{key.char}\n(L)" if key.is_frozen else f"{key.char}",
+                bg="tomato" if key.is_frozen else "lightgreen",
+            )
+        self._notify_layout_changed()
 
 if __name__ == "__main__":
     statistic = STATISTIC

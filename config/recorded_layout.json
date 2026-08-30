@@ -1,0 +1,192 @@
+[
+  {
+    "position_id": 0,
+    "char": "ш",
+    "is_frozen": false
+  },
+  {
+    "position_id": 1,
+    "char": "ч",
+    "is_frozen": false
+  },
+  {
+    "position_id": 2,
+    "char": "ж",
+    "is_frozen": false
+  },
+  {
+    "position_id": 3,
+    "char": "й",
+    "is_frozen": false
+  },
+  {
+    "position_id": 4,
+    "char": ",",
+    "is_frozen": false
+  },
+  {
+    "position_id": 5,
+    "char": "Shft",
+    "is_frozen": true
+  },
+  {
+    "position_id": 6,
+    "char": "с",
+    "is_frozen": false
+  },
+  {
+    "position_id": 7,
+    "char": "д",
+    "is_frozen": false
+  },
+  {
+    "position_id": 8,
+    "char": "н",
+    "is_frozen": false
+  },
+  {
+    "position_id": 9,
+    "char": "о",
+    "is_frozen": false
+  },
+  {
+    "position_id": 10,
+    "char": "р",
+    "is_frozen": false
+  },
+  {
+    "position_id": 11,
+    "char": "з",
+    "is_frozen": false
+  },
+  {
+    "position_id": 12,
+    "char": "ц",
+    "is_frozen": false
+  },
+  {
+    "position_id": 13,
+    "char": "т",
+    "is_frozen": false
+  },
+  {
+    "position_id": 14,
+    "char": "л",
+    "is_frozen": false
+  },
+  {
+    "position_id": 15,
+    "char": "я",
+    "is_frozen": false
+  },
+  {
+    "position_id": 16,
+    "char": "ф",
+    "is_frozen": false
+  },
+  {
+    "position_id": 17,
+    "char": "ь",
+    "is_frozen": false
+  },
+  {
+    "position_id": 18,
+    "char": "б",
+    "is_frozen": false
+  },
+  {
+    "position_id": 19,
+    "char": "х",
+    "is_frozen": false
+  },
+  {
+    "position_id": 20,
+    "char": "ю",
+    "is_frozen": false
+  },
+  {
+    "position_id": 21,
+    "char": "в",
+    "is_frozen": false
+  },
+  {
+    "position_id": 22,
+    "char": "а",
+    "is_frozen": false
+  },
+  {
+    "position_id": 23,
+    "char": "і",
+    "is_frozen": false
+  },
+  {
+    "position_id": 24,
+    "char": "м",
+    "is_frozen": false
+  },
+  {
+    "position_id": 25,
+    "char": "и",
+    "is_frozen": false
+  },
+  {
+    "position_id": 26,
+    "char": "у",
+    "is_frozen": false
+  },
+  {
+    "position_id": 27,
+    "char": "г",
+    "is_frozen": false
+  },
+  {
+    "position_id": 28,
+    "char": "к",
+    "is_frozen": false
+  },
+  {
+    "position_id": 29,
+    "char": "п",
+    "is_frozen": false
+  },
+  {
+    "position_id": 30,
+    "char": "е",
+    "is_frozen": false
+  },
+  {
+    "position_id": 31,
+    "char": "Shft",
+    "is_frozen": true
+  },
+  {
+    "position_id": 32,
+    "char": "",
+    "is_frozen": true
+  },
+  {
+    "position_id": 33,
+    "char": "SPA",
+    "is_frozen": true
+  },
+  {
+    "position_id": 34,
+    "char": "",
+    "is_frozen": true
+  },
+  {
+    "position_id": 35,
+    "char": "",
+    "is_frozen": true
+  },
+  {
+    "position_id": 36,
+    "char": "CE",
+    "is_frozen": true
+  },
+  {
+    "position_id": 37,
+    "char": "",
+    "is_frozen": true
+  }
+]

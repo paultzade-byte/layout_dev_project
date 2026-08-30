@@ -7,12 +7,14 @@ from pathlib import Path
 import yaml
 
 
-config = {}
 with open(Path(__file__).resolve().parents[1] / "config" / "moves.yaml") as f:
     moves_config = yaml.safe_load(f)
 
 with open(Path(__file__).resolve().parents[1] / "config" / "statistic.json") as f:
     statistic = json.load(f)
+
+with open(Path(__file__).resolve().parents[1] / "config" / "mutator_config.json") as f:
+    config = json.load(f)
 
 class OptimizationProcessor:
     """Driver for the optimization life cycle in the individual thread."""
@@ -66,6 +68,21 @@ class OptimizationProcessor:
 
         self._thread = threading.Thread(target=worker, daemon=True)
         self._thread.start()
+
+    # button rec >> / recording current layout into json file in the config/
+    def layout_record(self, layout: Layout):
+        data = [
+            {"position_id": key.position_id, "char": key.char , "is_frozen": key.is_frozen } for key in layout.keys
+        ]
+        path = Path(__file__).resolve().parents[1] / "config" / "recorded_layout.json"
+        with open (path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    # button rec << / recalling previously recorded layout from json to the builder
+    def layout_recall(self, path: Path) -> list[dict]:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
 
     def stop(self):
         self.stop_event.set()

@@ -37,7 +37,9 @@ class LayoutOptimizerSA:
         self.moves_config = moves_config
         self.best_layout = copy.deepcopy(initial_layout)
         self.statistics = statistics
-        self.config = config or mutator_config
+        self.config = config if config is not None else mutator_config
+        print(self.config.get("start_temp"))
+        print(type(mutator_config), mutator_config)
 
         # One long-lived scoring engine for the whole run: the expensive
         # corpus-parsing step (prepare_statistics) happens exactly once here,
@@ -171,14 +173,17 @@ class LayoutOptimizerSA:
         """Компактний підпис стану для tabu-списку (порядок char по позиціях)."""
         return tuple(k.char for k in layout.keys)
 
+    def reheat_multiplier(self, factor: float | None = None):
+        factor = factor if factor is not None else self.reheat_factor
+        self.temp = min(self.temp * factor, self.start_temp)
+
+    # button reheat
     def reheat(self, factor: float | None = None):
         """Up the tempeature without loosing best_layout, tabu, history.
             This is not full restart but only out from the stall-plato."""
         print(f'current temp {self.temp}')
-        factor = factor if factor is not None else self.reheat_factor
-        self.temp = min(self.temp * factor, self.start_temp)
+        self.reheat_multiplier(factor)
         self.stall_counter = 0
-
 
     # -----------------------------------------------------------
     # Основний цикл
@@ -273,7 +278,7 @@ class LayoutOptimizerSA:
                         "event": f"escalate -> {self.MUTATION_LADDER_NAMES[ladder_index]}"
                     })
                 else:
-                    temp *= self.reheat_factor
+                    temp = min(temp * self.reheat_factor, self.start_temp)
                     self.history.append({
                         "iter": i, "id": None, "score": self.current_score,
                         "event": f"reheat -> temp={temp:.4f}"
