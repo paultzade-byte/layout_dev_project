@@ -101,9 +101,11 @@ class LayoutBuilderApp:
 
         self.button_record = tk.Button(self.button_frame, text="Rec>>", command=lambda: self.processor.layout_record(self.layout) if self.processor else None)
         self.button_record.grid(row=0, column=3, columnspan=2, sticky="se", padx=(0,20),  pady=10)
+        self.button_record.config(state="normal")
 
         self.button_recall = tk.Button(self.button_frame, text="Rec<<", command=lambda: self.on_recall() if self.processor else None)
         self.button_recall.grid(row=0, column=5, columnspan=2, sticky="se", pady=10)
+        self.button_record.config(state="normal")
 
         # layout
         self.slots = []
@@ -125,6 +127,8 @@ class LayoutBuilderApp:
     def toggle_optimization(self):
         if not self.processor.is_running:
             self.button_start.config(text="Stop")
+            self.button_record.config(state="disabled")
+            self.button_recall.config(state="disabled")
             self.status_var.set("Оптимізую...")
             self.processor.start(
                 self.layout,
@@ -134,6 +138,8 @@ class LayoutBuilderApp:
         else:
             self.processor.stop()
             self.status_var.set("Зупиняю...")
+            self.button_record.config(state="normal")
+            self.button_recall.config(state="normal")
             self.engine.prepare_statistics(statistic)
             self.score = self.engine.score().total_penalty
             self.status_var.set(f"Score: {self.score:.2f}")
@@ -223,7 +229,7 @@ class LayoutBuilderApp:
             widget.current_slot = slot
             slot.current_key = widget
 
-            # Бінди подій
+            # Бінди подій / Binds
             widget.bind("<Button-1>", self.on_drag_start)
             widget.bind("<B1-Motion>", self.on_drag_motion)
             widget.bind("<ButtonRelease-1>", self.on_drag_release)
@@ -380,6 +386,9 @@ class LayoutBuilderApp:
         slot.current_key = widget
 
     def toggle_freeze(self, event):
+        # early exit
+        if self.processor.is_running:
+            return
         widget = event.widget
         widget.is_frozen = not widget.is_frozen
         widget.key.is_frozen = widget.is_frozen
