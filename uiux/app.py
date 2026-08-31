@@ -27,9 +27,7 @@ def make_score_display(statistic, moves_config):
         else:
             # усі наступні виклики — дешевий шлях, той самий, що і в SA-циклі
             engine.update_layout(layout.keys)
-        # print("викликаю скорер")
         score = engine.score().total_penalty
-        # print(f"score: {score:.2f}")
 
         return f"Score: {score:.2f}"
     return on_layout_changed
@@ -128,7 +126,6 @@ class LayoutBuilderApp:
         if not self.processor.is_running:
             self.button_start.config(text="Stop")
             self.status_var.set("Оптимізую...")
-            # print(self.layout.keys, "-> before start")
             self.processor.start(
                 self.layout,
                 on_progress=self._on_progress,
@@ -290,9 +287,9 @@ class LayoutBuilderApp:
     def on_drag_release(self, event):
 
         # debug print layout hash to identify any differences
-        a = 'start' # locator
-        state_hasher = StateHasher()
-        state_hasher(self.layout, "app.on_drag_release." + a)
+        # a = 'start' # locator
+        # state_hasher = StateHasher()
+        # state_hasher(self.layout, "app.on_drag_release." + a)
 
         widget = event.widget
         # don't allow drag release if frozen or running
@@ -343,9 +340,9 @@ class LayoutBuilderApp:
 
         self._sync_layout_from_ui()
         # debug print layout hash to identify any differences
-        a = 'end'
-        state_hasher = StateHasher()
-        state_hasher(self.layout, "app.on_drag_release." + a)
+        # a = 'end'
+        # state_hasher = StateHasher()
+        # state_hasher(self.layout, "app.on_drag_release." + a)
 
     def _sync_layout_from_ui(self):
         updated_keys = []
@@ -396,7 +393,6 @@ class LayoutBuilderApp:
     def _notify_layout_changed(self):
         if self.on_layout_changed:
             self.status_var.set(self.on_layout_changed(self.layout))
-        # print('layout changed')
 
 
     # ------------------------------------------------------------------
@@ -406,8 +402,6 @@ class LayoutBuilderApp:
     def on_recall(self):
         path = Path(__file__).resolve().parents[1] / "config" / "recorded_layout.json"
         data = self.processor.layout_recall(path)
-        print("before data print")
-        print(data)
         self._apply_recorded_state(data)
 
     def _apply_recorded_state(self, data: list[dict]):

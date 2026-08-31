@@ -1,27 +1,27 @@
 [
   {
     "position_id": 0,
-    "char": "ш",
+    "char": "ь",
     "is_frozen": false
   },
   {
     "position_id": 1,
-    "char": "ч",
+    "char": "б",
     "is_frozen": false
   },
   {
     "position_id": 2,
-    "char": "ж",
+    "char": "д",
     "is_frozen": false
   },
   {
     "position_id": 3,
-    "char": "й",
+    "char": "г",
     "is_frozen": false
   },
   {
     "position_id": 4,
-    "char": ",",
+    "char": "ф",
     "is_frozen": false
   },
   {
@@ -36,22 +36,22 @@
   },
   {
     "position_id": 7,
-    "char": "д",
-    "is_frozen": false
-  },
-  {
-    "position_id": 8,
     "char": "н",
     "is_frozen": false
   },
   {
+    "position_id": 8,
+    "char": "у",
+    "is_frozen": false
+  },
+  {
     "position_id": 9,
-    "char": "о",
+    "char": "в",
     "is_frozen": false
   },
   {
     "position_id": 10,
-    "char": "р",
+    "char": "ц",
     "is_frozen": false
   },
   {
@@ -61,7 +61,7 @@
   },
   {
     "position_id": 12,
-    "char": "ц",
+    "char": "к",
     "is_frozen": false
   },
   {
@@ -71,42 +71,42 @@
   },
   {
     "position_id": 14,
-    "char": "л",
+    "char": "п",
     "is_frozen": false
   },
   {
     "position_id": 15,
-    "char": "я",
+    "char": "ш",
     "is_frozen": false
   },
   {
     "position_id": 16,
-    "char": "ф",
-    "is_frozen": false
-  },
-  {
-    "position_id": 17,
-    "char": "ь",
-    "is_frozen": false
-  },
-  {
-    "position_id": 18,
-    "char": "б",
-    "is_frozen": false
-  },
-  {
-    "position_id": 19,
-    "char": "х",
-    "is_frozen": false
-  },
-  {
-    "position_id": 20,
     "char": "ю",
     "is_frozen": false
   },
   {
+    "position_id": 17,
+    "char": "ч",
+    "is_frozen": false
+  },
+  {
+    "position_id": 18,
+    "char": "й",
+    "is_frozen": false
+  },
+  {
+    "position_id": 19,
+    "char": "я",
+    "is_frozen": false
+  },
+  {
+    "position_id": 20,
+    "char": ",",
+    "is_frozen": false
+  },
+  {
     "position_id": 21,
-    "char": "в",
+    "char": "х",
     "is_frozen": false
   },
   {
@@ -116,12 +116,12 @@
   },
   {
     "position_id": 23,
-    "char": "і",
+    "char": "о",
     "is_frozen": false
   },
   {
     "position_id": 24,
-    "char": "м",
+    "char": "р",
     "is_frozen": false
   },
   {
@@ -131,27 +131,27 @@
   },
   {
     "position_id": 26,
-    "char": "у",
+    "char": "ж",
     "is_frozen": false
   },
   {
     "position_id": 27,
-    "char": "г",
+    "char": "і",
     "is_frozen": false
   },
   {
     "position_id": 28,
-    "char": "к",
+    "char": "л",
     "is_frozen": false
   },
   {
     "position_id": 29,
-    "char": "п",
+    "char": "е",
     "is_frozen": false
   },
   {
     "position_id": 30,
-    "char": "е",
+    "char": "м",
     "is_frozen": false
   },
   {

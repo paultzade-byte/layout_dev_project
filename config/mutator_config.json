@@ -2,7 +2,7 @@
   "start_temp": 0.005,
   "end_temp": 0.0000001,
   "stall_window": 300,
-  "reheat_factor": 1.6,
+  "reheat_factor": 1.5,
   "tabu_size": 50,
   "seed": 42,
   "iterations": 10000,

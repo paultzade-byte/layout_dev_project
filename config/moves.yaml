@@ -10,28 +10,28 @@ base_effort:
     other: 1.00
   column_multiplier:
     home_col: 1.00
-    col: 1.10
+    col: 5.00
     other: 1.00
   finger_multiplier:
-    pinky: 1.50
-    ring: 1.40
-    middle: 1.10
+    pinky: 1.30
+    ring: 1.20
+    middle: 1.05
     index: 1.00
     thumb: 1.00
 
 same_finger:
-  double_tap: 0.50
-  adjacent_row: 3.00
-  skip_row: 5.00
+  double_tap: 1.50
+  adjacent_row: 2.00
+  skip_row: 3.00
 
 shape_multiplier:
   vertical: 1.10
-  diagonal: 1.50
-  horizontal: 1.20
+  diagonal: 1.60
+  horizontal: 1.40
 
 roll:
   inward: 1.00
-  outward: 3.00
+  outward: 2.00
   awkward: 8.00
 
 hand:
@@ -41,5 +41,5 @@ hand:
   right_mult: 1.1
 
 skip_bigram:
-  same_finger: 1.00
+  same_finger: 1.2
   same_hand: 0.10

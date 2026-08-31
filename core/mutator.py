@@ -38,8 +38,6 @@ class LayoutOptimizerSA:
         self.best_layout = copy.deepcopy(initial_layout)
         self.statistics = statistics
         self.config = config if config is not None else mutator_config
-        print(self.config.get("start_temp"))
-        print(type(mutator_config), mutator_config)
 
         # One long-lived scoring engine for the whole run: the expensive
         # corpus-parsing step (prepare_statistics) happens exactly once here,
@@ -200,9 +198,9 @@ class LayoutOptimizerSA:
         score = self._score(self.current_layout)
 
         # debug print layout hash to identify any differences
-        a = 'start'
-        state_hasher = StateHasher()
-        state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {score}")
+        # a = 'start'
+        # state_hasher = StateHasher()
+        # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {score}")
 
         tabu_hits = 0
 
@@ -221,8 +219,8 @@ class LayoutOptimizerSA:
 
             if self.stop_event is not None and self.stop_event.is_set():
                 # debug print layout hash to identify any differences
-                a = 'early_exit(stop_event condition)'
-                state_hasher(self.current_layout, f"mutator.run_optimization.{a} Score from mutator._score(): {score}")
+                # a = 'early_exit(stop_event condition)'
+                # state_hasher(self.current_layout, f"mutator.run_optimization.{a} Score from mutator._score(): {score}")
                 break
 
             candidate = self._apply_mutation(self.current_layout, ladder_index)
@@ -296,8 +294,8 @@ class LayoutOptimizerSA:
                 ui_callback(self.best_layout, self.best_score, current_iteration=i)
 
         # debug print layout hash to identify any differences
-        a = 'end_of_the_func post_ui_callback'
-        state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {score}")
+        # a = 'end_of_the_func post_ui_callback'
+        # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {score}")
 
             # debugging prints
             # if i % 100 == 0:
