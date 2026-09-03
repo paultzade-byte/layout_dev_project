@@ -1,15 +1,18 @@
 
 import tkinter as tk
+from tkinter import ttk
 import math
 
 from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
 from core.layout_factory import build_layout, build_key_from_position
 from core.models import Layout, Key
-from core.scorer import MovementScoringEngine
+from core.scorer import MovementScoringEngine, validate_moves_config, merge_config, load_moves_config
 from uiux.processors import OptimizationProcessor
-
+from uiux.sliders import SliderPanelLogic
+from uiux.slider_spec import SLIDER_DESCRIPTORS, slider_data_conveyer
 from pathlib import Path
-from log.loggers.state_hasher import StateHasher
+# keeping this dead import for possible bedugging process
+#from log.loggers.state_hasher import StateHasher
 
 # необхідно для перезапису при свопах
 POSITIONS_BY_ID = {p["id"]: p for p in GEOMETRY_CONFIG["positions"]}
@@ -32,6 +35,7 @@ def make_score_display(statistic, moves_config):
         return f"Score: {score:.2f}"
     return on_layout_changed
 
+
 class Slot:
     def __init__(self, slot_id, x, y, width, height):
         self.id = slot_id
@@ -41,12 +45,121 @@ class Slot:
         self.center_y = y + height / 2
         self.current_key = None  # the tkinter widget permanently anchored here
 
+
 class KeyLabel(tk.Label):
     key: Key
     is_frozen: bool
     current_slot: Slot
 
-class LayoutBuilderApp:
+
+class ButtonPanel:
+     def __init__(
+         self,
+         root,
+         logic
+     ):
+         self.root = root
+         self.logic = logic
+         # frame for buttons
+         self.button_frame = tk.Frame(self.root)
+         self.button_frame.pack(fill="both", padx=20, pady=10)
+
+         # Allow grid to stretch. Important for the very right button.
+         self.button_frame.rowconfigure(3, weight=1)
+         self.button_frame.columnconfigure(0, weight=1)
+         self.button_frame.columnconfigure(4, weight=1)
+
+         self.button_start = tk.Button(self.button_frame, text="Start", command=self.logic.toggle_optimization)
+         self.button_start.grid(row=0, column=1, columnspan=1, padx=(160,20), pady=10)
+
+         # button_reheat
+         self.button_reheat = tk.Button(
+             self.button_frame,
+             text="Reheat",
+             command=lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None
+         )
+         self.button_reheat.grid(row=0, column=2, columnspan=1, pady=10)
+
+         # button_record
+         self.button_record = tk.Button(
+             self.button_frame,
+             text="Rec>>",
+             command=lambda: self.logic.processor.layout_record(self.logic.layout) if self.logic.processor else None
+         )
+         self.button_record.grid(row=0, column=3, columnspan=2, sticky="se", padx=(0,20),  pady=10)
+         self.button_record.config(state="normal")
+
+         # button_recall
+         self.button_recall = tk.Button(self.button_frame, text="Rec<<", command=lambda: self.logic.on_recall() if self.logic.processor else None)
+         self.button_recall.grid(row=0, column=5, columnspan=2, sticky="se", pady=10)
+         self.button_record.config(state="normal")
+
+         # drop-down with a list of keyboard matrices
+         # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
+         # combo.set("Select your layout")
+         # combo.pack(pady=20)
+
+class SliderPanel:
+    def __init__(
+        self,
+        root,
+        logic,
+        on_recalculate
+    ):
+        self.root = root
+        self.logic = logic
+        self.spec = SLIDER_DESCRIPTORS
+        self.logic = SliderPanelLogic()
+        self.slider_data_conveyer = slider_data_conveyer
+        self._debounce_id = None
+        self.adjusted = {}
+        self.on_recalculate = on_recalculate
+        # frame for sliders
+        self.slider_frame = tk.Frame(self.root)
+        self.slider_frame.pack(fill="both", padx=20, pady=10)
+
+        COLUMN_COUNT = 5
+        # spec generator // works with module slider_spec.py
+        for index, (path, meta) in enumerate(self.slider_data_conveyer(self.spec)):
+            row = index // COLUMN_COUNT
+            column = index % COLUMN_COUNT
+            self._build_slider(path, meta, row, column)
+
+    def _build_slider(self, path: tuple, meta: dict, row: int, column: int):
+        # Individual cell for each scale
+        cell = tk.Frame(self.slider_frame)
+        cell.grid(row=row, column=column, padx=10, pady=10)
+
+        var = tk.DoubleVar(value=meta["default"])
+        tk.Label(cell, text=meta["label"]).pack()
+        tk.Scale(
+            cell,
+            from_=meta["min"],
+            to=meta["max"],
+            orient="horizontal",
+            variable=var,
+            command=lambda v, p=path: self._on_slider_change(p, v),
+        ).pack()
+
+
+    def _on_slider_change(self, path, value):
+        # setdefault instead of if statement
+        #self.adjusted.setdefault(section, {})[key] = float(value)
+        node = self.adjusted
+        for part in path[:-1]:
+            node = node.setdefault(part, {})
+        node[path[-1]] = float(value)
+
+        if self._debounce_id is not None:
+            self.root.after_cancel(self._debounce_id)
+        self._debounce_id = self.root.after(1000, self._trigger_recalculate)
+
+    def _trigger_recalculate(self):
+        self._debounce_id = None
+        self.on_recalculate(self.adjusted)
+
+
+class LayoutBuilderApp(ButtonPanel, SliderPanel):
     def __init__(
         self,
         root,
@@ -57,7 +170,10 @@ class LayoutBuilderApp:
     ):
         self.root = root
         self.root.title("Аналізатор розкладки - Матриця")
-        self.root.geometry("900x400")
+        self.width = 900
+        self.heigh = 550
+        self.root.geometry(f"{self.width}x{self.heigh}")
+        self.root.minsize(900, 400)
 
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
@@ -84,28 +200,12 @@ class LayoutBuilderApp:
         self.board = tk.Frame(self.root, bg="#2b2b2b", relief="sunken", bd=2)
         self.board.pack(fill="both", expand=True, padx=20, pady=10)
 
-        # frame for buttons
-        self.button_frame = tk.Frame(self.root)
-        self.button_frame.pack(fill="both", padx=20, pady=10)
+        # button frame
+        self.button_panel = ButtonPanel(self.root, self)
 
-        # Allow grid to stretch. Important for the very right button.
-        self.button_frame.rowconfigure(3, weight=1)
-        self.button_frame.columnconfigure(0, weight=1)
-        self.button_frame.columnconfigure(4, weight=1)
-
-        self.button_start = tk.Button(self.button_frame, text="Start", command=self.toggle_optimization)
-        self.button_start.grid(row=0, column=1, columnspan=1, padx=(160,20), pady=10)
-
-        self.button_reheat = tk.Button(self.button_frame, text="Reheat", command=lambda: self.processor.optimizer.reheat() if self.processor.optimizer else None)
-        self.button_reheat.grid(row=0, column=2, columnspan=1, pady=10)
-
-        self.button_record = tk.Button(self.button_frame, text="Rec>>", command=lambda: self.processor.layout_record(self.layout) if self.processor else None)
-        self.button_record.grid(row=0, column=3, columnspan=2, sticky="se", padx=(0,20),  pady=10)
-        self.button_record.config(state="normal")
-
-        self.button_recall = tk.Button(self.button_frame, text="Rec<<", command=lambda: self.on_recall() if self.processor else None)
-        self.button_recall.grid(row=0, column=5, columnspan=2, sticky="se", pady=10)
-        self.button_record.config(state="normal")
+        # slider frame
+        self.default_moves_config_path = Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
+        self.slider_panel = SliderPanel(self.root, self, on_recalculate=self._slider_recalculate),
 
         # layout
         self.slots = []
@@ -126,9 +226,9 @@ class LayoutBuilderApp:
     # ------------------------------------------------------------------
     def toggle_optimization(self):
         if not self.processor.is_running:
-            self.button_start.config(text="Stop")
-            self.button_record.config(state="disabled")
-            self.button_recall.config(state="disabled")
+            self.button_panel.button_start.config(text="Stop")
+            self.button_panel.button_record.config(state="disabled")
+            self.button_panel.button_recall.config(state="disabled")
             self.status_var.set("Оптимізую...")
             self.processor.start(
                 self.layout,
@@ -138,8 +238,9 @@ class LayoutBuilderApp:
         else:
             self.processor.stop()
             self.status_var.set("Зупиняю...")
-            self.button_record.config(state="normal")
-            self.button_recall.config(state="normal")
+            self.button_panel.button_start.config(text="Start")
+            self.button_panel.button_record.config(state="normal")
+            self.button_panel.button_recall.config(state="normal")
             self.engine.prepare_statistics(statistic)
             self.score = self.engine.score().total_penalty
             self.status_var.set(f"Score: {self.score:.2f}")
@@ -155,7 +256,7 @@ class LayoutBuilderApp:
         self.layout = result_layout
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
         self.redraw_keys()
-        self.button_start.config(text="Start")
+        self.button_panel.button_start.config(text="Start")
         self._notify_layout_changed()
 
     def _on_done(self, result_layout: Layout):
@@ -435,6 +536,32 @@ class LayoutBuilderApp:
                 bg="tomato" if key.is_frozen else "lightgreen",
             )
         self._notify_layout_changed()
+
+    # ------------------------------------------------------------------
+    # Record the layout into different formats
+    # ------------------------------------------------------------------
+    def export_svg(self):
+        width = self.width
+        heigh = self.heigh
+        parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 {width} {heigh}">']
+        pass
+
+    def save_layout_dialog():
+        pass
+
+    # -----------------------------------------------------------------
+    # Sliders
+    # -----------------------------------------------------------------
+    def _slider_recalculate(self, adjusted: dict):
+        merge = load_moves_config(self.default_moves_config_path, adjusted)
+        self.engine.moves = merge
+        self.score = self.engine.score().total_penalty
+
+    def sliders_modal_operations(self):
+        """Invoke the modal window on clicking the 'Advanced' button.
+            Close the modal window on clicking the 'Quit' button."""
+        pass
+
 
 if __name__ == "__main__":
     statistic = STATISTIC

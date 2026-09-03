@@ -68,6 +68,9 @@ class ScoreMetrics:
     skipgram_same_finger_penalty: float = 0.0
     skipgram_same_hand_penalty: float = 0.0
 
+    # finger alternation
+    finger_alternation_penalty: float = 0.0
+
 
 @dataclass
 class Layout:

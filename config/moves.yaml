@@ -4,16 +4,16 @@ version: 1
 # better; negative weights are bonuses.
 base_effort:
   row_multiplier:
-    top: 1.40
+    top: 1.60
     home_row: 1.00
     bottom: 1.20
     other: 1.00
   column_multiplier:
     home_col: 1.00
-    col: 5.00
+    col: 3.00
     other: 4.00
   finger_multiplier:
-    pinky: 1.30
+    pinky: 1.50
     ring: 1.20
     middle: 1.05
     index: 1.10
@@ -22,24 +22,31 @@ base_effort:
 same_finger:
   double_tap: 1.30
   adjacent_row: 2.00
-  skip_row: 4.00
+  skip_row: 6.00
+
+finger_alternation:
+  brother_finger: 1.00  # сусідні пальці (index-middle, middle-ring)
+  nextdoor_finger: 0.70  # через один (index-ring, middle-pinky)
+  foreign_finger: 1.40   # index-pinky
+  ring_pinky_crash: 1.30  # this is really awkward moves
+  thumb_mult: 0.60  # якщо один з пальців — thumb, окремий множник
 
 shape_multiplier:
   vertical: 1.10
-  diagonal: 1.60
-  horizontal: 1.40
+  diagonal: 1.90
+  horizontal: 1.70
 
 roll:
-  inward: 0.90
-  outward: 1.30
-  awkward: 8.00
+  inward: 0.30
+  outward: 0.90
+  awkward: 6.00
 
 hand:
   alternation: 1.00
   strict_alternation: 3.00
-  left_mult: 1.2
-  right_mult: 1.1
+  left_mult: 1.05
+  right_mult: 1.00
 
 skip_bigram:
-  same_finger: 1.1
-  same_hand: 0.10
+  same_finger: 1.9
+  same_hand: 0.30

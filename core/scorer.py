@@ -54,14 +54,31 @@ _REQUIRED_MOVES_SCHEMA = {
     "shape_multiplier": ("vertical", "diagonal", "horizontal"),
     "roll": ("inward", "outward", "awkward"),
     "hand": ("alternation", "strict_alternation", "left_mult", "right_mult"),
+    "finger_alternation": (
+            "brother_finger", "nextdoor_finger", "foreign_finger",
+            "ring_pinky_crash", "thumb_mult",
+        ),
 }
 
+_FINGER_PAIR_CATEGORY = {
+    frozenset({Finger.RING.value, Finger.MIDDLE.value }): "brother_finger",
+    frozenset({Finger.MIDDLE.value, Finger.INDEX.value }): "brother_finger",
+    frozenset({Finger.PINKY.value, Finger.MIDDLE.value }): "nextdoor_finger",
+    frozenset({Finger.RING.value, Finger.INDEX.value }): "nextdoor_finger",
+    frozenset({Finger.PINKY.value, Finger.INDEX.value }): "foreign_finger",
+    frozenset({Finger.PINKY.value, Finger.RING.value }): "ring_pinky_crash",
 
-def load_moves_config(path: str | Path) -> Dict[str, Any]:
-    """Load and validate the numeric movement-policy YAML file."""
+}
+def load_moves_config(path: str | Path, adjusted: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Load and validate the numeric movement-policy YAML file.
+       Merge overrides and validate again."""
     with Path(path).open(encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
-    return validate_moves_config(config)
+    config = validate_moves_config(config)
+    if adjusted:
+        config = merge_config(config, adjusted)
+        config = validate_moves_config(config)
+    return config
 
 
 def validate_moves_config(config: Any) -> Dict[str, Any]:
@@ -84,9 +101,17 @@ def validate_moves_config(config: Any) -> Dict[str, Any]:
                 _validate_numeric_values(nested, names, f"{section}.{subsection}")
         else:
             _validate_numeric_values(value, required, section)
-
     return config
 
+# recursive merge
+def merge_config(config: Dict[str, Any], adjusted: Dict[str, Any]) -> Dict[str, Any]:
+    updated_config = config.copy()
+    for key, value in adjusted.items():
+        if isinstance(value,dict) and isinstance(updated_config.get(key), dict):
+            updated_config[key] = merge_config(updated_config[key], value)
+        else:
+            updated_config[key] = value
+    return updated_config
 
 def _validate_numeric_values(values: Dict[str, Any], names: Tuple[str, ...], path: str) -> None:
     for name in names:
@@ -94,11 +119,11 @@ def _validate_numeric_values(values: Dict[str, Any], names: Tuple[str, ...], pat
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"moves config value '{path}.{name}' must be numeric")
 
-
 def calculate_total_penalty(
     layout: Layout,
     statistics: Dict[str, Any],
-    moves_config: Dict[str, Any] | None = None,
+    moves_config: Optional[Dict[str, Any]] = None,
+    adjusted: Optional[Dict] = None,
 ) -> float:
     """Slow, self-contained one-off scorer. Rebuilds everything from scratch.
 
@@ -108,7 +133,8 @@ def calculate_total_penalty(
     """
     if moves_config is None:
         moves_config = load_moves_config(
-            Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
+            Path(__file__).resolve().parents[1] / "config" / "moves.yaml",
+            adjusted
         )
     engine = MovementScoringEngine(layout.keys, moves_config)
     engine.prepare_statistics(statistics)
@@ -149,6 +175,21 @@ class MovementScoringEngine:
             self._finger_mult_by_value[finger.value] = finger_mult[
                 self._get_finger_name(finger.value)
             ]
+
+        # finger alternation
+        finger_alt_cfg = self.moves["finger_alternation"]
+        self._finger_alt_mult = np.ones((6, 6), dtype=np.float64)
+        for a in range (1, 6):
+            for b in range(1, 6):
+                if a == b:
+                    continue
+                if a == Finger.THUMB.value or b == Finger.THUMB.value:
+                    self._finger_alt_mult[a, b] = finger_alt_cfg["thumb_mult"]
+                else:
+                    category = _FINGER_PAIR_CATEGORY.get(frozenset({a, b}))
+                    if category is None:
+                        raise ValueError(f"finger_alternation: no category for pair ({a}, {b}")
+                    self._finger_alt_mult[a, b] = finger_alt_cfg[category]
 
         self.update_layout(layout_keys)
 
@@ -280,6 +321,7 @@ class MovementScoringEngine:
             metrics.oht_outward_penalty, metrics.oht_awkward_penalty,
             metrics.strict_alternation_penalty, metrics.alternation_bonus,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
+            metrics.finger_alternation_penalty,
         ))
         return metrics
 
@@ -349,6 +391,18 @@ class MovementScoringEngine:
         adjacent_mask = row_diff == 1
         skip_mask = row_diff >= 2
 
+        # same hand, different finger — finger_alternation
+        same_hand_diff_finger = same_hand & (finger1 != finger2)
+        f1 = finger1[same_hand_diff_finger]
+        f2 = finger2[same_hand_diff_finger]
+        h = hand1[same_hand_diff_finger]
+        w = weight[same_hand_diff_finger]
+
+        alt_mult = self._finger_alt_mult[f1, f2]
+        hand_mult = np.where(
+            h == "left", self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"]
+        )
+
         metrics.double_tap_penalty += np.sum(
             w_sf[double_tap_mask] * mult[double_tap_mask] * self.moves["same_finger"]["double_tap"]
         )
@@ -358,6 +412,7 @@ class MovementScoringEngine:
         metrics.sfs_penalty += np.sum(
             w_sf[skip_mask] * mult[skip_mask] * self.moves["same_finger"]["skip_row"]
         )
+        metrics.finger_alternation_penalty += np.sum(w * alt_mult * hand_mult)
 
     def _evaluate_trigrams_vectorized(self, idx1, idx2, idx3, weight, metrics):
         hand1, hand2, hand3 = self.hand[idx1], self.hand[idx2], self.hand[idx3]
@@ -395,14 +450,6 @@ class MovementScoringEngine:
         metrics.skipgram_same_hand_penalty += np.sum(
             weight[same_hand & ~same_finger] * self.moves.get("skip_bigram", {}).get("same_hand", 0.1)
         )
-
-    # @staticmethod
-    # def get_row_name(row_index: int) -> str:
-    #     return {0: "top", 1: "home_row", 2: "bottom"}.get(row_index, "other")
-
-    # @staticmethod
-    # def get_col_name(col_index: int) -> str:
-    #     return {1: "home_col", 0: "col"}.get(col_index, "other")
 
     @staticmethod
     def _get_finger_name(finger_value) -> str:
