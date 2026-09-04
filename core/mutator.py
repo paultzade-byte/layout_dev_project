@@ -10,8 +10,8 @@ import threading
 
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, List
-
-from log.loggers.state_hasher import StateHasher
+# keep this row for possible debugging process
+# from log.loggers.state_hasher import StateHasher
 
 import core.scorer as scoring
 from core.models import Layout, Key, clone_layout
@@ -197,9 +197,6 @@ class LayoutOptimizerSA:
         self.best_layout = copy.deepcopy(layout)
         score = self._score(self.current_layout)
 
-        # debug print layout hash to identify any differences
-        # a = 'start'
-        # state_hasher = StateHasher()
         # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {score}")
 
         tabu_hits = 0
@@ -218,9 +215,6 @@ class LayoutOptimizerSA:
         for i in range(1, iterations + 1):
 
             if self.stop_event is not None and self.stop_event.is_set():
-                # debug print layout hash to identify any differences
-                # a = 'early_exit(stop_event condition)'
-                # state_hasher(self.current_layout, f"mutator.run_optimization.{a} Score from mutator._score(): {score}")
                 break
 
             candidate = self._apply_mutation(self.current_layout, ladder_index)
@@ -293,13 +287,6 @@ class LayoutOptimizerSA:
             if ui_callback and i % 50 == 0:
                 ui_callback(self.best_layout, self.best_score, current_iteration=i)
 
-        # debug print layout hash to identify any differences
-        # a = 'end_of_the_func post_ui_callback'
-        # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {score}")
-
-            # debugging prints
-            # if i % 100 == 0:
-            #     print(f"tabu_hits so far: {tabu_hits}/{i}")
             #     print(f"accepted_count: {self.accepted_count}, improved_count: {self.improved_count}")
 
             #if i < 10:

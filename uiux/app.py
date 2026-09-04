@@ -118,7 +118,7 @@ class SliderPanel:
         self.slider_frame = tk.Frame(self.root)
         self.slider_frame.pack(fill="both", padx=20, pady=10)
 
-        COLUMN_COUNT = 5
+        COLUMN_COUNT = 6
         # spec generator // works with module slider_spec.py
         for index, (path, meta) in enumerate(self.slider_data_conveyer(self.spec)):
             row = index // COLUMN_COUNT
@@ -143,8 +143,7 @@ class SliderPanel:
 
 
     def _on_slider_change(self, path, value):
-        # setdefault instead of if statement
-        #self.adjusted.setdefault(section, {})[key] = float(value)
+        """Recording changes into self.adjusted dictionary after 1s."""
         node = self.adjusted
         for part in path[:-1]:
             node = node.setdefault(part, {})
@@ -159,7 +158,7 @@ class SliderPanel:
         self.on_recalculate(self.adjusted)
 
 
-class LayoutBuilderApp(ButtonPanel, SliderPanel):
+class LayoutBuilderApp():
     def __init__(
         self,
         root,
@@ -205,7 +204,7 @@ class LayoutBuilderApp(ButtonPanel, SliderPanel):
 
         # slider frame
         self.default_moves_config_path = Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
-        self.slider_panel = SliderPanel(self.root, self, on_recalculate=self._slider_recalculate),
+        self.slider_panel = SliderPanel(self.root, self, on_recalculate=self._slider_recalculate)
 
         # layout
         self.slots = []
@@ -218,7 +217,12 @@ class LayoutBuilderApp(ButtonPanel, SliderPanel):
         self.populate_initial_keys()
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
         self._notify_layout_changed()
+
+        # scoring
         self.engine = MovementScoringEngine(self.layout.keys, moves_config)
+        # heavy / depends on statistic / recalled once
+        self.engine.prepare_statistics(statistic)
+        # refreshing after mutation/swap
         self.engine.update_layout(self.layout.keys)
 
     # ------------------------------------------------------------------
@@ -392,10 +396,6 @@ class LayoutBuilderApp(ButtonPanel, SliderPanel):
             self.hovered_key = target_key
 
     def on_drag_release(self, event):
-
-        # debug print layout hash to identify any differences
-        # a = 'start' # locator
-        # state_hasher = StateHasher()
         # state_hasher(self.layout, "app.on_drag_release." + a)
 
         widget = event.widget
@@ -446,9 +446,6 @@ class LayoutBuilderApp(ButtonPanel, SliderPanel):
             self.snap_to_slot(widget, widget.current_slot)
 
         self._sync_layout_from_ui()
-        # debug print layout hash to identify any differences
-        # a = 'end'
-        # state_hasher = StateHasher()
         # state_hasher(self.layout, "app.on_drag_release." + a)
 
     def _sync_layout_from_ui(self):

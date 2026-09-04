@@ -12,10 +12,11 @@ SLIDER_DESCRIPTORS = {
         },
     },
     "same_finger": {
-        "double_tap": {"default": 2.0, "label": "SFB double tap", "min": 0.01, "max": 5.0},
+        "double_tap": {"default": 2.0, "label": "SFB double tap", "min": 0.01, "max": 1.0},
     },
     "roll": {
-        "outward": {"default": 0.9, "label": "Outward roll penalty", "min": 0.01, "max": 1.0},
+        "inward": {"default": 0.3, "label": "Inward roll penalty", "min": 0.01, "max": 2.0},
+        "outward": {"default": 0.9, "label": "Outward roll penalty", "min": 0.01, "max": 2.0},
     },
 }
 
