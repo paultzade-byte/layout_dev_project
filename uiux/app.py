@@ -104,12 +104,12 @@ class SliderPanel:
         self,
         root,
         logic,
-        on_recalculate
+        on_recalculate,
     ):
         self.root = root
         self.logic = logic
         self.spec = SLIDER_DESCRIPTORS
-        self.logic = SliderPanelLogic()
+        self.panel_logic = SliderPanelLogic()
         self.slider_data_conveyer = slider_data_conveyer
         self._debounce_id = None
         self.adjusted = {}
@@ -117,6 +117,7 @@ class SliderPanel:
         # frame for sliders
         self.slider_frame = tk.Frame(self.root)
         self.slider_frame.pack(fill="both", padx=20, pady=10)
+        self.load_moves_config = load_moves_config
 
         COLUMN_COUNT = 6
         # spec generator // works with module slider_spec.py
@@ -239,6 +240,12 @@ class LayoutBuilderApp():
                 on_progress=self._on_progress,
                 on_done=self._on_done,
             )
+            # debug delete on resolve
+            self.engine.prepare_statistics(statistic)
+            self.engine.update_layout(self.layout.keys)
+            self.score = self.engine.score().total_penalty
+            self.status_var.set(f"Score: {self.score:.2f}")
+            print('Score__when not self.processor.is_running and start is toggled\n\n', self.score)
         else:
             self.processor.stop()
             self.status_var.set("Зупиняю...")
@@ -246,8 +253,10 @@ class LayoutBuilderApp():
             self.button_panel.button_record.config(state="normal")
             self.button_panel.button_recall.config(state="normal")
             self.engine.prepare_statistics(statistic)
+            self.engine.update_layout(self.layout.keys)
             self.score = self.engine.score().total_penalty
             self.status_var.set(f"Score: {self.score:.2f}")
+            print('Score__when self.processor.is_running and stop is toggled\n\n', self.score)
 
     def _on_progress(self, layout, score, current_iteration):
         # викликається з робочого потоку -> завжди через root.after
@@ -279,7 +288,7 @@ class LayoutBuilderApp():
             widget.config(
                 text=f"{key.char}\n(L)" if key.is_frozen else key.char,
                 bg="tomato" if key.is_frozen else "lightgreen",
-                font=("Arial", 9, "bold") if key.is_frozen else ("Arial", 14, "bold"),
+                font=("Arial", 9, "bold") if key.is_frozen else ("Arial", 17, "bold"),
             )
 
     def build_grid(self):
@@ -323,7 +332,7 @@ class LayoutBuilderApp():
                 self.board,
                 text=f"{key.char}\n(L)" if key.is_frozen else key.char,
                 bg="tomato" if key.is_frozen else "lightgreen",
-                font=("Arial", 9, "bold") if key.is_frozen else ("Arial", 14, "bold"),
+                font=("Arial", 9, "bold") if key.is_frozen else ("Arial", 17, "bold"),
                 relief="raised", bd=3  # board outline
             )
             widget.place(x=slot.x, y=slot.y, width=self.key_width, height=self.key_height)
@@ -494,7 +503,7 @@ class LayoutBuilderApp():
         if widget.key.is_frozen:
             widget.config(bg="tomato", text=f"{char}\n(L)", font=("Arial", 9, "bold"))
         else:
-            widget.config(bg="lightgreen", text=char, font=("Arial", 14, "bold"))
+            widget.config(bg="lightgreen", text=char, font=("Arial", 17, "bold"))
         self._notify_layout_changed()
 
     def _notify_layout_changed(self):
