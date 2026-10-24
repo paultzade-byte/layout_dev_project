@@ -151,6 +151,9 @@ class MovementScoringEngine:
         self.chars = [key.char for key in layout_keys if key.char]
         self.char_to_idx = {c: i for i, c in enumerate(self.chars)}
         n = len(self.chars)
+        print("n(layout_keys with char):", len(self.chars))
+        print("n(unique chars):", len(self.char_to_idx))
+        print("dup chars:", [c for c in self.chars if self.chars.count(c) > 1])
 
         # Per-char geometry arrays. These DO depend on current positions,
         # so they get refreshed by update_layout() — cheaply (O(n) here).

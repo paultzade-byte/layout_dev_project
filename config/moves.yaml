@@ -4,9 +4,9 @@ version: 1
 # better; negative weights are bonuses.
 base_effort:
   row_multiplier:
-    top: 1.10
+    top: 1.50
     home_row: 0.50
-    bottom: 1.20
+    bottom: 1.55
     other: 1.00
   column_multiplier:
     home_col: 0.90
@@ -33,7 +33,7 @@ finger_alternation:
 
 shape_multiplier:
   vertical: 1.60
-  diagonal: 2.00
+  diagonal: 1.20
   horizontal: 1.30
 
 roll:

@@ -67,12 +67,13 @@
         { "id": 3, "row": 0, "home_row": 0, "col": 4, "home_col": 1, "hand": "L", "finger": "L_index", "default": "'" },
         { "id": 4, "row": 0, "home_row": 0, "col": 5, "home_col": 0, "hand": "L", "finger": "L_index", "default": "ш" },
 
-        { "id": 5, "row": 1, "home_row": 1, "col": 0, "home_col": 0, "hand": "L", "finger": "L_pinky", "role": "mod", "tap": null, "hold": "shift", "default": "Shft" },
+        { "id": 5, "row": 1, "home_row": 1, "col": 0, "home_col": 0, "hand": "L", "finger": "L_pinky", "default": "є" },
         { "id": 6, "row": 1, "home_row": 1, "col": 1, "home_col": 1, "hand": "L", "finger": "L_pinky", "default": "м" },
         { "id": 7, "row": 1, "home_row": 1, "col": 2, "home_col": 1, "hand": "L", "finger": "L_ring", "default": "р" },
         { "id": 8, "row": 1, "home_row": 1, "col": 3, "home_col": 1, "hand": "L", "finger": "L_middle", "default": "н" },
         { "id": 9, "row": 1, "home_row": 1, "col": 4, "home_col": 1, "hand": "L", "finger": "L_index", "default": "т" },
         { "id": 10, "row": 1, "home_row": 1, "col": 5, "home_col": 0, "hand": "L", "finger": "L_index", "default": "г" },
+
 
         { "id": 11, "row": 2, "home_row": 0, "col": 1, "home_col": 1, "hand": "L", "finger": "L_pinky", "default": "б" },
         { "id": 12, "row": 2, "home_row": 0, "col": 2, "home_col": 1, "hand": "L", "finger": "L_ring", "default": "д" },
@@ -98,7 +99,8 @@
         { "id": 29, "row": 2, "home_row": 0, "col": 4, "home_col": 1, "hand": "R", "finger": "R_ring", "default": "ю" },
         { "id": 30, "row": 2, "home_row": 0, "col": 5, "home_col": 1, "hand": "R", "finger": "R_pinky", "default": "," },
 
-        { "id": 31, "row": 1, "home_row": 1, "col": 6, "home_col": 0, "hand": "R", "finger": "R_pinky", "role": "mod", "tap": null, "hold": "shift", "default": "Shft" },
+
+        { "id": 31, "row": 1, "home_row": 1, "col": 6, "home_col": 0, "hand": "R", "finger": "R_pinky", "default": "ї" },
 
         { "id": 32, "row": 3, "home_row": 3, "home_col": 3, "col": 3, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
         { "id": 33, "row": 3, "home_row": 3, "home_col": 3, "col": 4, "hand": "L", "finger": "L_thumb", "role": "mod", "tap": null, "hold": null, "default": "SPA" },
@@ -106,7 +108,10 @@
 
         { "id": 35, "row": 3, "home_row": 3, "home_col": 3, "col": 1, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
         { "id": 36, "row": 3, "home_row": 3, "home_col": 3, "col": 2, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "CE" },
-        { "id": 37, "row": 3, "home_row": 3, "home_col": 3, "col": 3, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "" }
+        { "id": 37, "row": 3, "home_row": 3, "home_col": 3, "col": 3, "hand": "R", "finger": "R_thumb", "role": "mod", "tap": null, "hold": null, "default": "" },
+
+        { "id": 38, "row": 2, "home_row": 0, "col": 0, "home_col": 0, "hand": "L", "finger": "L_pinky", "default": "й" },
+        { "id": 39, "row": 2, "home_row": 0, "col": 6, "home_col": 0, "hand": "R", "finger": "R_pinky", "default": "щ" }
       ]
     }
   }
