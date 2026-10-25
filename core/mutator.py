@@ -194,9 +194,11 @@ class LayoutOptimizerSA:
     ) -> Layout:
         self.current_layout = copy.deepcopy(layout)
         self.best_layout = copy.deepcopy(layout)
-        score = self._score(self.current_layout)
+        # delta і порівняння з best мають рахуватися від переданого layout,
+        # а не від score, що залишився з __init__ / попереднього запуску
+        self.current_score = self.best_score = self._score(self.current_layout)
 
-        # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {score}")
+        # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {self.current_score}")
 
         tabu_hits = 0
 
