@@ -63,6 +63,7 @@ _REQUIRED_MOVES_SCHEMA = {
         },
     },
     "roll": ("inward", "outward", "awkward"),
+    "roll_rows": ("natural_arc", "bottom_step", "row_skip", "drop_jump"),
     "hand": ("alternation", "strict_alternation", "left_mult", "right_mult"),
     "finger_alternation": (
             "brother_finger", "nextdoor_finger", "foreign_finger",
@@ -342,7 +343,7 @@ class MovementScoringEngine:
             metrics.oht_outward_penalty, metrics.oht_awkward_penalty,
             metrics.strict_alternation_penalty, metrics.alternation_bonus,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
-            metrics.finger_alternation_penalty,
+            metrics.finger_alternation_penalty, metrics.roll_row_penalty,
         ))
         return metrics
 
@@ -477,6 +478,41 @@ class MovementScoringEngine:
         metrics.oht_inward_penalty += np.sum(w[inward_mask] * self.moves["roll"]["inward"])
         metrics.oht_outward_penalty += np.sum(w[outward_mask] * self.moves["roll"]["outward"])
         metrics.oht_awkward_penalty += np.sum(w[awkward_mask] * self.moves["roll"]["awkward"])
+
+        # --- форма перекату по рядах (додається до штрафу напрямку вище) ---
+        # Лише справжні перекати: сусідні натискання різними пальцями.
+        roll_mask = (f1 != f2) & (f2 != f3)
+        r1 = self.row[idx1[same_hand_mask]][roll_mask]
+        r2 = self.row[idx2[same_hand_mask]][roll_mask]
+        r3 = self.row[idx3[same_hand_mask]][roll_mask]
+        rf = np.stack([f1[roll_mask], f2[roll_mask], f3[roll_mask]])
+        rr = np.stack([r1, r2, r3])
+        rw = w[roll_mask]
+
+        has_top = np.any(rr == 0, axis=0)
+        has_bottom = np.any(rr == 2, axis=0)
+        # Довгі пальці (середній, безіменний) природно дістають верхній ряд.
+        top_by_short_finger = np.any(
+            (rr == 0) & ((rf == Finger.INDEX.value) | (rf == Finger.PINKY.value)), axis=0
+        )
+        # 1) Провал і перескок: проміжна літера скидає палець на нижній ряд,
+        #    а наступна змушує стрибнути з нижнього на верхній. Найгірше.
+        drop_jump = (r1 != 2) & (r2 == 2) & (r3 == 0)
+        # 2) Перекат через ряд: є і верхній, і нижній (напр. третя літера внизу
+        #    після верхнього ряду). Трохи гірше.
+        row_skip = has_top & has_bottom & ~drop_jump
+        # 3) Природна дуга: домашній ряд + верхній лише довгими пальцями
+        #    (мізинець home, середній top, вказівний home). Зручно -> бонус.
+        natural_arc = has_top & ~has_bottom & ~top_by_short_finger
+        # 4) Домашній + нижній без верхнього (дві на home, третя внизу). Нормально.
+        bottom_step = has_bottom & ~has_top
+
+        rows_cfg = self.moves["roll_rows"]
+        metrics.roll_row_penalty += float(np.sum(rw * np.select(
+            [drop_jump, row_skip, natural_arc, bottom_step],
+            [rows_cfg["drop_jump"], rows_cfg["row_skip"], rows_cfg["natural_arc"], rows_cfg["bottom_step"]],
+            default=0.0,
+        )))
 
     def _evaluate_skipgrams_vectorized(self, idx1, idx2, weight, metrics):
         hand1, hand2 = self.hand[idx1], self.hand[idx2]
