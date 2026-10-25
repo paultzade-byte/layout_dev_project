@@ -51,8 +51,8 @@
 
 Гілка: `fix/algorithm-bugs` (від `advanced_feature_branch`). Локальні
 `advanced_feature_branch`, `dev/freeze_error`, `svg-feature` видалені (усі
-коміти є в новій гілці). На origin ще є `advanced_feature_branch` і
-`dev/freeze_error` — видаляти чи ні, автор не вирішив. Нічого не запушено.
+коміти є в новій гілці), на origin теж. `fix/algorithm-bugs` запушено на
+origin (з upstream); на GitHub лишились тільки `main` і `fix/algorithm-bugs`.
 
 ### Виправлені помилки
 - `9e76a45` drag&drop не оновлював `home_row/home_col` → невірний score у UI,
