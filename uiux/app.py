@@ -270,6 +270,8 @@ class LayoutBuilderApp():
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
         self.redraw_keys()
         self.button_panel.button_start.config(text="Start")
+        self.button_panel.button_record.config(state="normal")
+        self.button_panel.button_recall.config(state="normal")
         self._notify_layout_changed()
 
     def _on_done(self, result_layout: Layout):
