@@ -38,12 +38,16 @@ same_finger:
       middle: 0.90
       index: 0.90
 
+# Біграма однією рукою різними пальцями (перекат). Штраф лише за незручні
+# пари — природні перекати не повинні програвати чергуванню рук.
+# Напрямок (всередину/назовні) тут не враховується: для сусідніх пальців
+# обидва зручні.
 finger_alternation:
-  brother_finger: 1.10  # сусідні пальці (index-middle, middle-ring)
-  nextdoor_finger: 1.00  # через один (index-ring, middle-pinky)
-  foreign_finger: 1.30   # index-pinky
-  ring_pinky_crash: 1.50  # this is really awkward moves
-  thumb_mult: 0.60  # якщо один з пальців — thumb, окремий множник
+  brother_finger: 0.00    # сусідні (index-middle, middle-ring) — зручно в обидва боки
+  nextdoor_finger: 0.20   # через один (index-ring, middle-pinky) — трохи гірше
+  foreign_finger: 0.30    # index-pinky — широкий розмах
+  ring_pinky_crash: 0.50  # ring-pinky — найнезручніше, але не критично
+  thumb_mult: 0.00        # пара з великим пальцем
 
 roll:
   inward: 0.01
