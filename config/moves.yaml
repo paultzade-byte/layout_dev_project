@@ -8,10 +8,11 @@ base_effort:
     home_row: 0.50
     bottom: 1.55
     other: 1.00
+  # лише в base_effort; за прапорцем home_col клавіші в geometry.json
   column_multiplier:
-    home_col: 0.90
-    col: 9.00
-    other: 1.00
+    home_col: 1.00  # домашня колонка пальця
+    col: 1.50       # дотична колонка (бічна вказівного, зовнішня мізинця)
+    other: 1.00     # клавіші поза основною сіткою (thumb)
   finger_multiplier:
     pinky: 1.40
     ring: 1.15

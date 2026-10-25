@@ -403,9 +403,10 @@ class MovementScoringEngine:
 
     def _evaluate_unigrams_vectorized(self, metrics: ScoreMetrics) -> None:
         idx = self._unigram_idx
-        column_weight = self._column_mult_by_flag[self.home_col[idx]]
         if idx is None or len(idx) == 0:
             return
+        # home_col: 0 = дотична колонка, 1 = домашня, інше (напр. 3 у thumb) -> "other"
+        column_weight = self._column_mult_by_flag[np.minimum(self.home_col[idx], 2)]
         left_mult = self.moves["hand"]["left_mult"]
         right_mult = self.moves["hand"]["right_mult"]
         hand = self.hand[idx]
