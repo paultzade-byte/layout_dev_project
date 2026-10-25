@@ -75,6 +75,9 @@ class LayoutOptimizerSA:
         self.cooling = self.config.get("cooling", (self.end_temp / self.start_temp) ** (1.1 / max(self.iterations, 1)))  # коефіцієнт охолодження. Чим він більше, тим швидше охолоджується алгоритм
         self.accepted_count = 0  # лічильник прийнятих станів
         self.improved_count = 0  # лічильник покращених станів
+        # запит на reheat з UI-потоку; цикл забирає його на початку ітерації,
+        # інакше локальна temp у run_optimization перетерла б зміну
+        self._pending_reheat: Optional[float] = None
 
     # access to current layout keys
     @property
@@ -171,17 +174,13 @@ class LayoutOptimizerSA:
         """Компактний підпис стану для tabu-списку (порядок char по позиціях)."""
         return tuple(k.char for k in layout.keys)
 
-    def reheat_multiplier(self, factor: float | None = None):
-        factor = factor if factor is not None else self.reheat_factor
-        self.temp = min(self.temp * factor, self.start_temp)
-
     # button reheat
     def reheat(self, factor: float | None = None):
         """Up the tempeature without loosing best_layout, tabu, history.
-            This is not full restart but only out from the stall-plato."""
-        print(f'current temp {self.temp}')
-        self.reheat_multiplier(factor)
-        self.stall_counter = 0
+            This is not full restart but only out from the stall-plato.
+            Safe to call from another thread: the request is applied by
+            run_optimization at the start of its next iteration."""
+        self._pending_reheat = factor if factor is not None else self.reheat_factor
 
     # -----------------------------------------------------------
     # Основний цикл
@@ -216,6 +215,15 @@ class LayoutOptimizerSA:
 
             if self.stop_event is not None and self.stop_event.is_set():
                 break
+
+            factor, self._pending_reheat = self._pending_reheat, None
+            if factor is not None:
+                temp = min(temp * factor, self.start_temp)
+                stall_counter = 0
+                self.history.append({
+                    "iter": i, "id": None, "score": self.current_score,
+                    "event": f"manual reheat -> temp={temp:.4f}"
+                })
 
             candidate = self._apply_mutation(self.current_layout, ladder_index)
             sig = self._signature(candidate)
