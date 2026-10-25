@@ -12,7 +12,7 @@ SLIDER_DESCRIPTORS = {
         },
     },
     "same_finger": {
-        "double_tap": {"default": 2.0, "label": "SFB double tap", "min": 0.01, "max": 1.0},
+        "same_key": {"default": 1.1, "label": "Same key repeat", "min": 0.01, "max": 3.0},
     },
     "roll": {
         "inward": {"default": 0.3, "label": "Inward roll penalty", "min": 0.01, "max": 2.0},

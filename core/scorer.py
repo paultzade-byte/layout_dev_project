@@ -50,8 +50,18 @@ _REQUIRED_MOVES_SCHEMA = {
         "finger_multiplier": ("pinky", "ring", "middle", "index", "thumb"),
         "column_multiplier": ("home_col", "col"),
     },
-    "same_finger": ("double_tap", "adjacent_row", "skip_row"),
-    "shape_multiplier": ("vertical", "diagonal", "horizontal"),
+    # None = числовий лист; tuple = вкладена секція з числовими листами
+    "same_finger": {
+        "same_key": None,
+        "lateral": None,
+        "diagonal_down": None,
+        "diagonal_up": None,
+        "vertical": None,
+        "skip_row": {
+            "max": None,
+            "ratio": ("pinky", "ring", "middle", "index"),
+        },
+    },
     "roll": ("inward", "outward", "awkward"),
     "hand": ("alternation", "strict_alternation", "left_mult", "right_mult"),
     "finger_alternation": (
@@ -86,22 +96,24 @@ def validate_moves_config(config: Any) -> Dict[str, Any]:
     if not isinstance(config, dict) or config.get("version") != 1:
         raise ValueError("moves config must be a mapping with version: 1")
 
-    for section, required in _REQUIRED_MOVES_SCHEMA.items():
-        value = config.get(section)
-        if not isinstance(value, dict):
-            raise ValueError(f"moves config section '{section}' must be a mapping")
-
-        if isinstance(required, dict):
-            for subsection, names in required.items():
-                nested = value.get(subsection)
-                if not isinstance(nested, dict):
-                    raise ValueError(
-                        f"moves config section '{section}.{subsection}' must be a mapping"
-                    )
-                _validate_numeric_values(nested, names, f"{section}.{subsection}")
-        else:
-            _validate_numeric_values(value, required, section)
+    _validate_section(config, _REQUIRED_MOVES_SCHEMA, "")
     return config
+
+
+def _validate_section(value: Any, spec: Any, path: str) -> None:
+    """spec: dict -> секція з іменованими полями, tuple -> секція з числовими
+    листами, None -> одне числове значення."""
+    if spec is None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"moves config value '{path}' must be numeric")
+        return
+    if not isinstance(value, dict):
+        raise ValueError(f"moves config section '{path}' must be a mapping")
+    if isinstance(spec, tuple):
+        _validate_numeric_values(value, spec, path)
+        return
+    for name, sub_spec in spec.items():
+        _validate_section(value.get(name), sub_spec, f"{path}.{name}" if path else name)
 
 # recursive merge
 def merge_config(config: Dict[str, Any], adjusted: Dict[str, Any]) -> Dict[str, Any]:
@@ -178,6 +190,12 @@ class MovementScoringEngine:
             self._finger_mult_by_value[finger.value] = finger_mult[
                 self._get_finger_name(finger.value)
             ]
+
+        # SFS ratio по Finger.value; thumb перескоків не має -> 0
+        skip_ratio = self.moves["same_finger"]["skip_row"]["ratio"]
+        self._skip_ratio_by_value = np.zeros(6, dtype=np.float64)
+        for finger in (Finger.PINKY, Finger.RING, Finger.MIDDLE, Finger.INDEX):
+            self._skip_ratio_by_value[finger.value] = skip_ratio[self._get_finger_name(finger.value)]
 
         # finger alternation
         finger_alt_cfg = self.moves["finger_alternation"]
@@ -377,22 +395,46 @@ class MovementScoringEngine:
             weight[alternation_mask] * self.moves["hand"]["alternation"]
         )
 
-        # серед same_finger - рахуємо row_difference і shape
-        row_diff = np.abs(row1[same_finger] - row2[same_finger])
-        same_row = row1[same_finger] == row2[same_finger]
-        same_col = col1[same_finger] == col2[same_finger]
-        shape_mult = np.where(
-            same_row, self.moves["shape_multiplier"]["horizontal"],
-            np.where(same_col, self.moves["shape_multiplier"]["vertical"],
-                self.moves["shape_multiplier"]["diagonal"])
-        )
-        finger_mult = self._finger_mult_by_value[finger1[same_finger]]
+        # --- same finger: класифікація руху пальця між двома клавішами ---
+        # row: 0 = верхній, 1 = домашній, 2 = нижній (більше = нижче)
+        sf_finger = finger1[same_finger]
+        sf_row1, sf_row2 = row1[same_finger], row2[same_finger]
+        sf_col1, sf_col2 = col1[same_finger], col2[same_finger]
         w_sf = weight[same_finger]
-        mult = shape_mult * finger_mult
+        row_diff = np.abs(sf_row1 - sf_row2)
+        same_col = sf_col1 == sf_col2
 
-        double_tap_mask = row_diff == 0
-        adjacent_mask = row_diff == 1
+        sf_cfg = self.moves["same_finger"]
+        # Одна клавіша двічі ("нн") — палець не переміщується, це не SFB.
+        same_key_mask = (row_diff == 0) & same_col
+        # SFB на сусідній ряд або в сусідню колонку. Шкала від легкого до важкого:
+        #   lateral (горизонталь, напр. вказівний 4<->5)  <  diagonal_down  <  diagonal_up
+        #   vertical — той самий стовпчик, сусідній ряд.
+        lateral_mask = (row_diff == 0) & ~same_col
+        vertical_mask = (row_diff == 1) & same_col
+        diagonal_down_mask = (row_diff == 1) & ~same_col & (sf_row2 > sf_row1)
+        diagonal_up_mask = (row_diff == 1) & ~same_col & (sf_row2 < sf_row1)
+        sfb_weight = np.select(
+            [lateral_mask, vertical_mask, diagonal_down_mask, diagonal_up_mask],
+            [sf_cfg["lateral"], sf_cfg["vertical"], sf_cfg["diagonal_down"], sf_cfg["diagonal_up"]],
+            default=0.0,
+        )
+        # для одно-рядних рухів зберігається множник сили пальця
+        finger_mult = self._finger_mult_by_value[sf_finger]
+
+        # SFS — перескок через домашній ряд (нижній <-> верхній).
+        # Абсолютна шкала, без множника пальця: max — мізинець з дотичної
+        # (розтягнутої, home_col == 0) колонки на домашню; решта перескоків =
+        # ratio[палець] * max (за замовчуванням 90%).
         skip_mask = row_diff >= 2
+        skip_cfg = sf_cfg["skip_row"]
+        skip_weight = skip_cfg["max"] * self._skip_ratio_by_value[sf_finger]
+        pinky_stretch_to_home = (
+            (sf_finger == Finger.PINKY.value)
+            & (self.home_col[idx1[same_finger]] == 0)
+            & (self.home_col[idx2[same_finger]] == 1)
+        )
+        skip_weight = np.where(pinky_stretch_to_home, skip_cfg["max"], skip_weight)
 
         # same hand, different finger — finger_alternation
         same_hand_diff_finger = same_hand & (finger1 != finger2)
@@ -407,14 +449,10 @@ class MovementScoringEngine:
         )
 
         metrics.double_tap_penalty += np.sum(
-            w_sf[double_tap_mask] * mult[double_tap_mask] * self.moves["same_finger"]["double_tap"]
+            w_sf[same_key_mask] * finger_mult[same_key_mask] * sf_cfg["same_key"]
         )
-        metrics.sfb_penalty += np.sum(
-            w_sf[adjacent_mask] * mult[adjacent_mask] * self.moves["same_finger"]["adjacent_row"]
-        )
-        metrics.sfs_penalty += np.sum(
-            w_sf[skip_mask] * mult[skip_mask] * self.moves["same_finger"]["skip_row"]
-        )
+        metrics.sfb_penalty += np.sum(w_sf * sfb_weight * finger_mult)
+        metrics.sfs_penalty += np.sum(w_sf[skip_mask] * skip_weight[skip_mask])
         metrics.finger_alternation_penalty += np.sum(w * alt_mult * hand_mult)
 
     def _evaluate_trigrams_vectorized(self, idx1, idx2, idx3, weight, metrics):

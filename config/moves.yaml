@@ -19,10 +19,23 @@ base_effort:
     index: 1.20
     thumb: 1.00
 
+# Той самий палець на двох послідовних клавішах.
+# same_key/lateral/vertical/diagonal_* множаться на finger_multiplier,
+# skip_row — абсолютна шкала (див. нижче).
 same_finger:
-  double_tap: 1.10
-  adjacent_row: 1.70
-  skip_row: 3.00
+  same_key: 1.10       # та сама клавіша двічі ("нн") — палець не рухається
+  lateral: 1.40        # горизонталь: той самий ряд, сусідня колонка — найлегший SFB
+  diagonal_down: 2.00  # зміна колонки + ряд вниз
+  diagonal_up: 2.40    # зміна колонки + ряд вгору — найважча діагональ
+  vertical: 2.70       # той самий стовпчик, сусідній ряд
+  # перескок нижній <-> верхній через домашній ряд (SFS)
+  skip_row:
+    max: 6.00          # максимум: мізинець з дотичної колонки на домашню
+    ratio:             # решта перескоків = ratio * max
+      pinky: 0.90
+      ring: 0.90
+      middle: 0.90
+      index: 0.90
 
 finger_alternation:
   brother_finger: 1.10  # сусідні пальці (index-middle, middle-ring)
@@ -30,11 +43,6 @@ finger_alternation:
   foreign_finger: 1.30   # index-pinky
   ring_pinky_crash: 1.50  # this is really awkward moves
   thumb_mult: 0.60  # якщо один з пальців — thumb, окремий множник
-
-shape_multiplier:
-  vertical: 1.60
-  diagonal: 1.20
-  horizontal: 1.30
 
 roll:
   inward: 0.01
