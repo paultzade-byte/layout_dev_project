@@ -64,7 +64,8 @@ _REQUIRED_MOVES_SCHEMA = {
     },
     "roll": ("inward", "outward", "awkward"),
     "roll_rows": ("natural_arc", "bottom_step", "row_skip", "drop_jump"),
-    "hand": ("alternation", "strict_alternation", "left_mult", "right_mult"),
+    "hand": ("left_mult", "right_mult"),
+    "hand_runs": ("single", "balanced", "overload", "overload_step"),
     "finger_alternation": (
             "brother_finger", "nextdoor_finger", "foreign_finger",
             "ring_pinky_crash", "thumb_mult",
@@ -222,6 +223,9 @@ class MovementScoringEngine:
         self._skipgram_idx: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
         self._unigram_idx: Optional[np.ndarray] = None
         self._unigram_weight: Optional[np.ndarray] = None
+        # hand runs: n-грами всередині слів -> (index array, weights)
+        self._word_ngrams: Optional[Dict[str, Tuple[np.ndarray, np.ndarray]]] = None
+        self._word_total = 0.0
         self._statistics_prepared = False
 
     # -----------------------------------------------------------
@@ -251,8 +255,47 @@ class MovementScoringEngine:
         self._unigram_idx = np.array(uni_idx, dtype=np.int64)
         self._unigram_weight = np.array(uni_w, dtype=np.float64)
 
+        self._prepare_word_ngrams(statistics.get("words", {}))
+
         self._statistics_prepared = True
         return self
+
+    def _prepare_word_ngrams(self, words: Dict[str, float]) -> None:
+        """Розкладає слова на n-грами, з яких точно відновлюються серії рук
+        (див. _evaluate_hand_runs_vectorized). Агрегація по унікальних
+        n-грамах замість матриці слів у ~10 разів дешевша на кожен score():
+          inner2 — усі пари всередині слова (зміни руки)
+          first2 / last2 — перша / остання пара слова (одиночні серії на краю)
+          inner3 / inner4 / inner5 — вікна з 3 / 4 / 5 літер
+        Слова з символами, яких немає на розкладці, пропускаються.
+        """
+        counters: Dict[str, Dict[Tuple[int, ...], float]] = {
+            name: {} for name in ("inner2", "first2", "last2", "inner3", "inner4", "inner5")
+        }
+
+        def add(name, ids, freq):
+            bucket = counters[name]
+            bucket[ids] = bucket.get(ids, 0.0) + freq
+
+        self._word_total = 0.0
+        for word, freq in words.items():
+            if len(word) < 2:
+                continue
+            ids = [self.char_to_idx.get(ch) for ch in word]
+            if None in ids:
+                continue
+            self._word_total += freq
+            add("first2", tuple(ids[:2]), freq)
+            add("last2", tuple(ids[-2:]), freq)
+            for n in (2, 3, 4, 5):
+                for i in range(len(ids) - n + 1):
+                    add(f"inner{n}", tuple(ids[i:i + n]), freq)
+
+        self._word_ngrams = {}
+        for name, bucket in counters.items():
+            n = int(name[-1])
+            idx = np.array(list(bucket.keys()), dtype=np.int64).reshape(-1, n)
+            self._word_ngrams[name] = (idx, np.array(list(bucket.values()), dtype=np.float64))
 
     def _prepare_pair_arrays(self, pairs: Dict[str, float]):
         idx1, idx2, w = [], [], []
@@ -337,11 +380,14 @@ class MovementScoringEngine:
         if len(s1) > 0:
             self._evaluate_skipgrams_vectorized(s1, s2, sw, metrics)
 
+        if self._word_total > 0:
+            self._evaluate_hand_runs_vectorized(metrics)
+
         metrics.total_penalty = sum((
             metrics.base_effort, metrics.sfb_penalty, metrics.sfs_penalty,
             metrics.double_tap_penalty, metrics.oht_inward_penalty,
             metrics.oht_outward_penalty, metrics.oht_awkward_penalty,
-            metrics.strict_alternation_penalty, metrics.alternation_bonus,
+            metrics.hand_run_penalty,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
             metrics.finger_alternation_penalty, metrics.roll_row_penalty,
         ))
@@ -390,11 +436,8 @@ class MovementScoringEngine:
         same_hand = hand1 == hand2
         same_finger = same_hand & (finger1 == finger2)
 
-        # alternation bonus (різні руки)
-        alternation_mask = ~same_hand
-        metrics.alternation_bonus += np.sum(
-            weight[alternation_mask] * self.moves["hand"]["alternation"]
-        )
+        # Чергування рук тут не оцінюється — його баланс рахує
+        # _evaluate_hand_runs_vectorized по цілих словах.
 
         # --- same finger: класифікація руху пальця між двома клавішами ---
         # row: 0 = верхній, 1 = домашній, 2 = нижній (більше = нижче)
@@ -460,14 +503,10 @@ class MovementScoringEngine:
         hand1, hand2, hand3 = self.hand[idx1], self.hand[idx2], self.hand[idx3]
         finger1, finger2, finger3 = self.finger[idx1], self.finger[idx2], self.finger[idx3]
 
-        # strict alternation: hand1==hand3, hand1 != hand2  (ABA pattern)
-        strict_alt_mask = (hand1 == hand3) & (hand1 != hand2)
-        metrics.strict_alternation_penalty += np.sum(
-            weight[strict_alt_mask] * self.moves["hand"]["strict_alternation"]
-        )
+        # Пінбол (L-R-L) тепер частина hand_runs (серія довжиною 1).
 
         # same-hand triples only (усі три на одній руці)
-        same_hand_mask = (hand1 == hand2) & (hand2 == hand3) & ~strict_alt_mask
+        same_hand_mask = (hand1 == hand2) & (hand2 == hand3)
         f1, f2, f3 = finger1[same_hand_mask], finger2[same_hand_mask], finger3[same_hand_mask]
         w = weight[same_hand_mask]
 
@@ -526,6 +565,58 @@ class MovementScoringEngine:
         )
         metrics.skipgram_same_hand_penalty += np.sum(
             weight[same_hand & ~same_finger] * self.moves.get("skip_bigram", {}).get("same_hand", 0.1)
+        )
+
+    def _evaluate_hand_runs_vectorized(self, metrics):
+        """Баланс альтернації рук по словах.
+
+        Слово розбивається на серії — підряд натискання однією рукою
+        ("берилій" цілком однією рукою = одна серія з 7). Ідеал — серії по
+        2-3 (2-2, 3-3, 2-3...): лишають місце для перекатів і не
+        перевантажують руку. Штраф за серію:
+          1     -> single (пінбол L-R-L), лише всередині слова: одиночна
+                   літера на краю слова не є пінболом
+          2..3  -> balanced
+          4+    -> overload + (довжина - 4) * overload_step
+
+        Без циклу по серіях — через вікна. Серія довжини n містить n-3 вікон
+        "4 підряд однією рукою" і n-4 вікон "5 підряд", тому:
+          кількість серій 4+   = C4 - C5
+          сума (n - 4) по ним  = C5
+        Пінбол = вікно з 3, де середня літера іншою рукою, ніж обидві сусідні
+        (вони тоді гарантовано існують, тобто серія всередині слова).
+        Усього серій = кількість слів + змін руки всередині слів.
+        Серії 2-3 = усі - (4+) - пінбол - одиночні на краях слова.
+        """
+        cfg = self.moves["hand_runs"]
+        hand = (self.hand == "right").astype(np.int8)  # 0 = ліва, 1 = права
+        ng = self._word_ngrams
+
+        def weight_where(name, predicate):
+            idx, w = ng[name]
+            if len(idx) == 0:
+                return 0.0
+            h = hand[idx]
+            return float(w[predicate(h)].sum())
+
+        switch = lambda h: h[:, 0] != h[:, 1]
+        all_same = lambda h: np.all(h == h[:, :1], axis=1)
+
+        switches = weight_where("inner2", switch)
+        edge_single = weight_where("first2", switch) + weight_where("last2", switch)
+        single = weight_where("inner3", lambda h: (h[:, 0] != h[:, 1]) & (h[:, 1] != h[:, 2]))
+        c4 = weight_where("inner4", all_same)
+        c5 = weight_where("inner5", all_same)
+
+        long_runs = c4 - c5
+        runs = self._word_total + switches
+        short_runs = runs - long_runs - single - edge_single  # серії з 2-3
+
+        metrics.hand_run_penalty += (
+            cfg["single"] * single
+            + cfg["balanced"] * short_runs
+            + cfg["overload"] * long_runs
+            + cfg["overload_step"] * c5
         )
 
     @staticmethod

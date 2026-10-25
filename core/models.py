@@ -58,11 +58,11 @@ class ScoreMetrics:
     oht_inward_penalty: float = 0.0
     oht_outward_penalty: float = 0.0
     oht_awkward_penalty: float = 0.0
-    strict_alternation_penalty: float = 0.0
     # форма перекату по рядах; може бути від'ємною (бонус за природну дугу)
     roll_row_penalty: float = 0.0
 
-    alternation_bonus: float = 0.0
+    # баланс альтернації рук: серії натискань однією рукою в словах
+    hand_run_penalty: float = 0.0
     # Загальний бал
     total_penalty: float = 0.0
 
