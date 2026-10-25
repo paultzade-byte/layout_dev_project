@@ -481,7 +481,9 @@ class LayoutBuilderApp():
         key.x = fresh.x
         key.y = fresh.y
         key.row = fresh.row
+        key.home_row = fresh.home_row
         key.col = fresh.col
+        key.home_col = fresh.home_col
         key.hand = fresh.hand
         key.finger = fresh.finger
         key.base_cost = fresh.base_cost
