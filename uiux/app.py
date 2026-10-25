@@ -240,23 +240,10 @@ class LayoutBuilderApp():
                 on_progress=self._on_progress,
                 on_done=self._on_done,
             )
-            # debug delete on resolve
-            self.engine.prepare_statistics(statistic)
-            self.engine.update_layout(self.layout.keys)
-            self.score = self.engine.score().total_penalty
-            self.status_var.set(f"Score: {self.score:.2f}")
-            print('Score__when not self.processor.is_running and start is toggled\n\n', self.score)
         else:
+            # кнопки і score оновить _update_layout, коли воркер віддасть результат
             self.processor.stop()
             self.status_var.set("Зупиняю...")
-            self.button_panel.button_start.config(text="Start")
-            self.button_panel.button_record.config(state="normal")
-            self.button_panel.button_recall.config(state="normal")
-            self.engine.prepare_statistics(statistic)
-            self.engine.update_layout(self.layout.keys)
-            self.score = self.engine.score().total_penalty
-            self.status_var.set(f"Score: {self.score:.2f}")
-            print('Score__when self.processor.is_running and stop is toggled\n\n', self.score)
 
     def _on_progress(self, layout, score, current_iteration):
         # викликається з робочого потоку -> завжди через root.after
