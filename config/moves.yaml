@@ -26,7 +26,7 @@ base_effort:
 same_finger:
   same_key: 1.10       # та сама клавіша двічі ("нн") — палець не рухається
   lateral: 1.40        # горизонталь: той самий ряд, сусідня колонка — найлегший SFB
-  lateral_pinky: 1.40  # горизонталь мізинцем (домашня <-> дотична колонка) — розтяг
+  lateral_pinky: 2.70  # горизонталь мізинцем (домашня <-> дотична колонка) — розтяг, як vertical
   diagonal_down: 2.00  # зміна колонки + ряд вниз
   diagonal_up: 2.40    # зміна колонки + ряд вгору — найважча діагональ
   vertical: 2.70       # той самий стовпчик, сусідній ряд
@@ -44,9 +44,9 @@ same_finger:
 # Напрямок (всередину/назовні) тут не враховується: для сусідніх пальців
 # обидва зручні.
 finger_alternation:
-  brother_finger: 0.00    # сусідні (index-middle, middle-ring) — зручно в обидва боки
-  nextdoor_finger: 0.20   # через один (index-ring, middle-pinky) — трохи гірше
-  foreign_finger: 0.30    # index-pinky — широкий розмах
+  brother_finger: -0.30   # сусідні (index-middle, middle-ring) — бажаний перекат, бонус
+  nextdoor_finger: 0.40   # через один (index-ring, middle-pinky) — гірше
+  foreign_finger: 0.80    # index-pinky — широкий розмах, неочевидний перекат
   ring_pinky_crash: 0.50  # ring-pinky — найнезручніше, але не критично
   thumb_mult: 0.00        # пара з великим пальцем
 
@@ -82,11 +82,11 @@ hand_runs:
 # Ідея автора: часту роботу розпорошити між пальцями, не зсипати на один.
 finger_load:
   cap:
-    pinky: 1.00
-    ring: 1.00
-    middle: 1.00
-    index: 1.00
-  over_cap: 0.00
+    pinky: 0.10   # еталон автора: 8.8% на кожен мізинець
+    ring: 0.16
+    middle: 0.16
+    index: 0.16
+  over_cap: 2.00
 
 skip_bigram:
   same_finger: 2.00
