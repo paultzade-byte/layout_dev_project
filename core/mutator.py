@@ -41,12 +41,12 @@ class LayoutOptimizerSA:
 
         # One long-lived scoring engine for the whole run: the expensive
         # corpus-parsing step (prepare_statistics) happens exactly once here,
-        # not on every iteration. _score() below only does the cheap
-        # per-mutation update_layout() + vectorized score().
+        # not on every iteration. Кандидати оцінюються інкрементально
+        # (engine.try_layout) відносно поточного стану (engine.load / accept).
         self.engine = scoring.MovementScoringEngine(self.best_layout.keys, moves_config)
         self.engine.prepare_statistics(statistics)
 
-        self.best_score = self._score(self.best_layout)
+        self.best_score = self._load(self.best_layout)
         self.best_id = str(uuid.uuid4())[:8]
         # Температура калібрується за реальними delta (_calibrate): задаємо
         # імовірність прийняти медіанний погіршувальний swap на початку і після
@@ -99,11 +99,9 @@ class LayoutOptimizerSA:
     # Sync UI-side edits (e.g. freeze toggles made while paused)
     # -----------------------------------------------------------
 
-    def _score(self, layout: Layout) -> float:
-        # Cheap path: only refresh per-char geometry (O(num_chars)), then
-        # score using the statistics arrays cached once in __init__.
-        self.engine.update_layout(layout.keys)
-        return self.engine.score().total_penalty
+    def _load(self, layout: Layout) -> float:
+        """Повна оцінка; layout стає базою для engine.try_layout."""
+        return self.engine.load(layout.keys)
 
     def sync_full_state(self, reference_layout: Layout) -> None:
         """Тягне і char, і is_frozen з reference_layout (копії UI) у робочі
@@ -120,9 +118,10 @@ class LayoutOptimizerSA:
                     char, frozen = state_by_position[key.position_id]
                     key.char = char
                     key.is_frozen = frozen
-            # безумовно — стан гарантовано змінився, рахувати дешево
-            self.current_score = self._score(self.current_layout)
-            self.best_score = self._score(self.best_layout)
+            # безумовно — стан гарантовано змінився; current — останнім,
+            # бо він база для delta-оцінки
+            self.best_score = self._load(self.best_layout)
+            self.current_score = self._load(self.current_layout)
             self.tabu.clear()
             self.tabu.append(self._signature(self.current_layout))
 
@@ -145,36 +144,44 @@ class LayoutOptimizerSA:
                 f"mutation requires {required} mutable keys; found {len(keys)}"
             )
 
-    def _mutate_single_swap(self, layout: Layout) -> Layout:
-        candidate = clone_layout(layout)
-        unfrozen = self._unfrozen(candidate)
+    # Мутації змінюють layout на місці й повертають undo — список
+    # (key, старий char) для _undo, щоб не клонувати розкладку щоітерації.
+
+    def _mutate_single_swap(self, layout: Layout):
+        unfrozen = self._unfrozen(layout)
         self._require_mutable_keys(unfrozen, 2)
         k1, k2 = self.rng.sample(unfrozen, 2)
+        undo = [(k1, k1.char), (k2, k2.char)]
         k1.char, k2.char = k2.char, k1.char
-        return candidate
+        return undo
 
-    def _mutate_segment_shift(self, layout: Layout) -> Layout:
+    def _mutate_segment_shift(self, layout: Layout):
         """3-циклічний зсув: недосяжний одним swap."""
-        candidate = clone_layout(layout)
-        unfrozen = self._unfrozen(candidate)
+        unfrozen = self._unfrozen(layout)
         self._require_mutable_keys(unfrozen, 3)
         k1, k2, k3 = self.rng.sample(unfrozen, 3)
+        undo = [(k1, k1.char), (k2, k2.char), (k3, k3.char)]
         k1.char, k2.char, k3.char = k3.char, k1.char, k2.char
-        return candidate
+        return undo
 
-    def _mutate_double_swap(self, layout: Layout) -> Layout:
+    def _mutate_double_swap(self, layout: Layout):
         """Два незалежні swap за один хід (4 позиції рухаються разом)."""
-        candidate = clone_layout(layout)
-        unfrozen = self._unfrozen(candidate)
+        unfrozen = self._unfrozen(layout)
         self._require_mutable_keys(unfrozen, 4)
         k1, k2, k3, k4 = self.rng.sample(unfrozen, 4)
+        undo = [(k1, k1.char), (k2, k2.char), (k3, k3.char), (k4, k4.char)]
         k1.char, k2.char = k2.char, k1.char
         k3.char, k4.char = k4.char, k3.char
-        return candidate
+        return undo
+
+    @staticmethod
+    def _undo(undo) -> None:
+        for key, char in undo:
+            key.char = char
 
     MUTATION_LADDER_NAMES = ["single_swap", "segment_shift", "double_swap"]
 
-    def _apply_mutation(self, layout: Layout, ladder_index: int) -> Layout:
+    def _apply_mutation(self, layout: Layout, ladder_index: int):
         fn = [self._mutate_single_swap, self._mutate_segment_shift, self._mutate_double_swap]
         mutable_count = len(self._unfrozen(layout))
         max_ladder_index = 2 if mutable_count >= 4 else 1 if mutable_count >= 3 else 0
@@ -191,10 +198,12 @@ class LayoutOptimizerSA:
         імовірність p прийняти погіршення d. Старт і reheat — за медіаною,
         кінець — за дрібним погіршенням (end_quantile), щоб наприкінці
         прогону SA фактично дотюнював жадібно."""
-        base = self._score(layout)
+        base = self._load(layout)
         worse = []
         for _ in range(self.calibration_samples):
-            delta = self._score(self._mutate_single_swap(layout)) - base
+            undo = self._mutate_single_swap(layout)
+            delta = self.engine.try_layout(layout.keys) - base
+            self._undo(undo)
             if delta > 0:
                 worse.append(delta / max(abs(base), 1.0))
         worse.sort()
@@ -232,7 +241,7 @@ class LayoutOptimizerSA:
         self.best_layout = copy.deepcopy(layout)
         # delta і порівняння з best мають рахуватися від переданого layout,
         # а не від score, що залишився з __init__ / попереднього запуску
-        self.current_score = self.best_score = self._score(self.current_layout)
+        self.current_score = self.best_score = self._load(self.current_layout)
 
         # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {self.current_score}")
 
@@ -271,16 +280,19 @@ class LayoutOptimizerSA:
                     "event": f"manual reheat -> temp={temp:.5f}"
                 })
 
-            candidate = self._apply_mutation(self.current_layout, ladder_index)
-            sig = self._signature(candidate)
+            # кандидат — current_layout після мутації на місці; якщо його не
+            # прийнято, _undo повертає current_layout назад
+            undo = self._apply_mutation(self.current_layout, ladder_index)
+            sig = self._signature(self.current_layout)
 
             if sig in self.tabu:
                 # цей стан вже недавно відвідували — пропускаємо ітерацію,
                 # без витрати на переоцінку
+                self._undo(undo)
                 tabu_hits += 1
                 continue
 
-            candidate_score = self._score(candidate)
+            candidate_score = self.engine.try_layout(self.current_layout.keys)
             delta = candidate_score - self.current_score
 
             accepted = False
@@ -294,7 +306,7 @@ class LayoutOptimizerSA:
 
             if accepted:
                 accepted_count += 1
-                self.current_layout = candidate
+                self.engine.accept()
                 self.current_score = candidate_score
                 self.tabu.append(sig)
                 if len(self.tabu) > self.tabu_size:
@@ -302,7 +314,8 @@ class LayoutOptimizerSA:
 
             if candidate_score < self.best_score:
                 improved_count += 1
-                self.best_layout = copy.deepcopy(candidate)
+                # покращення best завжди прийняте (candidate < best <= current)
+                self.best_layout = clone_layout(self.current_layout)
                 self.best_score = candidate_score
                 self.best_id = str(uuid.uuid4())[:8]
                 self.history.append({
@@ -313,6 +326,9 @@ class LayoutOptimizerSA:
                 ladder_index = 0
             else:
                 stall_counter += 1
+
+            if not accepted:
+                self._undo(undo)
 
             if stall_counter > 0 and stall_counter % self.stall_window == 0:
                 mutable_count = len(self._unfrozen(self.current_layout))
@@ -328,7 +344,7 @@ class LayoutOptimizerSA:
                 # найкращого стану, а не блукаємо від поточного. Reheat лише в
                 # першій половині прогону: пізніше не встигне охолонути.
                 self.current_layout = copy.deepcopy(self.best_layout)
-                self.current_score = self.best_score
+                self.current_score = self._load(self.current_layout)
                 if i < iterations // 2:
                     temp = max(temp, self.reheat_temp)
                 stall_counter = 0
