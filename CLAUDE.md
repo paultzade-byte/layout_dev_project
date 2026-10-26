@@ -22,7 +22,9 @@
   раз на запуск) → `update_layout()` (дешево, після мутації) → `score()`
   (NumPy). Менше = краще.
 - `core/mutator.py` — `LayoutOptimizerSA`: simulated annealing + tabu +
-  драбина мутацій (swap → 3-цикл → подвійний swap) + reheat.
+  драбина мутацій (swap → 3-цикл → подвійний swap) + рестарт з best/reheat.
+  Температура калібрується за реальними delta на першому прогоні
+  (`_calibrate`); параметри — імовірності прийняття в `mutator_config.json`.
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
@@ -33,6 +35,9 @@
 - `config/word_stats.json` — частоти слів (для `hand_runs`), генерує
   `scripts/word_counter.py`.
 - `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`.
+- `scripts/compare_reference.py` — оптимізатор vs еталон автора
+  (`config/reference_layout.json`); `scripts/sa_bench.py` — параметри SA на
+  кількох seed (дивись середнє: розкид між seed 3–4 пункти).
 - `.ignore*` — локальні файли автора (корпус ~16 ГБ у `.ignore_storage/`,
   нотатки, старі тести). У git не потрапляють.
 
