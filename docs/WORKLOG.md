@@ -5,10 +5,15 @@
 
 ## Поточний стан (кінець сесії 2026-10-26)
 
-- Гілка `fix/algorithm-bugs`. Коміти цієї сесії (`62664be`..`dbda89f` +
-  worklog) **не запушені** — пушити лише з дозволу автора. PR #1 у `main`
-  відкритий, не змерджено: https://github.com/paultzade-byte/layout_dev_project/pull/1
-  (перевір `gh pr view 1`; якщо змерджено — нова гілка від `main`).
+- Два PR «стосом» (stacked), обидва відкриті, не змерджені:
+  - #1 `fix/algorithm-bugs` → `main` (сесія 2026-10-25):
+    https://github.com/paultzade-byte/layout_dev_project/pull/1
+  - #2 `feat/sa-calibration` → `fix/algorithm-bugs` (сесія 2026-10-26):
+    https://github.com/paultzade-byte/layout_dev_project/pull/2
+  Нову роботу продовжувати в `feat/sa-calibration`. Перевір `gh pr view 1`,
+  `gh pr view 2`. Якщо #1 змерджено, а `fix/algorithm-bugs` не видалено —
+  GitHub сам не перенаправить #2: `gh pr edit 2 --base main`. Пушити лише з
+  дозволу автора.
 - `config/recorded_layout.json` змінений автором і **навмисно не закомічений**:
   його домашній ряд + решта від алгоритму (штраф 159.0 на вагах до цієї
   сесії). Автор «спробує її потім» — не комітити й не перезаписувати без
