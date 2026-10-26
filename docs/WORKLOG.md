@@ -8,8 +8,10 @@
 - Три PR «стосом», усі відкриті, не змерджені:
   - #1 `fix/algorithm-bugs` → `main` (сесія 2026-10-25)
   - #2 `feat/sa-calibration` → `fix/algorithm-bugs` (сесія 2026-10-26)
-  - `feat/delta-scoring` → `feat/sa-calibration` (ця сесія) — **ще не
-    запушено, PR не створено**; пушити лише з дозволу автора.
+  - #3 `feat/delta-scoring` → `feat/sa-calibration` (ця сесія):
+    https://github.com/paultzade-byte/layout_dev_project/pull/3
+  Нову роботу — в `feat/delta-scoring` (або новою гілкою-стосом поверх
+  неї). Пушити лише з дозволу автора.
   Перевір `gh pr view 1`, `gh pr view 2`. Якщо нижній PR змерджено, а його
   гілку не видалено — GitHub сам не перенаправить верхній:
   `gh pr edit N --base main`.
