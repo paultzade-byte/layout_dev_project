@@ -63,6 +63,8 @@ class ScoreMetrics:
 
     # баланс альтернації рук: серії натискань однією рукою в словах
     hand_run_penalty: float = 0.0
+    # натискання понад ліміт навантаження пальця (finger_load)
+    finger_load_penalty: float = 0.0
     # Загальний бал
     total_penalty: float = 0.0
 

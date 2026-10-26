@@ -7,7 +7,7 @@
 кожного компонента штрафу.
 
 Запуск з кореня проєкту (під обмеженням CPU):
-    cpulimit -l 100 -f -m -q -- python scripts/compare_reference.py [ітерацій]
+    cpulimit -l 60 -f -m -q -- python scripts/compare_reference.py [ітерацій]
 """
 
 import json
