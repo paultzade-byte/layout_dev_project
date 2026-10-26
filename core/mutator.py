@@ -48,15 +48,23 @@ class LayoutOptimizerSA:
 
         self.best_score = self._score(self.best_layout)
         self.best_id = str(uuid.uuid4())[:8]
-        self.start_temp = self.config.get("start_temp", 0.01)
-        self.end_temp = self.config.get("end_temp", 0.0001)
+        # Температура калібрується за реальними delta (_calibrate): задаємо
+        # імовірність прийняти медіанний погіршувальний swap на початку і після
+        # reheat, а в кінці — дрібний (end_quantile) погіршувальний swap.
+        self.accept_start = self.config.get("accept_start", 0.5)
+        self.accept_end = self.config.get("accept_end", 0.001)
+        self.accept_reheat = self.config.get("accept_reheat", 0.1)
+        self.end_quantile = self.config.get("end_quantile", 0.1)
+        self.calibration_samples = self.config.get("calibration_samples", 200)
         self.stall_window = self.config.get("stall_window", 300)
-        self.reheat_factor = self.config.get("reheat_factor", 1.6)
+        self.restart_window = self.config.get("restart_window", 2000)
         self.tabu_size = self.config.get("tabu_size", 50)
-        if self.start_temp <= 0 or self.end_temp <= 0:
-            raise ValueError("start_temp and end_temp must be positive")
-        if self.stall_window <= 0 or self.tabu_size < 0:
-            raise ValueError("stall_window must be positive and tabu_size cannot be negative")
+        if not 0 < self.accept_end < 1 or not 0 < self.accept_reheat <= self.accept_start < 1:
+            raise ValueError("need 0 < accept_end < 1 and 0 < accept_reheat <= accept_start < 1")
+        if not 0 <= self.end_quantile <= 0.5:
+            raise ValueError("end_quantile must be within [0, 0.5]")
+        if self.stall_window <= 0 or self.restart_window <= 0 or self.tabu_size < 0:
+            raise ValueError("stall/restart windows must be positive and tabu_size cannot be negative")
         self.rng = random.Random(self.config.get("seed", 42))
 
         # поточний "робочий" стан SA (окремо від best — SA інколи стоїть
@@ -68,11 +76,14 @@ class LayoutOptimizerSA:
         self.tabu = [self._signature(self.current_layout)]
 
         # для основного циклу оптимізації
-        self.iterations = self.config.get("iterations", 1)  # кількість ітерацій
-        self.stall_counter = self.config.get("stall_counter", 0)  # лічильник застоювань
-        self.ladder_index = self.config.get("ladder_index", 0)  # чим він більше, тим масштабніша мутація (0 = swap двох клавіш, 1 = потрійна перестановка, 2 = ще більший блок)
-        self.temp = self.config.get("temp", self.start_temp)  # температура(жадібність) чим вона вища, тим більша імовірність прийняття гіршого стану
-        self.cooling = self.config.get("cooling", (self.end_temp / self.start_temp) ** (1.1 / max(self.iterations, 1)))  # коефіцієнт охолодження. Чим він більше, тим швидше охолоджується алгоритм
+        self.stall_counter = 0  # ітерацій без покращення best
+        self.ladder_index = 0  # чим він більше, тим масштабніша мутація (0 = swap двох клавіш, 1 = потрійна перестановка, 2 = подвійний swap)
+        # температури (відносна delta, див. run_optimization); None — ще не
+        # калібровано, це робить перший run_optimization
+        self.start_temp: Optional[float] = None
+        self.end_temp: Optional[float] = None
+        self.reheat_temp: Optional[float] = None
+        self.temp: Optional[float] = None  # поточна; чим вища, тим легше прийняти гірший стан
         self.accepted_count = 0  # лічильник прийнятих станів
         self.improved_count = 0  # лічильник покращених станів
         # запит на reheat з UI-потоку; цикл забирає його на початку ітерації,
@@ -174,13 +185,38 @@ class LayoutOptimizerSA:
         """Компактний підпис стану для tabu-списку (порядок char по позиціях)."""
         return tuple(k.char for k in layout.keys)
 
+    def _calibrate(self, layout: Layout) -> None:
+        """Температури з реального масштабу delta: розподіл відносного
+        погіршення від випадкових swap навколо layout. T = d / ln(1/p) дає
+        імовірність p прийняти погіршення d. Старт і reheat — за медіаною,
+        кінець — за дрібним погіршенням (end_quantile), щоб наприкінці
+        прогону SA фактично дотюнював жадібно."""
+        base = self._score(layout)
+        worse = []
+        for _ in range(self.calibration_samples):
+            delta = self._score(self._mutate_single_swap(layout)) - base
+            if delta > 0:
+                worse.append(delta / max(abs(base), 1.0))
+        worse.sort()
+        median = worse[len(worse) // 2] if worse else 1e-3
+        small = worse[int(len(worse) * self.end_quantile)] if worse else 1e-4
+        self.start_temp = median / math.log(1 / self.accept_start)
+        self.end_temp = min(small / math.log(1 / self.accept_end), self.start_temp)
+        self.reheat_temp = median / math.log(1 / self.accept_reheat)
+        self.temp = self.start_temp
+        self.history.append({
+            "iter": 0, "id": None, "score": base,
+            "event": f"calibrate: median worse {median:.4f}, small {small:.4f} -> temp {self.start_temp:.5f}..{self.end_temp:.6f}"
+        })
+
     # button reheat
     def reheat(self, factor: float | None = None):
         """Up the tempeature without loosing best_layout, tabu, history.
             This is not full restart but only out from the stall-plato.
+            factor — множник до reheat_temp (за замовчуванням 1).
             Safe to call from another thread: the request is applied by
             run_optimization at the start of its next iteration."""
-        self._pending_reheat = factor if factor is not None else self.reheat_factor
+        self._pending_reheat = factor if factor is not None else 1.0
 
     # -----------------------------------------------------------
     # Основний цикл
@@ -202,16 +238,24 @@ class LayoutOptimizerSA:
 
         tabu_hits = 0
 
-        temp = self.temp
-        stall_counter = self.stall_counter
-        ladder_index = self.ladder_index
-        cooling = self.cooling
-        accepted_count = self.accepted_count
-        improved_count = self.improved_count
-
         if iterations < 1:
             raise ValueError("iterations must be at least 1")
         self._require_mutable_keys(self._unfrozen(self.current_layout), 2)
+
+        # перший запуск калібрує і стартує з start_temp; продовження після
+        # Stop/Start тягне температуру далі до end_temp за новий прогін
+        if self.temp is None:
+            self._calibrate(self.current_layout)
+        elif self.temp < self.reheat_temp:
+            # попередній прогін (майже) дохолов — новий почнеться з reheat,
+            # а не жадібно біля end_temp
+            self.temp = self.reheat_temp
+        temp = self.temp
+        cooling = (self.end_temp / temp) ** (1 / iterations) if temp > self.end_temp else 1.0
+        stall_counter = self.stall_counter
+        ladder_index = self.ladder_index
+        accepted_count = self.accepted_count
+        improved_count = self.improved_count
 
         for i in range(1, iterations + 1):
 
@@ -220,11 +264,11 @@ class LayoutOptimizerSA:
 
             factor, self._pending_reheat = self._pending_reheat, None
             if factor is not None:
-                temp = min(temp * factor, self.start_temp)
+                temp = min(self.reheat_temp * factor, self.start_temp)
                 stall_counter = 0
                 self.history.append({
                     "iter": i, "id": None, "score": self.current_score,
-                    "event": f"manual reheat -> temp={temp:.4f}"
+                    "event": f"manual reheat -> temp={temp:.5f}"
                 })
 
             candidate = self._apply_mutation(self.current_layout, ladder_index)
@@ -279,12 +323,20 @@ class LayoutOptimizerSA:
                         "iter": i, "id": None, "score": self.current_score,
                         "event": f"escalate -> {self.MUTATION_LADDER_NAMES[ladder_index]}"
                     })
-                else:
-                    temp = min(temp * self.reheat_factor, self.start_temp)
-                    self.history.append({
-                        "iter": i, "id": None, "score": self.current_score,
-                        "event": f"reheat -> temp={temp:.4f}"
-                    })
+            if stall_counter >= self.restart_window:
+                # довгий застій: повернення до best — шукаємо інший шлях від
+                # найкращого стану, а не блукаємо від поточного. Reheat лише в
+                # першій половині прогону: пізніше не встигне охолонути.
+                self.current_layout = copy.deepcopy(self.best_layout)
+                self.current_score = self.best_score
+                if i < iterations // 2:
+                    temp = max(temp, self.reheat_temp)
+                stall_counter = 0
+                ladder_index = 0
+                self.history.append({
+                    "iter": i, "id": None, "score": self.current_score,
+                    "event": f"restart from best, reheat -> temp={temp:.5f}"
+                })
 
             self.temp = temp
             self.stall_counter = stall_counter
@@ -292,7 +344,7 @@ class LayoutOptimizerSA:
             self.accepted_count = accepted_count
             self.improved_count = improved_count
 
-            temp *= cooling
+            temp = max(temp * cooling, self.end_temp)
 
             if ui_callback and i % 50 == 0:
                 ui_callback(self.best_layout, self.best_score, current_iteration=i)
