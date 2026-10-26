@@ -6,10 +6,8 @@ import math
 from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
 from core.layout_factory import build_layout, build_key_from_position
 from core.models import Layout, Key
-from core.scorer import MovementScoringEngine, validate_moves_config, merge_config, load_moves_config
+from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
-from uiux.sliders import SliderPanelLogic
-from uiux.slider_spec import SLIDER_DESCRIPTORS, slider_data_conveyer
 from pathlib import Path
 # keeping this dead import for possible bedugging process
 #from log.loggers.state_hasher import StateHasher
@@ -99,66 +97,6 @@ class ButtonPanel:
          # combo.set("Select your layout")
          # combo.pack(pady=20)
 
-class SliderPanel:
-    def __init__(
-        self,
-        root,
-        logic,
-        on_recalculate,
-    ):
-        self.root = root
-        self.logic = logic
-        self.spec = SLIDER_DESCRIPTORS
-        self.panel_logic = SliderPanelLogic()
-        self.slider_data_conveyer = slider_data_conveyer
-        self._debounce_id = None
-        self.adjusted = {}
-        self.on_recalculate = on_recalculate
-        # frame for sliders
-        self.slider_frame = tk.Frame(self.root)
-        self.slider_frame.pack(fill="both", padx=20, pady=10)
-        self.load_moves_config = load_moves_config
-
-        COLUMN_COUNT = 6
-        # spec generator // works with module slider_spec.py
-        for index, (path, meta) in enumerate(self.slider_data_conveyer(self.spec)):
-            row = index // COLUMN_COUNT
-            column = index % COLUMN_COUNT
-            self._build_slider(path, meta, row, column)
-
-    def _build_slider(self, path: tuple, meta: dict, row: int, column: int):
-        # Individual cell for each scale
-        cell = tk.Frame(self.slider_frame)
-        cell.grid(row=row, column=column, padx=10, pady=10)
-
-        var = tk.DoubleVar(value=meta["default"])
-        tk.Label(cell, text=meta["label"]).pack()
-        tk.Scale(
-            cell,
-            from_=meta["min"],
-            to=meta["max"],
-            orient="horizontal",
-            variable=var,
-            command=lambda v, p=path: self._on_slider_change(p, v),
-        ).pack()
-
-
-    def _on_slider_change(self, path, value):
-        """Recording changes into self.adjusted dictionary after 1s."""
-        node = self.adjusted
-        for part in path[:-1]:
-            node = node.setdefault(part, {})
-        node[path[-1]] = float(value)
-
-        if self._debounce_id is not None:
-            self.root.after_cancel(self._debounce_id)
-        self._debounce_id = self.root.after(1000, self._trigger_recalculate)
-
-    def _trigger_recalculate(self):
-        self._debounce_id = None
-        self.on_recalculate(self.adjusted)
-
-
 class LayoutBuilderApp():
     def __init__(
         self,
@@ -202,10 +140,6 @@ class LayoutBuilderApp():
 
         # button frame
         self.button_panel = ButtonPanel(self.root, self)
-
-        # slider frame
-        self.default_moves_config_path = Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
-        self.slider_panel = SliderPanel(self.root, self, on_recalculate=self._slider_recalculate)
 
         # layout
         self.slots = []
@@ -547,19 +481,6 @@ class LayoutBuilderApp():
         pass
 
     def save_layout_dialog():
-        pass
-
-    # -----------------------------------------------------------------
-    # Sliders
-    # -----------------------------------------------------------------
-    def _slider_recalculate(self, adjusted: dict):
-        merge = load_moves_config(self.default_moves_config_path, adjusted)
-        self.engine.moves = merge
-        self.score = self.engine.score().total_penalty
-
-    def sliders_modal_operations(self):
-        """Invoke the modal window on clicking the 'Advanced' button.
-            Close the modal window on clicking the 'Quit' button."""
         pass
 
 

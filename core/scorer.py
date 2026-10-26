@@ -86,16 +86,11 @@ _FINGER_PAIR_CATEGORY = {
     frozenset({Finger.PINKY.value, Finger.RING.value }): "ring_pinky_crash",
 
 }
-def load_moves_config(path: str | Path, adjusted: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Load and validate the numeric movement-policy YAML file.
-       Merge overrides and validate again."""
+def load_moves_config(path: str | Path) -> Dict[str, Any]:
+    """Load and validate the numeric movement-policy YAML file."""
     with Path(path).open(encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
-    config = validate_moves_config(config)
-    if adjusted:
-        config = merge_config(config, adjusted)
-        config = validate_moves_config(config)
-    return config
+    return validate_moves_config(config)
 
 
 def validate_moves_config(config: Any) -> Dict[str, Any]:
@@ -122,16 +117,6 @@ def _validate_section(value: Any, spec: Any, path: str) -> None:
     for name, sub_spec in spec.items():
         _validate_section(value.get(name), sub_spec, f"{path}.{name}" if path else name)
 
-# recursive merge
-def merge_config(config: Dict[str, Any], adjusted: Dict[str, Any]) -> Dict[str, Any]:
-    updated_config = config.copy()
-    for key, value in adjusted.items():
-        if isinstance(value,dict) and isinstance(updated_config.get(key), dict):
-            updated_config[key] = merge_config(updated_config[key], value)
-        else:
-            updated_config[key] = value
-    return updated_config
-
 def _validate_numeric_values(values: Dict[str, Any], names: Tuple[str, ...], path: str) -> None:
     for name in names:
         value = values.get(name)
@@ -142,7 +127,6 @@ def calculate_total_penalty(
     layout: Layout,
     statistics: Dict[str, Any],
     moves_config: Optional[Dict[str, Any]] = None,
-    adjusted: Optional[Dict] = None,
 ) -> float:
     """Slow, self-contained one-off scorer. Rebuilds everything from scratch.
 
@@ -152,8 +136,7 @@ def calculate_total_penalty(
     """
     if moves_config is None:
         moves_config = load_moves_config(
-            Path(__file__).resolve().parents[1] / "config" / "moves.yaml",
-            adjusted
+            Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
         )
     engine = MovementScoringEngine(layout.keys, moves_config)
     engine.prepare_statistics(statistics)
