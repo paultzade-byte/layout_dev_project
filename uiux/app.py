@@ -43,19 +43,16 @@ FONT = "Ubuntu"
 KEY_FONT = (FONT, 17, "bold")
 
 
-def style_key(widget, highlight: str | None = None) -> None:
-    """Єдине місце, де задається вигляд клавіші. highlight — колір цілі
-    при перетягуванні (DROP_OK / DROP_BLOCKED)."""
+def style_key(widget, border: str | None = None, finger: Finger | None = None) -> None:
+    """Єдине місце, де задається вигляд клавіші. Під час перетягування:
+    border — рамка (DROP_OK / DROP_BLOCKED), finger — зона пальця, в яку
+    клавіша потрапить (попередній перегляд кольору)."""
     key = widget.key
     if widget.is_frozen:
-        bg, fg, border = FROZEN_BG, FROZEN_FG, FROZEN_FG
+        bg, fg = FROZEN_BG, FROZEN_FG
     else:
-        bg, fg = FINGER_COLORS.get(key.finger, TEXT_DIM), KEY_TEXT
-        border = bg
-    if highlight:
-        border = highlight
-        if not widget.is_frozen:
-            bg = highlight
+        bg, fg = FINGER_COLORS.get(finger or key.finger, TEXT_DIM), KEY_TEXT
+    border = border or (FROZEN_FG if widget.is_frozen else bg)
     widget.config(
         text=key.char, bg=bg, fg=fg, font=KEY_FONT,
         highlightthickness=2, highlightbackground=border, highlightcolor=border,
@@ -100,6 +97,7 @@ class Slot:
         self.center_x = x + width / 2
         self.center_y = y + height / 2
         self.current_key = None  # the tkinter widget permanently anchored here
+        self.finger = build_key_from_position(POSITIONS_BY_ID[slot_id]).finger
 
 
 class KeyLabel(tk.Label):
@@ -271,6 +269,9 @@ class LayoutBuilderApp():
         """Побудова сітки слотів на основі геометрії"""
         base_x, base_y = 50, 40
         gap = 6  # Відстань між кнопками
+        # відпущена клавіша прилипає до найближчого слота в межах усієї його
+        # клітинки (з проміжками), а не лише tolerance_x від центру
+        self.tolerance = max(self.tolerance, math.hypot(self.key_width + gap, self.key_height + gap) / 2)
 
         for pos in GEOMETRY_CONFIG["positions"]:
             if self.stages == 1:
@@ -323,8 +324,11 @@ class LayoutBuilderApp():
     def on_drag_start(self, event):
         widget = event.widget
         if widget.is_frozen or self.processor.is_running: return
-        widget.start_x = event.x
-        widget.start_y = event.y
+        # позиція рахується від точки старту в екранних координатах:
+        # winfo_x() оновлюється лише на idle і при швидкому русі відстає
+        widget.start_root = (event.x_root, event.y_root)
+        widget.start_pos = (widget.current_slot.x, widget.current_slot.y)
+        widget.drag_pos = widget.start_pos
         widget.lift()
 
     def on_drag_motion(self, event):
@@ -332,9 +336,10 @@ class LayoutBuilderApp():
         if widget.is_frozen or self.processor.is_running: return
 
         # 1. Рухаємо перетягувану кнопку
-        new_x = widget.winfo_x() - widget.start_x + event.x
-        new_y = widget.winfo_y() - widget.start_y + event.y
+        new_x = widget.start_pos[0] + event.x_root - widget.start_root[0]
+        new_y = widget.start_pos[1] + event.y_root - widget.start_root[1]
         widget.place(x=new_x, y=new_y)
+        widget.drag_pos = (new_x, new_y)
 
         # 2. Розраховуємо центр
         current_center_x = new_x + self.key_width / 2
@@ -364,10 +369,17 @@ class LayoutBuilderApp():
             if self.hovered_key and self.hovered_key.winfo_exists():
                 style_key(self.hovered_key)
 
-            # Підсвічуємо нову знайдену ціль
-            if target_key:
-                # заморожену міняти не можна
-                style_key(target_key, DROP_BLOCKED if target_key.is_frozen else DROP_OK)
+            # Ціль закрита перетягуваною клавішею, тож фідбек — на ній самій:
+            # рамка (біла — можна, червона — ціль заморожена) і колір зони
+            # пальця, куди вона потрапить
+            if target_key and not target_key.is_frozen:
+                style_key(target_key, DROP_OK)
+                style_key(widget, DROP_OK, finger=closest_slot.finger)
+            elif target_key:
+                style_key(target_key, DROP_BLOCKED)
+                style_key(widget, DROP_BLOCKED)
+            else:
+                style_key(widget)
 
             # Запам'ятовуємо поточну ціль
             self.hovered_key = target_key
@@ -384,8 +396,9 @@ class LayoutBuilderApp():
             style_key(self.hovered_key)
             self.hovered_key = None  # Очищаємо пам'ять
 
-        drop_center_x = widget.winfo_x() + self.key_width / 2
-        drop_center_y = widget.winfo_y() + self.key_height / 2
+        drop_x, drop_y = getattr(widget, "drag_pos", (widget.current_slot.x, widget.current_slot.y))
+        drop_center_x = drop_x + self.key_width / 2
+        drop_center_y = drop_y + self.key_height / 2
 
         closest_slot = None
         min_distance = float('inf')
@@ -405,6 +418,7 @@ class LayoutBuilderApp():
 
             if target_key and target_key.is_frozen:
                 self.snap_to_slot(widget, widget.current_slot)
+                style_key(widget)
                 return
 
             original_slot = widget.current_slot
@@ -439,6 +453,10 @@ class LayoutBuilderApp():
         sorted_keys = sorted(updated_keys, key=lambda k: k.position_id)
         self.layout.keys = sorted_keys
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
+        # палець клавіші міг змінитись разом зі слотом -> колір зони
+        for slot in self.slots:
+            if slot.current_key is not None:
+                style_key(slot.current_key)
         self._notify_layout_changed()
 
     def _resync_key_geometry(self, key):
