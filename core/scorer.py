@@ -54,6 +54,7 @@ _REQUIRED_MOVES_SCHEMA = {
     "same_finger": {
         "same_key": None,
         "lateral": None,
+        "lateral_pinky": None,
         "diagonal_down": None,
         "diagonal_up": None,
         "vertical": None,
@@ -66,6 +67,10 @@ _REQUIRED_MOVES_SCHEMA = {
     "roll_rows": ("natural_arc", "bottom_step", "row_skip", "drop_jump"),
     "hand": ("left_mult", "right_mult"),
     "hand_runs": ("single", "balanced", "overload", "overload_step"),
+    "finger_load": {
+        "cap": ("pinky", "ring", "middle", "index"),
+        "over_cap": None,
+    },
     "finger_alternation": (
             "brother_finger", "nextdoor_finger", "foreign_finger",
             "ring_pinky_crash", "thumb_mult",
@@ -198,6 +203,13 @@ class MovementScoringEngine:
         self._skip_ratio_by_value = np.zeros(6, dtype=np.float64)
         for finger in (Finger.PINKY, Finger.RING, Finger.MIDDLE, Finger.INDEX):
             self._skip_ratio_by_value[finger.value] = skip_ratio[self._get_finger_name(finger.value)]
+
+        # Ліміт навантаження пальця (частка всіх натискань) по Finger.value;
+        # thumb не обмежується -> 1.0
+        load_cap = self.moves["finger_load"]["cap"]
+        self._load_cap_by_value = np.ones(6, dtype=np.float64)
+        for finger in (Finger.PINKY, Finger.RING, Finger.MIDDLE, Finger.INDEX):
+            self._load_cap_by_value[finger.value] = load_cap[self._get_finger_name(finger.value)]
 
         # finger alternation
         finger_alt_cfg = self.moves["finger_alternation"]
@@ -387,7 +399,7 @@ class MovementScoringEngine:
             metrics.base_effort, metrics.sfb_penalty, metrics.sfs_penalty,
             metrics.double_tap_penalty, metrics.oht_inward_penalty,
             metrics.oht_outward_penalty, metrics.oht_awkward_penalty,
-            metrics.hand_run_penalty,
+            metrics.hand_run_penalty, metrics.finger_load_penalty,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
             metrics.finger_alternation_penalty, metrics.roll_row_penalty,
         ))
@@ -428,6 +440,16 @@ class MovementScoringEngine:
             base_cost * row_weight * column_weight * finger_weight * hand_weight * weight
         ))
 
+        # Навантаження пальців: натискання понад ліміт (cap — частка від усіх)
+        # штрафуються по over_cap кожне. Розподіляє роботу між пальцями, щоб
+        # часті літери не збиралися на одному (напр. "а" на мізинці).
+        slot = (hand == "right") * 6 + finger
+        load = np.bincount(slot, weights=weight, minlength=12)
+        cap = np.tile(self._load_cap_by_value, 2) * weight.sum()
+        metrics.finger_load_penalty += float(
+            self.moves["finger_load"]["over_cap"] * np.sum(np.maximum(load - cap, 0.0))
+        )
+
     def _evaluate_bigrams_vectorized(self, idx1, idx2, weight, metrics):
         hand1, hand2 = self.hand[idx1], self.hand[idx2]
         finger1, finger2 = self.finger[idx1], self.finger[idx2]
@@ -455,13 +477,18 @@ class MovementScoringEngine:
         # SFB на сусідній ряд або в сусідню колонку. Шкала від легкого до важкого:
         #   lateral (горизонталь, напр. вказівний 4<->5)  <  diagonal_down  <  diagonal_up
         #   vertical — той самий стовпчик, сусідній ряд.
+        #   lateral_pinky — горизонталь мізинцем (у дотичну колонку): розтяг,
+        #   а не легкий зсув, як у вказівного.
         lateral_mask = (row_diff == 0) & ~same_col
+        lateral_pinky_mask = lateral_mask & (sf_finger == Finger.PINKY.value)
+        lateral_mask = lateral_mask & ~lateral_pinky_mask
         vertical_mask = (row_diff == 1) & same_col
         diagonal_down_mask = (row_diff == 1) & ~same_col & (sf_row2 > sf_row1)
         diagonal_up_mask = (row_diff == 1) & ~same_col & (sf_row2 < sf_row1)
         sfb_weight = np.select(
-            [lateral_mask, vertical_mask, diagonal_down_mask, diagonal_up_mask],
-            [sf_cfg["lateral"], sf_cfg["vertical"], sf_cfg["diagonal_down"], sf_cfg["diagonal_up"]],
+            [lateral_mask, lateral_pinky_mask, vertical_mask, diagonal_down_mask, diagonal_up_mask],
+            [sf_cfg["lateral"], sf_cfg["lateral_pinky"], sf_cfg["vertical"],
+             sf_cfg["diagonal_down"], sf_cfg["diagonal_up"]],
             default=0.0,
         )
         # для одно-рядних рухів зберігається множник сили пальця
