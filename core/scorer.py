@@ -180,7 +180,7 @@ class MovementScoringEngine:
         self.col = np.empty(n, dtype=np.int64)
         self.home_row = np.empty(n, dtype=np.int64)
         self.home_col = np.empty(n, dtype=np.int64)
-        self.hand = np.empty(n, dtype=object)
+        self.hand = np.empty(n, dtype=np.int8)  # 0 = ліва, 1 = права
         self.finger = np.empty(n, dtype=np.int64)
         self.base_cost = np.empty(n, dtype=np.float64)
 
@@ -303,11 +303,15 @@ class MovementScoringEngine:
                 for i in range(len(ids) - n + 1):
                     add(f"inner{n}", tuple(ids[i:i + n]), freq)
 
+        # idx транспоновано (n, N): кожна позиція n-грами — суцільний масив,
+        # щоб score() збирав бітовий код рук поелементно, без reduce по осі
         self._word_ngrams = {}
         for name, bucket in counters.items():
             n = int(name[-1])
             idx = np.array(list(bucket.keys()), dtype=np.int64).reshape(-1, n)
-            self._word_ngrams[name] = (idx, np.array(list(bucket.values()), dtype=np.float64))
+            self._word_ngrams[name] = (
+                np.ascontiguousarray(idx.T), np.array(list(bucket.values()), dtype=np.float64)
+            )
 
     def _prepare_pair_arrays(self, pairs: Dict[str, float]):
         idx1, idx2, w = [], [], []
@@ -358,7 +362,7 @@ class MovementScoringEngine:
             self.home_row[idx] = key.home_row
             self.col[idx] = key.col
             self.home_col[idx] = key.home_col
-            self.hand[idx] = key.hand.value
+            self.hand[idx] = key.hand.value == "right"
             self.finger[idx] = key.finger.value
             self.base_cost[idx] = key.base_cost
         return self
@@ -422,7 +426,7 @@ class MovementScoringEngine:
         left_mult = self.moves["hand"]["left_mult"]
         right_mult = self.moves["hand"]["right_mult"]
         hand = self.hand[idx]
-        hand_weight = np.where(hand == "left", left_mult, right_mult)
+        hand_weight = np.where(hand == 0, left_mult, right_mult)
         weight = self._unigram_weight
         row = self.row[idx]
         finger = self.finger[idx]
@@ -443,7 +447,7 @@ class MovementScoringEngine:
         # Навантаження пальців: натискання понад ліміт (cap — частка від усіх)
         # штрафуються по over_cap кожне. Розподіляє роботу між пальцями, щоб
         # часті літери не збиралися на одному (напр. "а" на мізинці).
-        slot = (hand == "right") * 6 + finger
+        slot = hand * 6 + finger
         load = np.bincount(slot, weights=weight, minlength=12)
         cap = np.tile(self._load_cap_by_value, 2) * weight.sum()
         metrics.finger_load_penalty += float(
@@ -517,7 +521,7 @@ class MovementScoringEngine:
 
         alt_mult = self._finger_alt_mult[f1, f2]
         hand_mult = np.where(
-            h == "left", self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"]
+            h == 0, self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"]
         )
 
         metrics.double_tap_penalty += np.sum(
@@ -617,24 +621,29 @@ class MovementScoringEngine:
         Серії 2-3 = усі - (4+) - пінбол - одиночні на краях слова.
         """
         cfg = self.moves["hand_runs"]
-        hand = (self.hand == "right").astype(np.int8)  # 0 = ліва, 1 = права
+        hand = self.hand.astype(np.int64)  # 0 = ліва, 1 = права
         ng = self._word_ngrams
 
-        def weight_where(name, predicate):
+        def weight_where(name, codes):
+            """Сума частот n-грам, чий код рук (біт j = рука j-ї літери)
+            входить у codes."""
             idx, w = ng[name]
-            if len(idx) == 0:
+            if idx.shape[1] == 0:
                 return 0.0
-            h = hand[idx]
-            return float(w[predicate(h)].sum())
+            code = hand[idx[0]].copy()
+            for j in range(1, idx.shape[0]):
+                code |= hand[idx[j]] << j
+            table = np.zeros(1 << idx.shape[0], dtype=bool)
+            table[list(codes)] = True
+            # не np.dot: багатопотоковий BLAS під cpulimit у рази повільніший
+            return float(w[table[code]].sum())
 
-        switch = lambda h: h[:, 0] != h[:, 1]
-        all_same = lambda h: np.all(h == h[:, :1], axis=1)
-
+        switch = (0b01, 0b10)
         switches = weight_where("inner2", switch)
         edge_single = weight_where("first2", switch) + weight_where("last2", switch)
-        single = weight_where("inner3", lambda h: (h[:, 0] != h[:, 1]) & (h[:, 1] != h[:, 2]))
-        c4 = weight_where("inner4", all_same)
-        c5 = weight_where("inner5", all_same)
+        single = weight_where("inner3", (0b010, 0b101))  # середня — іншою рукою
+        c4 = weight_where("inner4", (0, 0b1111))         # усі однією рукою
+        c5 = weight_where("inner5", (0, 0b11111))
 
         long_runs = c4 - c5
         runs = self._word_total + switches
