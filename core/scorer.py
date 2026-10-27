@@ -55,7 +55,7 @@ _REQUIRED_MOVES_SCHEMA = {
     "base_effort": {
         "row_multiplier": ("top", "home_row", "bottom", "other"),
         "finger_multiplier": ("pinky", "ring", "middle", "index", "thumb"),
-        "column_multiplier": ("home_col", "col"),
+        "column_multiplier": ("home_col", "col_index", "col_pinky"),
     },
     # None = числовий лист; tuple = вкладена секція з числовими листами
     "same_finger": {
@@ -204,10 +204,12 @@ class MovementScoringEngine:
         self._char_bits = np.left_shift(np.uint64(1), np.arange(n, dtype=np.uint64))
 
         col_cfg = self.moves["base_effort"]["column_multiplier"]
-        # індекс 0 -> flag=0 (розтяг) -> "col"; індекс 1 -> flag=1 (домашня) -> "home_col"
+        # індекс 0 -> flag=0 (розтяг) -> "col_index"; індекс 1 -> flag=1 (домашня) -> "home_col";
+        # дотична колонка мізинця -> "col_pinky" (див. _position_effort)
         self._column_mult_by_flag = np.array(
-            [col_cfg["col"], col_cfg["home_col"], col_cfg["other"]], dtype=np.float64
+            [col_cfg["col_index"], col_cfg["home_col"], col_cfg["other"]], dtype=np.float64
         )
+        self._column_mult_pinky = col_cfg["col_pinky"]
         # Small lookup tables derived from moves_config only (never change).
         finger_mult = self.moves["base_effort"]["finger_multiplier"]
         # index by Finger.value (1..5); index 0 unused.
@@ -614,6 +616,9 @@ class MovementScoringEngine:
         """base_effort за одиницю частоти для кожної позиції."""
         # home_col: 0 = дотична колонка, 1 = домашня, інше (напр. 3 у thumb) -> "other"
         column_weight = self._column_mult_by_flag[np.minimum(g.home_col, 2)]
+        column_weight = np.where(
+            (g.home_col == 0) & (g.finger == Finger.PINKY.value), self._column_mult_pinky, column_weight
+        )
         hand_weight = np.where(g.hand == 0, self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"])
         row_cfg = self.moves["base_effort"]["row_multiplier"]
         row_weight = np.select(
