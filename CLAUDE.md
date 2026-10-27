@@ -36,6 +36,8 @@
   Rec>>/Rec<<. Слайдерів ваг немає (прибрані за рішенням автора) — ваги
   лише в `moves.yaml`. `uiux/processors.py` — оптимізація в окремому потоці.
 - `config/moves.yaml` — усі ваги штрафів (з коментарями).
+  `column_multiplier`: `col_index` / `col_pinky` — дотичні колонки вказівного
+  і мізинця окремо.
 - `config/geometry.json` — фізичні позиції (`active_layout`).
 - `config/statistic.json` — уні/бі/три/скіп-грами корпусу UberText.
 - `config/word_stats.json` — частоти слів (для `hand_runs`), генерує
