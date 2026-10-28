@@ -1,4 +1,3 @@
-
 ### GRAPH (id 0)
 верх   | &lt FN ESC | &kp B | &kp L | &kp D | &kp W | &kp Z  ||  &kp SQT | &kp F | &kp O | &kp U | &kp J | &lt FN RET
 дім    | &tog CYR | &kp N | &kp R | &mt LSHFT T | &kp S | &kp G  ||  &kp Y | &kp H | &mt RSHFT A | &kp E | &kp I | &kp SEMI
@@ -30,13 +29,13 @@
 тхамби | &kp C_AC_DESKTOP_SHOW_ALL_WINDOWS | &kp C_AC_SEARCH | &trans  ||  &trans | &kp CAPS | &to CYR
 
 ### CYR (id 6)
-верх   | &kp ESC | &kp P | &kp C | &kp E | &kp COMMA | &kp I  ||  &kp O | &kp X | &kp H | &kp T | &kp SQT | &kp RET
-дім    | &lt CYR_S RBKT | &kp N | &kp Y | &mt LSHFT J | &kp R | &kp LBKT  ||  &kp G | &kp S | &mt RSHFT B | &kp F | &kp D | &kp Q
-низ    | &kp A | &kp SEMI | &kp L | &mt LC(C) M | &mt LC(V) V | &kp W  ||  &kp U | &kp Z | &kp K | &kp DOT | &lt DIGITS LS(FSLH) | &kp GRAVE
+верх   | &kp ESC | &kp з | &kp с | &kp у | &kp б | &kp ш  ||  &kp щ | &kp ч | &kp р | &kp е | &kp є | &kp RET
+дім    | &lt CYR_S ї | &kp т | &kp н | &mt LSHFT о | &kp к | &kp х  ||  &kp п | &kp і | &mt RSHFT и | &kp а | &kp в | &kp й
+низ    | &kp ф | &kp ж | &kp д | &mt LC(C) ь | &mt LC(V) м | &kp ц  ||  &kp г | &kp я | &kp л | &kp ю | &lt DIGITS , | &kp '
 тхамби | &mt LCTRL LA(LS(LEFT)) | &mt LALT BSPC | &mt LGUI TAB  ||  &mt RALT DEL | &lt CYR_S SPACE | &to GRAPH
 
 ### CYR_S (id 5)
-верх   | &to FN | &kp LG(HOME) | &kp LA(LEFT) | &kp LA(RIGHT) | &kp LG(END) | &kp RBKT  ||  &kp KP_SLASH | &kp 7 | &kp 8 | &kp 9 | &kp 0 | &kp RET
-дім    | &kp LSHFT | &kp LEFT | &kp UP | &kp DOWN | &kp RIGHT | &kp BSLH  ||  &kp MINUS | &kp 4 | &kp 5 | &kp 6 | &kp EQUAL | &kp LSHFT
-низ    | &to GRAPH_ALT | &kp LS(9) | &kp NUBS | &kp MINUS | &kp LS(0) | &kp O  ||  &kp 0 | &kp 1 | &kp 2 | &kp 3 | &kp FSLH | &to SYMBOL
+верх   | &to FN | &kp LG(HOME) | &kp LA(LEFT) | &kp LA(RIGHT) | &kp LG(END) | &kp ї  ||  &kp KP_SLASH | &kp 7 | &kp 8 | &kp 9 | &kp 0 | &kp RET
+дім    | &kp LSHFT | &kp LEFT | &kp UP | &kp DOWN | &kp RIGHT | &kp ґ  ||  &kp MINUS | &kp 4 | &kp 5 | &kp 6 | &kp EQUAL | &kp LSHFT
+низ    | &to GRAPH_ALT | &kp LS(9) | &kp NUBS | &kp MINUS | &kp LS(0) | &kp щ  ||  &kp 0 | &kp 1 | &kp 2 | &kp 3 | &kp . | &to SYMBOL
 тхамби | &kp RALT | &to DIGITS | &mt LGUI TAB  ||  &kp LCTRL | &kp K_APP | &kp LA(LS(RIGHT))
