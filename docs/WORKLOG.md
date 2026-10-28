@@ -211,6 +211,14 @@
   Right»). Після прошивки: `scripts/zmk/apply_hrm.py` + `studio.py write`
   для GRAPH і CYR (Studio-оверлей не знає про нові behavior). settings_reset
   НЕ прошивати — зітре Studio-keymap і сполучення.
+- **2026-10-29 прошито обидві половини** (`~/Downloads/8`), шари після
+  прошивки збіглися з дампом (порт став `/dev/ttyACM1` — номер плаває).
+  `apply_hrm.py` + `write` GRAPH і CYR: 8 клавіш `&mt` -> `&hml`/`&hmr`,
+  збережено. Поточний стан клавіатури — `config/zmk/studio_keymap_2026-10-29-hrm`.
+  Автор ще тестує: перекати, великі літери, Ctrl+C/V холдом, сон правої (25 хв).
+  Віддзеркалена seed 3 покладена в `config/recorded_layout.json` (для Rec<<),
+  попередній експеримент автора — `config/recorded_layout.before-seed3m.json`
+  (обидва не комітити).
 - Ідея: кириличний шар генерувати з розкладки оптимізатора (літера →
   ЙЦУКЕН-кейкод; перевірити апостроф/ґ у xkb `ua`).
 
