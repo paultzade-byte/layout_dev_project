@@ -180,6 +180,24 @@
   видно; Studio Mod-Tap = `&mt`, за замовчуванням flavor hold-preferred —
   найгірший для перекатів). Лівий тхамб: Ctrl, Alt, `&mt LGUI TAB`; правий: AltG,
   два порожні.
+- **Studio без браузера** (`scripts/zmk/studio.py`): протокол Studio по
+  USB-серіалу (`/dev/ttyACM2`, вкладку zmk.studio закрити). Повний дамп
+  клавіатури 2026-10-28 — `config/zmk/studio_keymap_2026-10-28.{json,txt}`
+  (точка відкату, = еталон автора на CYR). Параметри шарів у Studio — id, не
+  індекс (CYR id 6 / індекс 5, CYR_S id 5 / індекс 6). Шифти — `&mt` (16/24),
+  на С/М — `&mt LC(C)`/`&mt LC(V)` (холд = Ctrl+C/V), ї — `&lt CYR_S`, кома —
+  `&lt DIGITS`. save_changes пише у флеш > 5 с.
+- `scripts/zmk/cyr_from_layout.py`: розкладка оптимізатора -> шар CYR; холди
+  прив'язані до позицій (автор: «інші модифікатори і шари не переміщуй»),
+  замінюються лише тапи. Перевірено: extract(дамп) = еталон, build(еталон) =
+  дамп байт у байт.
+- **2026-10-29 на клавіатуру записано віддзеркалену seed 3** (22 клавіші CYR,
+  збережено у флеш). Наслідок правила позицій: кома тепер на 29 без холду,
+  `&lt DIGITS` — на «й» (40); шифти — «о» (16) і «р» (24). Відкат:
+  `studio.py write /dev/ttyACM2 config/zmk/studio_keymap_2026-10-28.json --layer CYR --yes`.
+- Форк: ZMK v0.3.0 (є `require-prior-idle-ms`, `hold-trigger-key-positions`,
+  `hold-trigger-on-release`), модулі zmk-nice-oled, zmk-board-eyelash,
+  urob/zmk-helpers.
 - Ідея: кириличний шар генерувати з розкладки оптимізатора (літера →
   ЙЦУКЕН-кейкод; перевірити апостроф/ґ у xkb `ua`).
 
