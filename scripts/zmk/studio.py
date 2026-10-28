@@ -212,7 +212,8 @@ class Studio:
             raise RuntimeError(f"set_layer_binding({layer_id}, {position}) -> код {code}")
 
     def save(self):
-        res = _decode(_get(self.call(KEYMAP, _field(4, 1)), 4, b""))
+        # запис у флеш займає > 5 с (перевірено 2026-10-29)
+        res = _decode(_get(self.call(KEYMAP, _field(4, 1), timeout=30), 4, b""))
         if not _get(res, 1, 0):
             raise RuntimeError(f"save_changes -> помилка {_get(res, 2)}")
 
