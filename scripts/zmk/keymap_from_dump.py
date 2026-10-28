@@ -112,6 +112,8 @@ def binding(b, behaviors, layer, override=None):
         "Transparent": lambda: "&trans",
         "None": lambda: "&none",
         "Mod-Tap": lambda: f"&mt {keycode(p1)} {keycode(p2)}",
+        "HRM Left": lambda: f"&hml {keycode(p1)} {keycode(p2)}",
+        "HRM Right": lambda: f"&hmr {keycode(p1)} {keycode(p2)}",
         "Layer-Tap": lambda: f"&lt {layer[p1]} {keycode(p2)}",
         "Momentary Layer": lambda: f"&mo {layer[p1]}",
         "To Layer": lambda: f"&to {layer[p1]}",

@@ -281,7 +281,7 @@ def keycode_name(p, ua=False):
 
 
 # Біндинги, у яких «тап» — це кейкод, і в якому параметрі він лежить.
-TAP_PARAM = {"Key Press": 1, "Mod-Tap": 2, "Layer-Tap": 2}
+TAP_PARAM = {"Key Press": 1, "Mod-Tap": 2, "Layer-Tap": 2, "HRM Left": 2, "HRM Right": 2}
 
 
 def binding_text(binding, behaviors, layer_names, ua=False):
@@ -294,6 +294,8 @@ def binding_text(binding, behaviors, layer_names, ua=False):
         "Transparent": lambda: "&trans",
         "None": lambda: "&none",
         "Mod-Tap": lambda: f"&mt {keycode_name(p1)} {k(p2)}",
+        "HRM Left": lambda: f"&hml {keycode_name(p1)} {k(p2)}",
+        "HRM Right": lambda: f"&hmr {keycode_name(p1)} {k(p2)}",
         "Layer-Tap": lambda: f"&lt {layer(p1)} {k(p2)}",
         "Momentary Layer": lambda: f"&mo {layer(p1)}",
         "To Layer": lambda: f"&to {layer(p1)}",
