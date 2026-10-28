@@ -198,6 +198,19 @@
 - Форк: ZMK v0.3.0 (є `require-prior-idle-ms`, `hold-trigger-key-positions`,
   `hold-trigger-on-release`), модулі zmk-nice-oled, zmk-board-eyelash,
   urob/zmk-helpers.
+- **Прошивка з HRM (2026-10-29)**: форк, гілка `hrm-positional` (`21a58b0`,
+  запушено; `main` не чіпали). Локальний клон: `~/Documents/zmk-eyelash_corne`
+  (remote `upstream` = safwyls — для `gh` завжди `-R paultzade-byte/...`).
+  `config/eyelash_corne.keymap` згенеровано `scripts/zmk/keymap_from_dump.py`
+  з дампу 2026-10-29; нові `hml`/`hmr` (display-name «HRM Left/Right»):
+  balanced, tapping-term 280, quick-tap 175, require-prior-idle 150,
+  hold-trigger-key-positions = інша рука + тхамби, hold-trigger-on-release.
+  Застосовано до 16/24 (шифти) і 31/32 (Ctrl+C/V — автор: позиції не міняти,
+  зараз тапи «ь»/«ц») у GRAPH і CYR. `build.yaml`: права — `-DCONFIG_ZMK_SLEEP=n`.
+  Збірка 40777569144 успішна; `.uf2` у `~/Downloads/8` (у лівій є «HRM Left/
+  Right»). Після прошивки: `scripts/zmk/apply_hrm.py` + `studio.py write`
+  для GRAPH і CYR (Studio-оверлей не знає про нові behavior). settings_reset
+  НЕ прошивати — зітре Studio-keymap і сполучення.
 - Ідея: кириличний шар генерувати з розкладки оптимізатора (літера →
   ЙЦУКЕН-кейкод; перевірити апостроф/ґ у xkb `ua`).
 
