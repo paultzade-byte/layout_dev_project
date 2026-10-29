@@ -1,7 +1,9 @@
 """Дамп клавіатури (studio.py dump) -> config/eyelash_corne.keymap для форку.
 
-Шари — у порядку Studio (індекс = порядок у дампі); параметри шарів у
-дампі — id, тут переводяться в індекси. Кейкоди без надійного ZMK-імені
+Шари — у порядку id (індекс у devicetree = id шару в Studio): Studio
+зберігає біндинги в налаштуваннях за id, тож параметри шарів (&lt, &tog,
+макроси) мусять бути саме id. Порядок шарів зі Studio (CYR під DIGITS тощо)
+живе в налаштуваннях клавіатури, devicetree його не задає. Кейкоди без надійного ZMK-імені
 (consumer, &bt, &rgb_ug, &mkp) пишуться числами — так вони гарантовано
 збігаються з тим, що зараз на клавіатурі.
 
@@ -67,25 +69,20 @@ BEHAVIORS = """\
 """.replace("LEFT_POS", " ".join(map(str, LEFT))).replace(
     "RIGHT_POS", " ".join(map(str, RIGHT))).replace("THUMB_POS", " ".join(map(str, THUMBS)))
 
-COMBOS = """\
-    /* N R T S (14 15 16 17) -> перемикання GRAPH <-> CYR */
-    combos {{
-        compatible = "zmk,combos";
-
-        combo_cyrillic {{
-            timeout-ms = <80>;
-            key-positions = <14 15 16 17>;
-            bindings = <&to {cyr}>;
-            layers = <{graph}>;
+# Перемикач мови: шар CYR і розкладка ОС (us,ua з grp:alt_space_toggle)
+# разом, щоб не розходились. Сесія 2026-10-29.
+MACROS = """\
+        lang_tog: lang_toggle {{
+            compatible = "zmk,behavior-macro";
+            display-name = "Lang Toggle";
+            #binding-cells = <0>;
+            bindings
+                = <&tog {cyr}>
+                , <&macro_press &kp LALT>
+                , <&macro_tap &kp SPACE>
+                , <&macro_release &kp LALT>
+                ;
         }};
-
-        combo_cyrillic_exit {{
-            timeout-ms = <80>;
-            key-positions = <14 15 16 17>;
-            bindings = <&to {graph}>;
-            layers = <{cyr}>;
-        }};
-    }};
 """
 
 
@@ -124,25 +121,30 @@ def binding(b, behaviors, layer, override=None):
         "Bluetooth": lambda: f"&bt {p1} {p2}",
         "Underglow": lambda: f"&rgb_ug {p1} {p2}",
         "esc_fn": lambda: f"&esc_fn {keycode(p1)} {layer[p2]}",
+        "Lang Toggle": lambda: "&lang_tog",
     }[name]()
 
 
 def generate(dump):
     behaviors = dump["behaviors"]
-    defines = {l["id"]: f"L_{l['name']}" for l in dump["layers"]}
+    layers = sorted(dump["layers"], key=lambda l: l["id"])
+    if [l["id"] for l in layers] != list(range(len(layers))):
+        raise SystemExit("id шарів не 0..N-1 — devicetree так не задати")
+    defines = {l["id"]: f"L_{l['name']}" for l in layers}
     out = ["/*",
            " * Згенеровано layout_dev_project/scripts/zmk/keymap_from_dump.py з дампу",
-           " * клавіатури (ZMK Studio). Шари в порядку Studio.",
+           " * клавіатури (ZMK Studio). Шари в порядку id; порядок Studio — у",
+           " * налаштуваннях клавіатури.",
            " */", "",
            "#include <behaviors.dtsi>",
            "#include <dt-bindings/zmk/keys.h>",
            "#include <dt-bindings/zmk/bt.h>", ""]
-    out += [f"#define {defines[l['id']]:12} {i}" for i, l in enumerate(dump["layers"])]
+    out += [f"#define {defines[l['id']]:12} {l['id']}" for l in layers]
     out += ["", "/ {", "    behaviors {", BEHAVIORS, "    };", "",
-            COMBOS.format(cyr=defines[next(l["id"] for l in dump["layers"] if l["name"] == "CYR")],
-                          graph=defines[next(l["id"] for l in dump["layers"] if l["name"] == "GRAPH")]),
+            "    macros {", MACROS.format(cyr=defines[next(l["id"] for l in layers if l["name"] == "CYR")]),
+            "    };", "",
             "    keymap {", '        compatible = "zmk,keymap";']
-    for l in dump["layers"]:
+    for l in layers:
         hrm = HRM_POSITIONS if l["name"] in HRM_LAYERS else {}
         texts = [binding(b, behaviors, defines, hrm.get(i)) for i, b in enumerate(l["bindings"])]
         out += ["", f"        layer_{l['name'].lower()} {{", f'            display-name = "{l["name"]}";',
