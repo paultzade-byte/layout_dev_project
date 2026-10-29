@@ -36,6 +36,6 @@
 
 ### CYR_S (id 5)
 верх   | &none | &kp LG(HOME) | &kp LA(LEFT) | &kp LA(RIGHT) | &kp LG(END) | &kp ї  ||  &kp KP_SLASH | &kp 7 | &kp 8 | &kp 9 | &kp 0 | &kp RET
-дім    | &kp RA(6) | &kp RA(6) | &kp LS(9) | &kp LS(0) | &kp RA(7) | &kp ґ  ||  &kp MINUS | &kp 4 | &kp 5 | &kp 6 | &kp EQUAL | &kp LSHFT
-низ    | &kp RA(6) | &kp RA(LS(9)) | &kp RA(9) | &kp RA(0) | &kp RA(LS(0)) | &kp RA(7)  ||  &kp 0 | &kp 1 | &kp 2 | &kp 3 | &kp . | &none
+дім    | &kp NUBS | &kp RA(6) | &kp LS(9) | &kp LS(0) | &kp RA(7) | &kp ґ  ||  &kp MINUS | &kp 4 | &kp 5 | &kp 6 | &kp EQUAL | &kp LSHFT
+низ    | &kp RA(COMMA) | &kp RA(LS(9)) | &kp RA(9) | &kp RA(0) | &kp RA(LS(0)) | &kp RA(DOT)  ||  &kp 0 | &kp 1 | &kp 2 | &kp 3 | &kp . | &none
 тхамби | &kp RALT | &none | &mt LGUI TAB  ||  &kp LCTRL | &kp K_APP | &kp LA(LS(RIGHT))
