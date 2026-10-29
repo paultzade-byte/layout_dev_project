@@ -10,6 +10,7 @@ messages) у рамках SOF 0xAB … EOF 0xAD, байти SOF/ESC/EOF екра
     python scripts/zmk/studio.py show  config/zmk/keymap.json [--layer CYR]
     python scripts/zmk/studio.py diff  /dev/ttyACM2 target.json [--layer CYR]
     python scripts/zmk/studio.py write /dev/ttyACM2 target.json --layer CYR [--yes]
+    python scripts/zmk/studio.py move  /dev/ttyACM2 CYR 1 [--yes]
 
 `write` без --yes лише показує зміни. З --yes: записує біндинги, перечитує
 шар, і лише якщо він збігся з файлом — зберігає у флеш (save_changes); при
@@ -220,6 +221,12 @@ class Studio:
     def discard(self):
         self.call(KEYMAP, _field(5, 1))
 
+    def move_layer(self, start_index, dest_index):
+        req = _field(1, start_index) + _field(2, dest_index)
+        res = _decode(_get(self.call(KEYMAP, _field(8, req)), 8, b""))
+        if _get(res, 1) is None:
+            raise RuntimeError(f"move_layer({start_index}, {dest_index}) -> помилка {_get(res, 2)}")
+
 
 # --- кейкоди і підписи --------------------------------------------------------
 
@@ -380,6 +387,11 @@ def main():
     p = sub.add_parser("show")
     p.add_argument("file")
     p.add_argument("--layer")
+    p = sub.add_parser("move")
+    p.add_argument("port")
+    p.add_argument("layer")
+    p.add_argument("index", type=int)
+    p.add_argument("--yes", action="store_true", help="справді переставити і зберегти")
     for cmd in ("diff", "write"):
         p = sub.add_parser(cmd)
         p.add_argument("port")
@@ -401,6 +413,30 @@ def main():
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(current, f, ensure_ascii=False, indent=1)
         print(f"записано {args.out}: " + ", ".join(l["name"] for l in current["layers"]))
+        return
+
+    if args.cmd == "move":
+        names = [l["name"] for l in current["layers"]]
+        start = names.index(args.layer)
+        expected = names[:]
+        expected.insert(args.index, expected.pop(start))
+        print("  " + " ".join(f"{i}:{n}" for i, n in enumerate(names)))
+        print("->" + " ".join(f"{i}:{n}" for i, n in enumerate(expected)))
+        if not args.yes:
+            print("\n(пробний прогін; щоб переставити — додай --yes)")
+            return
+        if studio.unsaved_changes():
+            sys.exit("на клавіатурі вже є незбережені зміни — збережи або скасуй їх у Studio")
+        try:
+            studio.move_layer(start, args.index)
+            if [l["name"] for l in studio.keymap()] != expected:
+                raise RuntimeError("після перестановки порядок шарів не збігся з очікуваним")
+            studio.save()
+        except Exception:
+            studio.discard()
+            print("помилка — незбережені зміни скасовано (discard_changes)")
+            raise
+        print("переставлено і збережено")
         return
 
     target = _norm(json.load(open(args.file, encoding="utf-8")))
