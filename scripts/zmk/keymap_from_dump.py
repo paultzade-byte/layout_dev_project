@@ -66,11 +66,40 @@ BEHAVIORS = """\
             hold-trigger-on-release;
             bindings = <&kp>, <&kp>;
         };
+
+        /* Кирилиця (ua): тап ",", Shift+тап "." (шифт маскується, xkb ua дає
+         * "." на голій FSLH). Стандарт ЙЦУКЕН навпаки — кома частіша. 2026-10-30. */
+        ua_comma_dot: ua_comma_dot {
+            compatible = "zmk,behavior-mod-morph";
+            #binding-cells = <0>;
+            bindings = <&kp LS(FSLH)>, <&kp FSLH>;
+            mods = <(MOD_LSFT|MOD_RSFT)>;
+        };
+
+        /* Кома-крапка з холдом шару (як &lt): &lt_cd ШАР 0 */
+        lt_cd: layer_tap_comma_dot {
+            compatible = "zmk,behavior-hold-tap";
+            display-name = "LT Comma/Dot";
+            #binding-cells = <2>;
+            flavor = "tap-preferred";
+            tapping-term-ms = <200>;
+            bindings = <&mo>, <&ua_comma_dot>;
+        };
+
+        /* Латиниця (us): тап ":", Shift+тап ";". 2026-10-30. */
+        colon_semi: colon_semi {
+            compatible = "zmk,behavior-mod-morph";
+            display-name = "Colon/Semi";
+            #binding-cells = <0>;
+            bindings = <&kp LS(SEMI)>, <&kp SEMI>;
+            mods = <(MOD_LSFT|MOD_RSFT)>;
+        };
 """.replace("LEFT_POS", " ".join(map(str, LEFT))).replace(
     "RIGHT_POS", " ".join(map(str, RIGHT))).replace("THUMB_POS", " ".join(map(str, THUMBS)))
 
 # Перемикач мови: шар CYR і розкладка ОС (us,ua з grp:alt_space_toggle)
-# разом, щоб не розходились. Сесія 2026-10-29.
+# разом, щоб не розходились. Сесія 2026-10-29. Перемикач розходиться з ОС, якщо
+# мову змінили повз клавіатуру, — тому є ще явні lang_cyr / lang_lat.
 MACROS = """\
         lang_tog: lang_toggle {{
             compatible = "zmk,behavior-macro";
@@ -82,6 +111,23 @@ MACROS = """\
                 , <&macro_tap &kp SPACE>
                 , <&macro_release &kp LALT>
                 ;
+        }};
+
+        /* Явний вибір мови (не перемикач): шар + розкладка ОС за гарячою
+         * клавішею Ctrl+Shift+1 (us) / Ctrl+Shift+2 (ua). Повторне натискання
+         * нічого не ламає, розсинхрон виправляється одним натисканням. 2026-10-30. */
+        lang_cyr: lang_cyr {{
+            compatible = "zmk,behavior-macro";
+            display-name = "Lang CYR";
+            #binding-cells = <0>;
+            bindings = <&to {cyr}>, <&kp LC(LS(N2))>;
+        }};
+
+        lang_lat: lang_lat {{
+            compatible = "zmk,behavior-macro";
+            display-name = "Lang LAT";
+            #binding-cells = <0>;
+            bindings = <&to {graph}>, <&kp LC(LS(N1))>;
         }};
 """
 
@@ -122,6 +168,10 @@ def binding(b, behaviors, layer, override=None):
         "Underglow": lambda: f"&rgb_ug {p1} {p2}",
         "esc_fn": lambda: f"&esc_fn {keycode(p1)} {layer[p2]}",
         "Lang Toggle": lambda: "&lang_tog",
+        "Lang CYR": lambda: "&lang_cyr",
+        "Lang LAT": lambda: "&lang_lat",
+        "Colon/Semi": lambda: "&colon_semi",
+        "LT Comma/Dot": lambda: f"&lt_cd {layer[p1]} {p2}",
     }[name]()
 
 
@@ -141,7 +191,7 @@ def generate(dump):
            "#include <dt-bindings/zmk/bt.h>", ""]
     out += [f"#define {defines[l['id']]:12} {l['id']}" for l in layers]
     out += ["", "/ {", "    behaviors {", BEHAVIORS, "    };", "",
-            "    macros {", MACROS.format(cyr=defines[next(l["id"] for l in layers if l["name"] == "CYR")]),
+            "    macros {", MACROS.format(**{n.lower(): defines[next(l["id"] for l in layers if l["name"] == n)] for n in ("CYR", "GRAPH")}),
             "    };", "",
             "    keymap {", '        compatible = "zmk,keymap";']
     for l in layers:

@@ -121,6 +121,26 @@
 - Перевірити: Lang Toggle при 4 групах xkb (`setxkbmap` показує
   `us,ua,graphite,ua(mastika)`), FN 29 = BT_CLR_ALL, Alt+стрілки (macOS-навігація) на Linux.
 
+Рішення автора і що зроблено (того ж дня):
+- ОС: graphite і mastika прибрано з автозапуску `~/.config/autostart/sestxkbmap.desktop`
+  (копія `.bak-2026-10-30`), повернуто `lv3:ralt_switch` (без нього не працюють RA()-символи CYR_S).
+- Записано у Studio (`studio_keymap_2026-10-30`): DIGITS 7 `KP_SLASH`, 41 `KP_DOT`
+  (залежать від NumLock); GRAPH_ALT 43 — голий `BSPC` (замість RET, щоб тримати й
+  видаляти з автоповтором), 47 — `LC(LS(RIGHT))` (послівне виділення Linux/Windows).
+  CYR_S 43 автор сам поставив `RALT` — не чіпали.
+- Прошивка, форк гілка `layer-review` (збірка 41031800402, `~/Downloads/9-layer-review`,
+  прошити лише ліву): `lt_cd` (CYR 29: тап `,`, Shift `.`, холд DIGITS), `colon_semi`
+  (GRAPH 27: тап `:`, Shift `;`), макроси `lang_cyr` / `lang_lat` (`&to` шар +
+  Ctrl+Shift+2 / Ctrl+Shift+1). Після прошивки — призначити через studio.py:
+  CYR 29, GRAPH 27, FN 13 (Lang CYR замість Lang Toggle), FN 27 (Lang LAT, було `&trans`).
+- Linux: `~/.local/bin/xkb-group N` (XkbLockGroup, не по колу) на Ctrl+Shift+1/2 у
+  гарячих клавішах XFCE — перевірено xdotool. На іншому компі (Windows) — гарячі
+  клавіші мов Ctrl+Shift+1/2 у налаштуваннях мов.
+- `cyr_from_layout.py build` впаде на CYR 29 після `lt_cd` (немає кейкоду тапу) —
+  доробити, коли знову писатимемо CYR з оптимізатора.
+- Чекає: SYMBOL 4 -> `KP_SLASH` після перевірки коми-крапки; GRAPH_ALT 42 (зараз
+  Shift+Enter) — куди ставити Ctrl+Shift+Left.
+
 ---
 
 ## Сесія 2026-10-28 — col_pinky 2.5, multi-start, шифт і прошивка

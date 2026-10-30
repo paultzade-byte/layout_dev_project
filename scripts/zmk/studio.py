@@ -313,6 +313,11 @@ def binding_text(binding, behaviors, layer_names, ua=False):
         "Mouse Key Press": lambda: f"&mkp MB{p1.bit_length()}",
         "esc_fn": lambda: f"&esc_fn {keycode_name(p1)} {layer(p2)}",
         "Bluetooth": lambda: f"&bt {p1} {p2}",
+        "Lang Toggle": lambda: "&lang_tog",
+        "Lang CYR": lambda: "&lang_cyr",
+        "Lang LAT": lambda: "&lang_lat",
+        "Colon/Semi": lambda: "&colon_semi",
+        "LT Comma/Dot": lambda: f"&lt_cd {layer(p1)} {p2}",
     }
     return formats.get(name, lambda: f"<{name} {p1:#x} {p2:#x}>")()
 
