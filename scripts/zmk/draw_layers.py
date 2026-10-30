@@ -11,7 +11,7 @@ beh = {int(k): v for k, v in d['behaviors'].items()}
 lname = {l['id']: l['name'] for l in d['layers']}
 SHORT = {'DIGITS': 'DIG', 'SYMBOL': 'SYM', 'FN': 'FN', 'CYR_S': 'CYS', 'GRAPH_ALT': 'GA', 'CYR': 'CYR', 'GRAPH': 'GR'}
 US = {'MINUS': '-', 'EQUAL': '=', 'LBKT': '[', 'RBKT': ']', 'BSLH': '\\', 'SEMI': ';', 'SQT': "'", 'GRAVE': '`',
-      'COMMA': ',', 'DOT': '.', 'FSLH': '/', 'NUBS': '<', 'KP_SLASH': '/', 'KP_DOT': '.', 'SPACE': '␣',
+      'COMMA': ',', 'DOT': '.', 'FSLH': '/', 'NUBS': '<', 'KP_SLASH': '/', 'KP_DOT': '.', 'KP_PLUS': '+', 'KP_MINUS': '-', 'KP_MULTIPLY': '*', 'SPACE': '␣',
       'RET': '⏎', 'BSPC': '⌫', 'DEL': '⌦', 'TAB': '⇥', 'ESC': 'Esc', 'LEFT': '←', 'RIGHT': '→', 'UP': '↑',
       'DOWN': '↓', 'HOME': 'Home', 'END': 'End', 'PG_UP': 'PgUp', 'PG_DN': 'PgDn', 'CAPS': 'Caps',
       'K_APP': 'Menu', 'PSCRN': 'PrSc', 'LSHFT': '⇧', 'RSHFT': '⇧', 'LCTRL': 'Ctl', 'LALT': 'Alt',
