@@ -139,8 +139,12 @@
 - `cyr_from_layout.py build` впаде на CYR 29 після `lt_cd` (немає кейкоду тапу) —
   доробити, коли знову писатимемо CYR з оптимізатора.
 - Після прошивки записано: CYR 29 `lt_cd`, GRAPH 27 `colon_semi`, FN 13 Lang CYR, FN 27 Lang LAT, GRAPH_ALT 42 `LC(LS(LEFT))` (Shift+Enter прибрано за рішенням автора), SYMBOL 4 `KP_SLASH`. Стан — `studio_keymap_2026-10-30-flash`, схема — `docs/layers_2026-10-30.txt` (`scripts/zmk/draw_layers.py`).
-- (виконано) - Чекає: SYMBOL 4 -> `KP_SLASH` після перевірки коми-крапки; GRAPH_ALT 42 (зараз
-  Shift+Enter) — куди ставити Ctrl+Shift+Left.
+- (виконано) SYMBOL 4 -> `KP_SLASH`; GRAPH_ALT 42 -> Ctrl+Shift+Left.
+- Studio (`studio_keymap_2026-10-30-sym`): CYR_S 0 `₴`, 11 `—`, 41 `"`; GRAPH_ALT
+  дублікати `< >` -> `\ | ` `` ` `` ` ~` (13 18 28 33); SYMBOL без кириличних літер:
+  5 `KP_PLUS`, 14 `KP_DOT`, 11 16 30 36 40 порожні; DIGITS 33 і FN 32 порожні.
+  CYR_S не чіпали (ґ там потрібна). Умовні шари (п. 2 звіту) не робили.
+  Порт studio — `/dev/ttyACM1` (ACM0 не відповідає).
 
 ---
 
