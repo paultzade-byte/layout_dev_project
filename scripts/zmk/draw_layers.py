@@ -61,6 +61,7 @@ def cell(b, lang):
     if name == 'Lang CYR': return '→КИР'
     if name == 'Lang LAT': return '→LAT'
     if name == 'Lang Toggle': return 'LangT'
+    if name == 'To Layer': return {'GRAPH':'=LAT','CYR':'=КИР'}.get(lname[p1], '=' + lname[p1])
     if name == 'Mouse Key Press': return f"M{p1.bit_length()}"
     if name == 'Bluetooth': return {4:'BTclr'}.get(p1, f'BT{p1}')
     if name == 'Underglow': return 'RGB'

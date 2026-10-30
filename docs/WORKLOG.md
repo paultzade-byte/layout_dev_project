@@ -157,6 +157,24 @@
   `studio_keymap_2026-10-30-apos`. **Увага:** `cyr_from_layout.py build` пише
   `'` як `GRAVE` — при наступному записі CYR з оптимізатора повернути `LS(GRAVE)`.
 
+### Перемикач мови на macOS (того ж дня)
+- Проблема: `lang_cyr`/`lang_lat` слали Ctrl+Shift+2/1 (явний вибір мови на
+  Linux/Windows) — на маку це ніщо не обробляє, а macOS вбудовано вміє лише
+  перемикати мову туди-назад. Раніше `lang_tog` слав Alt+Space, який працював
+  і на Linux (`grp:alt_space_toggle`), і на маку (Option+Space у налаштуваннях автора).
+- Рішення автора: без Karabiner; Windows поки не потрібен.
+- Зроблено: Alt+Space надсилається лише тоді, коли мова справді змінюється.
+  Форк, гілка `lang-state` (`lang-state` від `layer-review`, збірка 41049018420,
+  `~/Downloads/10-lang-state`, прошито ліву): `lang_cyr` = `&to CYR` + Alt+Space,
+  `lang_lat` = `&to GRAPH` + Alt+Space; новий шар **FN_C** (id 7), умовний —
+  вмикається сам при CYR + FN: 13 `&to CYR` (лише шар), 27 `&lang_lat`. Через
+  studio.py на FN: 27 `&to GRAPH` (лише шар), 28 `&kp LA(SPACE)` — «Ресинк»
+  (мову змінили мишкою — одне натискання). Після прошивки всі Studio-зміни і
+  порядок шарів зберіглись, FN_C став останнім (найвищий пріоритет). Стан —
+  `studio_keymap_2026-10-30-langstate`, схема — `docs/layers_2026-10-30.txt`.
+- Linux: XFCE-гарячі клавіші Ctrl+Shift+1/2 (`xkb-group`) лишились, не заважають.
+  **Не перевірено автором** на маку і Linux.
+
 ---
 
 ## Сесія 2026-10-28 — col_pinky 2.5, multi-start, шифт і прошивка
