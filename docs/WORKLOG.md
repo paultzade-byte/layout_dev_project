@@ -138,7 +138,8 @@
   клавіші мов Ctrl+Shift+1/2 у налаштуваннях мов.
 - `cyr_from_layout.py build` впаде на CYR 29 після `lt_cd` (немає кейкоду тапу) —
   доробити, коли знову писатимемо CYR з оптимізатора.
-- Чекає: SYMBOL 4 -> `KP_SLASH` після перевірки коми-крапки; GRAPH_ALT 42 (зараз
+- Після прошивки записано: CYR 29 `lt_cd`, GRAPH 27 `colon_semi`, FN 13 Lang CYR, FN 27 Lang LAT, GRAPH_ALT 42 `LC(LS(LEFT))` (Shift+Enter прибрано за рішенням автора), SYMBOL 4 `KP_SLASH`. Стан — `studio_keymap_2026-10-30-flash`, схема — `docs/layers_2026-10-30.txt` (`scripts/zmk/draw_layers.py`).
+- (виконано) - Чекає: SYMBOL 4 -> `KP_SLASH` після перевірки коми-крапки; GRAPH_ALT 42 (зараз
   Shift+Enter) — куди ставити Ctrl+Shift+Left.
 
 ---
