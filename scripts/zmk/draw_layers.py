@@ -4,11 +4,18 @@
     python scripts/zmk/draw_layers.py DUMP.json GRAPH,CYR,GRAPH_ALT,CYR_S,DIGITS,SYMBOL,FN
 """
 import json, sys, unicodedata
-sys.path.insert(0, 'scripts/zmk')
+sys.path.insert(0, __import__('os').path.dirname(__file__))
 from studio import KEY_NAMES, UA_CHARS, keycode_name
-d = json.load(open(sys.argv[1]))
-beh = {int(k): v for k, v in d['behaviors'].items()}
-lname = {l['id']: l['name'] for l in d['layers']}
+d, beh, lname = None, {}, {}
+
+
+def load(path):
+    """Читає дамп; ch()/cell() беруть з нього назви behavior і шарів."""
+    global d
+    d = json.load(open(path))
+    beh.clear(); beh.update({int(k): v for k, v in d['behaviors'].items()})
+    lname.clear(); lname.update({l['id']: l['name'] for l in d['layers']})
+    return d
 SHORT = {'DIGITS': 'DIG', 'SYMBOL': 'SYM', 'FN': 'FN', 'CYR_S': 'CYS', 'GRAPH_ALT': 'GA', 'CYR': 'CYR', 'GRAPH': 'GR'}
 US = {'MINUS': '-', 'EQUAL': '=', 'LBKT': '[', 'RBKT': ']', 'BSLH': '\\', 'SEMI': ';', 'SQT': "'", 'GRAVE': '`',
       'COMMA': ',', 'DOT': '.', 'FSLH': '/', 'NUBS': '<', 'KP_SLASH': '/', 'KP_DOT': '.', 'KP_PLUS': '+', 'KP_MINUS': '-', 'KP_MULTIPLY': '*', 'SPACE': '␣',
@@ -71,20 +78,28 @@ def pad(s, n=6):
     s = s if w(s) <= n else s[:n]
     return s + ' ' * (n - w(s))
 CTX = {'GRAPH':'us','GRAPH_ALT':'us','CYR':'ua','CYR_S':'ua'}
-order = sys.argv[2].split(',')
-for name in order:
-    l = next(x for x in d['layers'] if x['name'] == name)
-    for lang in [CTX.get(name, 'both')]:
-        title = name + ('' if name in CTX else '  (спільний; латиниця|кирилиця, де різне)')
-        print(f"── {title} " + '─' * (88 - len(title)))
-        bb = l['bindings']
-        def c(i):
-            if lang != 'both': return pad(cell(bb[i], lang))
-            a, b = cell(bb[i], 'us'), cell(bb[i], 'ua')
-            return pad(a if a == b else f"{a}|{b}")
-        line = lambda L, R: '│'.join(c(i) for i in L) + '  ║  ' + '│'.join(c(i) for i in R)
-        print(line(range(0, 6), range(7, 13)))
-        print(line(range(13, 19), range(22, 28)))
-        print(line(range(28, 34), range(36, 42)))
-        print(' ' * 21 + '│'.join(c(i) for i in range(42, 45)) + '  ║  ' + '│'.join(c(i) for i in range(45, 48)))
-        print()
+
+
+def main():
+    load(sys.argv[1])
+    order = sys.argv[2].split(',')
+    for name in order:
+        l = next(x for x in d['layers'] if x['name'] == name)
+        for lang in [CTX.get(name, 'both')]:
+            title = name + ('' if name in CTX else '  (спільний; латиниця|кирилиця, де різне)')
+            print(f"── {title} " + '─' * (88 - len(title)))
+            bb = l['bindings']
+            def c(i):
+                if lang != 'both': return pad(cell(bb[i], lang))
+                a, b = cell(bb[i], 'us'), cell(bb[i], 'ua')
+                return pad(a if a == b else f"{a}|{b}")
+            line = lambda L, R: '│'.join(c(i) for i in L) + '  ║  ' + '│'.join(c(i) for i in R)
+            print(line(range(0, 6), range(7, 13)))
+            print(line(range(13, 19), range(22, 28)))
+            print(line(range(28, 34), range(36, 42)))
+            print(' ' * 21 + '│'.join(c(i) for i in range(42, 45)) + '  ║  ' + '│'.join(c(i) for i in range(45, 48)))
+            print()
+
+
+if __name__ == '__main__':
+    main()

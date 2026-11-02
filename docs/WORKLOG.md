@@ -132,6 +132,11 @@
   напряму не ставить — безпека). Сторінка з кнопками копіювання й інструкцією:
   https://claude.ai/artifact/S74uNwjzAVmu69PsUXwXLZ
 - Не перевірено на маку: встановлення, Cmd-шорткати в кирилиці, Caps Lock.
+- Схема шарів — артефакт https://claude.ai/artifact/QCaKAW1MnLmnyaLFsk8VVE
+  (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
+  `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
+  layers_html.py -> republish того самого файлу/URL. Поточне джерело —
+  `config/zmk/studio_keymap_2026-11-02-pipetest.json` (живий стан з тестовими клавішами).
 
 ---
 
