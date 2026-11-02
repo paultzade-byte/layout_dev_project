@@ -60,6 +60,8 @@ class ScoreMetrics:
     oht_awkward_penalty: float = 0.0
     # форма перекату по рядах; може бути від'ємною (бонус за природну дугу)
     roll_row_penalty: float = 0.0
+    # "ножиці": коротший палець вище довшого в біграмі однією рукою
+    row_shape_penalty: float = 0.0
 
     # баланс альтернації рук: серії натискань однією рукою в словах
     hand_run_penalty: float = 0.0
