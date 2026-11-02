@@ -726,10 +726,17 @@ class MovementScoringEngine:
         )
 
         # "Ножиці": коротший палець вище довшого (по, ер). Бонус сусідніх
-        # пальців (від'ємний brother_finger) за такі пари не дається.
+        # пальців (від'ємний brother_finger) не дається лише тоді, коли
+        # безіменний/мізинець тягнеться на верхній ряд ("по", "ле"); "об",
+        # "ам" (вказівний вище або довший провалюється вниз) бонус зберігають.
         scissor = self._scissor_weight(g, idx1, idx2)
+        upper_finger = np.where(row1 < row2, finger1, finger2)
+        reach_up = (
+            (scissor > 0) & (np.minimum(row1, row2) == 0)
+            & ((upper_finger == Finger.RING.value) | (upper_finger == Finger.PINKY.value))
+        )
         alt_weight = self._finger_alt_mult[finger1, finger2]
-        alt_weight = np.where((scissor > 0) & (alt_weight < 0), 0.0, alt_weight)
+        alt_weight = np.where(reach_up & (alt_weight < 0), 0.0, alt_weight)
 
         return {
             "row_shape_penalty": weight * scissor * hand_mult,
