@@ -1,7 +1,7 @@
 [
   {
     "position_id": 0,
-    "char": "ц",
+    "char": "ч",
     "is_frozen": false
   },
   {
@@ -51,7 +51,7 @@
   },
   {
     "position_id": 10,
-    "char": "в",
+    "char": "х",
     "is_frozen": false
   },
   {
@@ -76,7 +76,7 @@
   },
   {
     "position_id": 15,
-    "char": "ч",
+    "char": "ц",
     "is_frozen": false
   },
   {
@@ -106,7 +106,7 @@
   },
   {
     "position_id": 21,
-    "char": "х",
+    "char": "і",
     "is_frozen": false
   },
   {
@@ -126,7 +126,7 @@
   },
   {
     "position_id": 25,
-    "char": "і",
+    "char": "в",
     "is_frozen": false
   },
   {
