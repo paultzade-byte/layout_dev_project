@@ -5,6 +5,13 @@
 
 ## Поточний стан (кінець сесії 2026-10-28; шари/мак — див. сесію 2026-11-02)
 
+- **2026-11-03 на клавіатуру (CYR) записано seed 5** (162.52, без
+  віддзеркалення); вона ж у `config/recorded_layout.json` (Rec<< у GUI) і
+  `config/layout_seed5.json`. Автор пробує «за нагоди» — спитати враження.
+  Відкат на попередню (seed 3m + правки автора л/р, и/х, 163.23):
+  `studio.py write /dev/ttyACM1 config/zmk/studio_keymap_2026-11-03-before-seed5.json --layer CYR --yes`;
+  у GUI — `config/layout_seed3m_keyboard.json` / `recorded_layout.before-seed5.json`.
+
 - Чотири PR «стосом», PR #1–#3 відкриті, не змерджені:
   - #1 `fix/algorithm-bugs` → `main` (сесія 2026-10-25)
   - #2 `feat/sa-calibration` → `fix/algorithm-bugs` (сесія 2026-10-26)
@@ -110,6 +117,25 @@
    cpulimit 60%).
 3. **UI/UX**: розбивка штрафу по компонентах, порівняння з ЙЦУКЕН, теплова
    карта, графік прогресу, бібліотека розкладок, експорт SVG/QMK/XKB.
+
+---
+
+## Сесія 2026-11-03 — seed 5 на клавіатуру
+
+- Порівняння (поточна модель): клавіатура (seed 3m з правками автора) 163.23,
+  seed 5 162.52, еталон 173.37 — різниця 0.7, у межах розкиду seed. Seed 5
+  краща за ножицями (row_shape 2.63 → 1.07), finger_alternation, roll_rows;
+  гірша за base_effort (+2.1), skipgram same-hand (+0.8), чергування 52 → 49%.
+- На клавіатурі и/х були переставлені відносно `recorded_layout.json` —
+  правка автора прямо в keymap.
+- `cyr_from_layout.py`: кома тепер переноситься разом із behavior
+  «кома/крапка» (`&lt L x` <-> `LT Comma/Dot L 0`, `&kp x` <-> `ua_comma_dot`),
+  холд шару лишається на позиції. Тому в seed 5: 29 = `&lt DIGITS г`,
+  40 = `&lt_cd DIGITS 0` (кома з холдом DIGITS на правому безіменному).
+  Перевірено: extract → build на поточному дампі дає той самий дамп.
+- Апостроф у кутку (41, `LS(GRAVE)`) не чіпали — позиція та сама; в `UA_CHARS`
+  цього кейкоду немає, тож `extract` дає там порожньо.
+- Записано 28 клавіш, стан — `config/zmk/studio_keymap_2026-11-03-seed5`.
 
 ---
 
