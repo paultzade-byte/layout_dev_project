@@ -5,6 +5,16 @@
 
 ## Поточний стан (кінець сесії 2026-10-28; шари/мак — див. сесію 2026-11-02)
 
+- **2026-11-03 (ніч) на клавіатурі розкладка d = b з б↔п** (c відкинуто; `config/layout_paul_2026-11-03d.json`,
+  дамп `config/zmk/studio_keymap_2026-11-03-paul-d.json`, відкат на c — `..._before-d.json`):
+  ```
+  верх     ж ч у д ш    щ г р е ї
+  дім    з с н о т к    и і л а в ю
+  низ    ф й п ь б ц    є х м я , ʼ
+  ```
+  Штраф **166.05** (b 167.66, −1.61): finger_load −1.0, «пд/дп» −0.7; гірше «пос/буд/поз» oht_awkward.
+  Вона ж у `config/recorded_layout.json` (Rec<<). Артефакт шарів — з дампу paul-d. Спитати враження.
+
 - **2026-11-03 (пізно ввечері) розкладка c = b з и↔п** (`config/layout_paul_2026-11-03c.json`,
   дамп `config/zmk/studio_keymap_2026-11-03-paul-c.json`; відкат на b —
   `studio.py write /dev/ttyACM1 config/zmk/studio_keymap_2026-11-03-before-c.json --layer CYR --yes`):
@@ -257,7 +267,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-03-paul-c.json` (`--mark SYMBOL:11,30,36,40` — тестові клавіші).
+  `config/zmk/studio_keymap_2026-11-03-paul-d.json` (`--mark SYMBOL:11,30,36,40` — тестові клавіші).
 
 ---
 
