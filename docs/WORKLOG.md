@@ -5,6 +5,18 @@
 
 ## Поточний стан (кінець сесії 2026-10-28; шари/мак — див. сесію 2026-11-02)
 
+- **2026-11-03 (пізно ввечері) розкладка c = b з и↔п** (`config/layout_paul_2026-11-03c.json`,
+  дамп `config/zmk/studio_keymap_2026-11-03-paul-c.json`; відкат на b —
+  `studio.py write /dev/ttyACM1 config/zmk/studio_keymap_2026-11-03-before-c.json --layer CYR --yes`):
+  ```
+  верх     ж ч у д ш    щ г р е ї
+  дім    з с н о т к    п і л а в ю
+  низ    ф й б ь и ц    є х м я , ʼ
+  ```
+  Штраф **177.40** (b 167.66, +9.74): и з домашнього вниз base_effort +4.07, sfb «ти/ит/ки/ик» на
+  лівому вказівному +3.3, sfs «ди/ши» +1.7; краще — hand_runs −2.23, «их» sfb. Голосні ліва/права 45/55.
+  Апостроф 41 лишився `LS(GRAVE)`. Артефакт шарів оновлено (джерело — дамп paul-c). Спитати враження.
+
 - **2026-11-03 (вечір) на клавіатуру записано другу ручну розкладку автора**
   (`config/layout_paul_2026-11-03b.json`, дамп `config/zmk/studio_keymap_2026-11-03-paul-b.json`;
   точка відкату — `config/zmk/studio_keymap_2026-11-03-before-b.json` = попередня правка):
@@ -243,7 +255,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-03-paul-b.json` (`--mark SYMBOL:11,30,36,40` — тестові клавіші).
+  `config/zmk/studio_keymap_2026-11-03-paul-c.json` (`--mark SYMBOL:11,30,36,40` — тестові клавіші).
 
 ---
 
