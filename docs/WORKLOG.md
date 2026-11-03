@@ -5,6 +5,17 @@
 
 ## Поточний стан (кінець сесії 2026-10-28; шари/мак — див. сесію 2026-11-02)
 
+- **2026-11-03 (ніч) на клавіатурі розкладка f = e з е↔я** (`config/layout_paul_2026-11-03f.json`,
+  дамп `config/zmk/studio_keymap_2026-11-03-paul-f.json`, відкат на e — `..._before-f.json`;
+  вона ж у `recorded_layout.json`, Rec<<):
+  ```
+  верх     ж б у д ш    щ г л я ї
+  дім    з с н о т к    и і р а в й
+  низ    ф , п ь ч ц    є х м е ю ʼ
+  ```
+  Штраф **162.16** — нижче seed 5 (162.52). Проти e: row_shape −0.82 («ер/ре/ме» без ножиць),
+  finger_alternation −0.38. Спитати враження.
+
 - **2026-11-03 (ніч, остаточно) на клавіатурі розкладка e = seed 3m з правками + б↔п**
   (`config/layout_paul_2026-11-03e.json`, дамп `config/zmk/studio_keymap_2026-11-03-paul-e.json`,
   відкат на d — `..._before-e.json`; вона ж у `recorded_layout.json`, Rec<<):
@@ -283,7 +294,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-03-paul-e.json` (`--mark SYMBOL:11,30,36,40` — тестові клавіші).
+  `config/zmk/studio_keymap_2026-11-03-paul-f.json` (`--mark SYMBOL:11,30,36,40` — тестові клавіші).
 
 ---
 
