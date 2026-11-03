@@ -2,7 +2,10 @@
 
 Холди прив'язані до позицій, тапи — до літер: на кожній позиції лишається
 поточний behavior (шифт на середньому пальці, Ctrl+C/V, &lt на ї і комі…),
-замінюється лише кейкод тапу. Літера -> кейкод ЙЦУКЕН за xkb `ua`
+замінюється лише кейкод тапу. Виняток — кома: її тап «, / Shift .» живе в
+behavior (`LT Comma/Dot` = &lt з комою-крапкою, `ua_comma_dot` = &kp з нею),
+тому він їде з комою, а холд шару лишається на позиції:
+&lt L x <-> LT Comma/Dot L 0, &kp x <-> ua_comma_dot. Літера -> кейкод ЙЦУКЕН за xkb `ua`
 (`studio.UA_KEYCODES`).
 
     # розкладка -> новий дамп (на основі поточного), далі studio.py write
@@ -46,6 +49,48 @@ def position_map():
     return {k["id"]: eyelash_position(k) for k in GEOMETRY_CONFIG["positions"]}
 
 
+# Пари behavior «звичайний тап» <-> «кома-крапка» з тим самим холдом.
+COMMA_FOR = {"Layer-Tap": "LT Comma/Dot", "Key Press": "ua_comma_dot"}
+PLAIN_FOR = {v: k for k, v in COMMA_FOR.items()}
+
+
+def behavior_id(dump, name):
+    ids = [bid for bid, n in dump["behaviors"].items() if n == name]
+    if not ids:
+        raise SystemExit(f"у прошивці немає behavior {name!r}")
+    return ids[0]
+
+
+def set_tap(dump, binding, pos, char):
+    """Ставить тап `char` на позицію, зберігаючи холд."""
+    name = dump["behaviors"][binding[0]]
+    if char == ",":
+        if name in PLAIN_FOR:
+            return  # уже кома-крапка
+        if name not in COMMA_FOR:
+            raise SystemExit(f"позиція {pos}: кому не можна поставити на {name!r}")
+        binding[0] = behavior_id(dump, COMMA_FOR[name])
+        binding[2] = 0
+        if name == "Key Press":
+            binding[1] = 0
+        return
+    if name in PLAIN_FOR:
+        plain = PLAIN_FOR[name]
+        binding[0] = behavior_id(dump, plain)
+        if plain == "Key Press":
+            binding[1] = 0
+    binding[tap_param(dump, binding, pos)] = UA_KEYCODES[char]
+
+
+def tap_char(dump, binding):
+    name = dump["behaviors"][binding[0]]
+    if name in PLAIN_FOR:
+        return ","
+    if name in TAP_PARAM:
+        return UA_CHARS.get(binding[TAP_PARAM[name]], "")
+    return ""
+
+
 def tap_param(dump, binding, pos):
     name = dump["behaviors"][binding[0]]
     if name not in TAP_PARAM:
@@ -60,17 +105,16 @@ def build(layout, base):
     placed = set()
     for item in layout:
         char, pos = item["char"], pmap.get(item["position_id"])
-        if pos is None or char not in UA_KEYCODES:
+        if pos is None or (char not in UA_KEYCODES and char != ","):
             continue  # тхамби, порожні кути, SPA/CE
-        idx = tap_param(dump, bindings[pos], pos)
-        bindings[pos][idx] = UA_KEYCODES[char]
+        set_tap(dump, bindings[pos], pos, char)
         placed.add(pos)
     # інші позиції шару не повинні дублювати літеру з нової розкладки
-    new_chars = {UA_CHARS[bindings[p][tap_param(dump, bindings[p], p)]] for p in placed}
+    new_chars = {tap_char(dump, bindings[p]) for p in placed}
     for pos, b in enumerate(bindings):
-        name = dump["behaviors"][b[0]]
-        if pos not in placed and name in TAP_PARAM and UA_CHARS.get(b[TAP_PARAM[name]]) in new_chars:
-            raise SystemExit(f"позиція {pos} поза розкладкою дублює «{UA_CHARS[b[TAP_PARAM[name]]]}»")
+        c = tap_char(dump, b)
+        if pos not in placed and c and c in new_chars:
+            raise SystemExit(f"позиція {pos} поза розкладкою дублює «{c}»")
     return dump
 
 
@@ -80,9 +124,7 @@ def extract(dump):
     for opt_id, pos in sorted(position_map().items()):
         char = ""
         if pos is not None:
-            name = dump["behaviors"][bindings[pos][0]]
-            if name in TAP_PARAM:
-                char = UA_CHARS.get(bindings[pos][TAP_PARAM[name]], "")
+            char = tap_char(dump, bindings[pos])
         layout.append({"position_id": opt_id, "char": char, "is_frozen": False})
     return layout
 
