@@ -16,6 +16,8 @@
   Штраф **177.40** (b 167.66, +9.74): и з домашнього вниз base_effort +4.07, sfb «ти/ит/ки/ик» на
   лівому вказівному +3.3, sfs «ди/ши» +1.7; краще — hand_runs −2.23, «их» sfb. Голосні ліва/права 45/55.
   Апостроф 41 лишився `LS(GRAVE)`. Артефакт шарів оновлено (джерело — дамп paul-c). Спитати враження.
+  Вона ж у `config/recorded_layout.json` (Rec<< у GUI); там був seed 5 — копія
+  `config/recorded_layout.before-c.json` (= `config/layout_seed5.json`).
 
 - **2026-11-03 (вечір) на клавіатуру записано другу ручну розкладку автора**
   (`config/layout_paul_2026-11-03b.json`, дамп `config/zmk/studio_keymap_2026-11-03-paul-b.json`;
