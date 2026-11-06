@@ -21,7 +21,12 @@
   `OPENBLAS_NUM_THREADS=1 cpulimit -l 60 -f -m -q -- .venv/bin/python logs/overnight_2026-11-03/overnight.py >> logs/overnight_2026-11-03/driver.log 2>&1`
   (≈1 год; можна по частинах — переривання безпечне, втрачається лише поточний етап).
 
-- **2026-11-06 на клавіатурі розкладка h = f з и↔х** (`config/layout_paul_2026-11-06h.json`,
+- **2026-11-06: h спробував і відкинув («ломка») — на клавіатурі знову f** (записано з
+  `config/zmk/studio_keymap_2026-11-06-before-h.json`; артефакт шарів — з цього ж дампу; картинки f —
+  `~/Documents/layout/algoritmical_layouts/layout_f_2026-11-06.{svg,png}`). «и» внизу вказівного не
+  підходить; питання розтягу правої руки лишається відкритим.
+
+- **2026-11-06 (до відкату) на клавіатурі розкладка h = f з и↔х** (`config/layout_paul_2026-11-06h.json`,
   дамп `config/zmk/studio_keymap_2026-11-06-paul-h.json`, відкат на f — `..._2026-11-06-before-h.json`;
   апостроф 41 `LS(GRAVE)` збережено; `recorded_layout.json` НЕ змінено):
   ```
@@ -343,7 +348,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-06-paul-h.json` (без `--mark`).
+  `config/zmk/studio_keymap_2026-11-06-before-h.json` = f (без `--mark`).
 
 ---
 
