@@ -40,6 +40,8 @@
   як домашня (0.91 vs 0.61), пари дотична+середній («ри/ли/ми» у f) отримують бонус brother_finger;
   частота×зайві колонки однієї руки: f 7.8%, g 5.7% (права вдвічі менше). Кандидат на новий член
   моделі «stretch» — лише з дозволу автора. Спитати враження від h.
+  Артефакт шарів оновлено (джерело — дамп paul-h); картинки `~/Documents/layout/algoritmical_layouts/layout_h_2026-11-06.{svg,png}`
+  (SVG — підстановкою літер у шаблон `layout_seed5_2026-11-03.svg`, PNG — inkscape).
 
 - **2026-11-03 (ніч) на клавіатурі розкладка f = e з е↔я** (`config/layout_paul_2026-11-03f.json`,
   дамп `config/zmk/studio_keymap_2026-11-03-paul-f.json`, відкат на e — `..._before-f.json`;
@@ -341,7 +343,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-03-paul-f.json` (`--mark SYMBOL:11,30,36,40` — тестові клавіші).
+  `config/zmk/studio_keymap_2026-11-06-paul-h.json` (без `--mark`).
 
 ---
 
