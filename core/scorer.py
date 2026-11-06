@@ -76,6 +76,7 @@ _REQUIRED_MOVES_SCHEMA = {
         "ring_over_middle", "pinky_over_ring", "pinky_over_middle",
         "pinky_over_index", "index_over_middle", "index_over_ring", "curl_ratio",
     ),
+    "stretch": ("per_column",),
     "hand": ("left_mult", "right_mult"),
     "hand_runs": ("single", "balanced", "overload", "overload_step"),
     "finger_load": {
@@ -541,7 +542,7 @@ class MovementScoringEngine:
             metrics.hand_run_penalty, metrics.finger_load_penalty,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
             metrics.finger_alternation_penalty, metrics.roll_row_penalty,
-            metrics.row_shape_penalty,
+            metrics.row_shape_penalty, metrics.stretch_penalty,
         ))
         return metrics
 
@@ -738,8 +739,19 @@ class MovementScoringEngine:
         alt_weight = self._finger_alt_mult[finger1, finger2]
         alt_weight = np.where(reach_up & (alt_weight < 0), 0.0, alt_weight)
 
+        # Розтяг кисті: пальці однієї руки розведені ширше за сусідні колонки
+        # (дотична вказівного або зовнішня мізинця в парі з іншим пальцем: "ри"
+        # дотична+середній, "ий" дотична вказівного -> зовнішня мізинця = 2).
+        # Штраф за кожну зайву колонку; бонус сусідніх пальців з розтягом не дається.
+        extra_cols = np.abs(col1 - col2) - np.abs(finger1 - finger2)
+        stretch_mask = alt_mask & (extra_cols > 0) & (row1 <= 2) & (row2 <= 2) \
+            & (finger1 != Finger.THUMB.value) & (finger2 != Finger.THUMB.value)
+        alt_weight = np.where(stretch_mask & (alt_weight < 0), 0.0, alt_weight)
+        stretch = np.where(stretch_mask, extra_cols * self.moves["stretch"]["per_column"], 0.0)
+
         return {
             "row_shape_penalty": weight * scissor * hand_mult,
+            "stretch_penalty": weight * stretch * hand_mult,
             "double_tap_penalty": np.where(same_key_mask, weight * finger_mult * sf_cfg["same_key"], 0.0),
             "sfb_penalty": weight * sfb_weight * finger_mult,
             "sfs_penalty": np.where(skip_mask, weight * skip_weight, 0.0),
