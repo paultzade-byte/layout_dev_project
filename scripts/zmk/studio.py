@@ -12,6 +12,8 @@ messages) у рамках SOF 0xAB … EOF 0xAD, байти SOF/ESC/EOF екра
     python scripts/zmk/studio.py write /dev/ttyACM2 target.json --layer CYR [--yes]
     python scripts/zmk/studio.py move  /dev/ttyACM2 CYR 1 [--yes]
 
+Замість порту можна писати `auto` — знайде порт Studio сам (`find_port`).
+
 `write` без --yes лише показує зміни. З --yes: записує біндинги, перечитує
 шар, і лише якщо він збігся з файлом — зберігає у флеш (save_changes); при
 будь-якій помилці — discard_changes. Відкат — write з попереднім дампом.
@@ -120,6 +122,28 @@ def _unpack_varints(b):
 # --- RPC ----------------------------------------------------------------------
 
 CORE, BEHAVIORS, KEYMAP = 3, 4, 5  # поля підсистем у zmk.studio.Request
+ZMK_USB_ID = (0x1D50, 0x615E)  # VID:PID прошивок ZMK
+
+
+class UnsavedChanges(RuntimeError):
+    pass
+
+
+def find_port():
+    """Порт Studio серед USB-портів ZMK. Половина дає кілька інтерфейсів
+    (ttyACM0/1), відповідає на протокол лише один — пробуємо по черзі."""
+    from serial.tools import list_ports
+    candidates = sorted((p.device for p in list_ports.comports()
+                         if (p.vid, p.pid) == ZMK_USB_ID), reverse=True)
+    for dev in candidates:
+        try:
+            with Studio(dev) as studio:
+                studio.call(BEHAVIORS, _field(1, 1), timeout=1.5)
+            return dev
+        except (TimeoutError, OSError, serial.SerialException, RuntimeError):
+            continue
+    raise RuntimeError("клавіатуру не знайдено: немає порту ZMK Studio "
+                       f"(USB-порти ZMK: {candidates or 'жодного'}; вкладку zmk.studio треба закрити)")
 
 
 class Studio:
@@ -142,7 +166,8 @@ class Studio:
 
         deadline = time.time() + timeout
         while time.time() < deadline:
-            self.buf += self.port.read(4096)
+            # не read(4096): той чекав би повний timeout на кожен запит
+            self.buf += self.port.read(max(1, self.port.in_waiting))
             while (msg := self._next_frame()) is not None:
                 response = _decode(msg)
                 rr = _get(response, 1)  # 2 = notification, пропускаємо
@@ -220,6 +245,35 @@ class Studio:
 
     def discard(self):
         self.call(KEYMAP, _field(5, 1))
+
+    def close(self):
+        self.port.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def write_layer(self, current, changes, layer_name):
+        """Записує зміни (з layer_diff) у шар, перечитує його і лише тоді зберігає
+        у флеш; при будь-якій помилці — discard_changes і виняток далі."""
+        if self.unsaved_changes():
+            raise UnsavedChanges("на клавіатурі вже є незбережені зміни — збережи або скасуй їх у Studio")
+        layer_id = find_layer(current, layer_name)["id"]
+        try:
+            for pos, _, new in changes:
+                self.set_binding(layer_id, pos, new)
+            after = find_layer({"layers": self.keymap()}, layer_name)["bindings"]
+            expected = find_layer(current, layer_name)["bindings"][:]
+            for pos, _, new in changes:
+                expected[pos] = new
+            if after != expected:
+                raise RuntimeError("після запису шар не збігся з очікуваним")
+            self.save()
+        except Exception:
+            self.discard()
+            raise
 
     def move_layer(self, start_index, dest_index):
         req = _field(1, start_index) + _field(2, dest_index)
@@ -413,7 +467,7 @@ def main():
         print("\n\n".join(format_layer(dump, l) for l in layers))
         return
 
-    studio = Studio(args.port)
+    studio = Studio(find_port() if args.port == "auto" else args.port)
     current = studio.dump()
     if args.cmd == "dump":
         with open(args.out, "w", encoding="utf-8") as f:
@@ -454,21 +508,11 @@ def main():
             print("\n(пробний прогін; щоб записати — додай --yes)")
         return
 
-    if studio.unsaved_changes():
-        sys.exit("на клавіатурі вже є незбережені зміни — збережи або скасуй їх у Studio")
-    layer_id = find_layer(current, args.layer)["id"]
     try:
-        for pos, _, new in changes[args.layer]:
-            studio.set_binding(layer_id, pos, new)
-        after = find_layer({"layers": studio.keymap()}, args.layer)["bindings"]
-        expected = find_layer(current, args.layer)["bindings"][:]
-        for pos, _, new in changes[args.layer]:
-            expected[pos] = new
-        if after != expected:
-            raise RuntimeError("після запису шар не збігся з очікуваним")
-        studio.save()
+        studio.write_layer(current, changes[args.layer], args.layer)
+    except UnsavedChanges as e:
+        sys.exit(str(e))
     except Exception:
-        studio.discard()
         print("помилка — незбережені зміни скасовано (discard_changes)")
         raise
     print(f"записано і збережено: {len(changes[args.layer])} клавіш у {args.layer}")
