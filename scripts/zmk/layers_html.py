@@ -247,17 +247,10 @@ code { font-family: var(--mono); font-size: .9em; }
 """
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("dump")
-    ap.add_argument("out")
-    ap.add_argument("--mark", action="append", default=[], help="ШАР:поз,поз")
-    a = ap.parse_args()
-    d = dl.load(a.dump)
-    marks = {}
-    for m in a.mark:
-        L, ps = m.split(":")
-        marks[L] = {int(x) for x in ps.split(",")}
+def render(dump_path, marks=None):
+    """Дамп studio.py (файл) -> HTML-сторінка схеми шарів."""
+    d = dl.load(dump_path)
+    marks = marks or {}
     layers = {l["name"]: l for l in d["layers"]}
     order = [n for n in ORDER if n in layers] + [n for n in layers if n not in ORDER]
     nav = "".join(f'<a href="#{n.lower().replace("_", "-")}" style="--lc: var(--l-{n.lower().replace("_", "-")})">'
@@ -271,7 +264,7 @@ def main():
               '<span class="item"><div class="k none"></div>порожня</span>'
               '<span class="item"><div class="k key"><span class="tap">?</span><span class="alt">,</span></div>у кутку — що в кирилиці</span>'
               '</div>')
-    src = os.path.basename(a.dump)
+    src = os.path.basename(str(dump_path))
     page = f"""<title>Corne Layers</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -287,6 +280,20 @@ def main():
   <footer>Згенеровано з <code>{esc(src)}</code> скриптом <code>scripts/zmk/layers_html.py</code>.</footer>
 </main>
 """
+    return page
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("dump")
+    ap.add_argument("out")
+    ap.add_argument("--mark", action="append", default=[], help="ШАР:поз,поз")
+    a = ap.parse_args()
+    marks = {}
+    for m in a.mark:
+        L, ps = m.split(":")
+        marks[L] = {int(x) for x in ps.split(",")}
+    page = render(a.dump, marks)
     open(a.out, "w", encoding="utf-8").write(page)
     print("записано", a.out, len(page), "байт")
 
