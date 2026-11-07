@@ -21,6 +21,12 @@
   `OPENBLAS_NUM_THREADS=1 cpulimit -l 60 -f -m -q -- .venv/bin/python logs/overnight_2026-11-03/overnight.py >> logs/overnight_2026-11-03/driver.log 2>&1`
   (≈1 год; можна по частинах — переривання безпечне, втрачається лише поточний етап).
 
+- **2026-11-07 (пізніше) i відкинуто — на клавіатурі j = f + ю↔ї** (`config/layout_paul_2026-11-07j.json`,
+  дамп `config/zmk/studio_keymap_2026-11-07-paul-j.json`, відкат на i — `..._2026-11-07-before-j.json`;
+  апостроф 41 `LS(GRAVE)` відновлено). Автор: ліва рука як у f «краще», кома лишається внизу мізинця.
+  Штраф **165.32**. Артефакт шарів — з дампу paul-j; картинки `layout_j_2026-11-07.{svg,png}`.
+  Автор питає про автоматизацію запису розкладки на клавіатуру (кнопка в апці vs артефакт) — див. нижче.
+
 - **2026-11-07 на клавіатурі розкладка i = f + цикл з→кома→ч + ю↔ї** (варіант автора з GUI;
   `config/layout_paul_2026-11-07i.json`, дамп `config/zmk/studio_keymap_2026-11-07-paul-i.json`, відкат
   на f — `..._2026-11-07-before-i.json`; апостроф 41 `LS(GRAVE)` відновлено; `recorded_layout.json` НЕ
@@ -377,7 +383,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-07-paul-i.json` = i (без `--mark`).
+  `config/zmk/studio_keymap_2026-11-07-paul-j.json` = j (без `--mark`).
 
 ---
 
