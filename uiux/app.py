@@ -1,7 +1,9 @@
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import math
+import sys
+import threading
 
 from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
 from core.layout_factory import build_layout, build_key_from_position
@@ -14,6 +16,7 @@ from pathlib import Path
 
 # необхідно для перезапису при свопах
 POSITIONS_BY_ID = {p["id"]: p for p in GEOMETRY_CONFIG["positions"]}
+ZMK_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "zmk"
 # штраф показується в тій самій шкалі, що й у scripts/ (x1e8)
 SCORE_SCALE = 1e8
 
@@ -123,8 +126,16 @@ class ButtonPanel:
          self.button_frame.columnconfigure(0, weight=1)
          self.button_frame.columnconfigure(4, weight=1)
 
+         # клавіатура: шар CYR <-> розкладка на екрані (scripts/zmk/keyboard_sync.py)
+         self.kb_frame = tk.Frame(self.button_frame, bg=BG)
+         self.kb_frame.grid(row=0, column=0, sticky="w", pady=10)
+         self.button_kb_write = make_button(self.kb_frame, "На клаву", self.logic.on_keyboard_write)
+         self.button_kb_write.pack(side="left", padx=(0, 10))
+         self.button_kb_read = make_button(self.kb_frame, "З клави", self.logic.on_keyboard_read)
+         self.button_kb_read.pack(side="left")
+
          self.button_start = make_button(self.button_frame, "Start", self.logic.toggle_optimization)
-         self.button_start.grid(row=0, column=1, columnspan=1, padx=(160,10), pady=10)
+         self.button_start.grid(row=0, column=1, columnspan=1, padx=(20,10), pady=10)
 
          # button_reheat
          self.button_reheat = make_button(
@@ -223,6 +234,7 @@ class LayoutBuilderApp():
             self.button_panel.button_start.config(text="Stop")
             self.button_panel.button_record.config(state="disabled")
             self.button_panel.button_recall.config(state="disabled")
+            self._set_keyboard_buttons("disabled")
             self.status_var.set("Оптимізую...")
             self.processor.start(
                 self.layout,
@@ -248,6 +260,7 @@ class LayoutBuilderApp():
         self.button_panel.button_start.config(text="Start")
         self.button_panel.button_record.config(state="normal")
         self.button_panel.button_recall.config(state="normal")
+        self._set_keyboard_buttons("normal")
         self._notify_layout_changed()
 
     def _on_done(self, result_layout: Layout):
@@ -525,6 +538,103 @@ class LayoutBuilderApp():
             style_key(widget)
         print("post-recall chars:", {k.position_id: (k.char, k.is_frozen) for k in self.layout.keys})
         self._notify_layout_changed()
+
+    # ------------------------------------------------------------------
+    # Keyboard: write the layout to the CYR layer / read it back
+    # ------------------------------------------------------------------
+    def _set_keyboard_buttons(self, state):
+        self.button_panel.button_kb_write.config(state=state)
+        self.button_panel.button_kb_read.config(state=state)
+
+    def _layout_items(self):
+        return [{"position_id": k.position_id, "char": k.char, "is_frozen": k.is_frozen}
+                for k in self.layout.keys]
+
+    def _current_score(self):
+        self.engine.update_layout(self.layout.keys)
+        return self.engine.score().total_penalty / SCORE_SCALE
+
+    def _keyboard_task(self, status, work, done):
+        """work() — у фоновому потоці (порт, inkscape), done(result) — в UI-потоці."""
+        if self.processor.is_running:
+            return
+        self._set_keyboard_buttons("disabled")
+        self.status_var.set(status)
+
+        def run():
+            try:
+                result = work()
+            except Exception as e:  # noqa: BLE001 — показати автору будь-яку помилку
+                self.root.after(0, lambda e=e: self._keyboard_failed(e))
+                return
+            self.root.after(0, lambda: done(result))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _keyboard_failed(self, error):
+        self._set_keyboard_buttons("normal")
+        self._notify_layout_changed()
+        messagebox.showerror("Клавіатура", f"{type(error).__name__}: {error}")
+
+    @staticmethod
+    def _keyboard_sync():
+        if str(ZMK_SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(ZMK_SCRIPTS))
+        import keyboard_sync
+        return keyboard_sync
+
+    def on_keyboard_write(self):
+        items = self._layout_items()
+        score = self._current_score()
+        ks = self._keyboard_sync()
+        self._keyboard_task("Читаю клавіатуру...", lambda: ks.prepare(items),
+                            lambda plan: self._confirm_keyboard_write(ks, plan, items, score))
+
+    def _confirm_keyboard_write(self, ks, plan, items, score):
+        if not plan.changes:
+            self._set_keyboard_buttons("normal")
+            self._notify_layout_changed()
+            messagebox.showinfo("Клавіатура", "Клавіатура вже збігається з розкладкою на екрані.")
+            return
+        question = (f"Записати {len(plan.changes)} клавіш у шар CYR ({plan.port})?\n\n"
+                    f"{plan.diff_text}\n\nШтраф розкладки: {score:.2f}")
+        if not messagebox.askyesno("На клаву", question):
+            self._set_keyboard_buttons("normal")
+            self._notify_layout_changed()
+            return
+        self._keyboard_task("Записую на клавіатуру...", lambda: ks.apply(plan, items, score),
+                            lambda out: self._keyboard_written(plan, out))
+
+    def _keyboard_written(self, plan, out):
+        self._set_keyboard_buttons("normal")
+        self._notify_layout_changed()
+        root = Path(__file__).resolve().parents[1]
+        rel = lambda p: str(p.relative_to(root)) if root in p.parents else str(p)  # noqa: E731
+        lines = [f"Записано {len(plan.changes)} клавіш у CYR.", "",
+                 f"відкат: {rel(out['before'])}", f"розкладка: {rel(out['layout'])}"]
+        lines += [f"{k}: {rel(out[k])}" for k in ("png", "svg", "html") if k in out]
+        self.status_var.set(self.status_var.get() + f"   · на клаві з {plan.stamp[-4:-2]}:{plan.stamp[-2:]}")
+        messagebox.showinfo("На клаву", "\n".join(lines))
+
+    def on_keyboard_read(self):
+        ks = self._keyboard_sync()
+        self._keyboard_task("Читаю клавіатуру...", ks.read_layout, self._keyboard_loaded)
+
+    def _keyboard_loaded(self, items):
+        self._set_keyboard_buttons("normal")
+        # тхамби/порожні кути на клавіатурі не мають літер — лишаємо, як на екрані
+        frozen = {k.position_id: k.is_frozen for k in self.layout.keys}
+        data = [{"position_id": d["position_id"], "char": d["char"],
+                 "is_frozen": frozen.get(d["position_id"], False)}
+                for d in items if d["char"]]
+        incoming = {d["char"] for d in data}
+        clash = [k.char for k in self.layout.keys
+                 if k.char and k.char in incoming
+                 and k.position_id not in {d["position_id"] for d in data}]
+        if clash:
+            messagebox.showerror("З клави", f"літери з клавіатури дублюють клавіші поза шаром: {clash}")
+            self._notify_layout_changed()
+            return
+        self._apply_recorded_state(data)
 
     # ------------------------------------------------------------------
     # Record the layout into different formats
