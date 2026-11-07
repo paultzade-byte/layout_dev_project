@@ -11,8 +11,13 @@ d, beh, lname = None, {}, {}
 
 def load(path):
     """Читає дамп; ch()/cell() беруть з нього назви behavior і шарів."""
+    return use(json.load(open(path)))
+
+
+def use(dump):
+    """Те саме, що load, але для дампу в пам'яті (напр. щойно з клавіатури)."""
     global d
-    d = json.load(open(path))
+    d = dump
     beh.clear(); beh.update({int(k): v for k, v in d['behaviors'].items()})
     lname.clear(); lname.update({l['id']: l['name'] for l in d['layers']})
     return d

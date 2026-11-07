@@ -57,10 +57,15 @@ def _diff_lines(current, changes):
     return "\n".join(f"CYR[{pos:2}]  {txt(old)}  ->  {txt(new)}" for pos, old, new in changes)
 
 
+def read_dump(port=None):
+    """Повний дамп клавіатури (усі шари)."""
+    with st.Studio(port or st.find_port()) as studio:
+        return studio.dump()
+
+
 def read_layout(port=None):
     """Шар CYR з клавіатури -> [{position_id, char, is_frozen}] (тхамби порожні)."""
-    with st.Studio(port or st.find_port()) as studio:
-        return cfl.extract(studio.dump())
+    return cfl.extract(read_dump(port))
 
 
 def prepare(layout_items, port=None):
