@@ -6,7 +6,7 @@
 behavior (`LT Comma/Dot` = &lt з комою-крапкою, `ua_comma_dot` = &kp з нею),
 тому він їде з комою, а холд шару лишається на позиції:
 &lt L x <-> LT Comma/Dot L 0, &kp x <-> ua_comma_dot. Літера -> кейкод ЙЦУКЕН за xkb `ua`
-(`studio.UA_KEYCODES`).
+(`studio.UA_KEYCODES`); апостроф «'» -> ʼ (`LS(GRAVE)`).
 
     # розкладка -> новий дамп (на основі поточного), далі studio.py write
     python scripts/zmk/cyr_from_layout.py build LAYOUT.json BASE_DUMP.json OUT_DUMP.json
@@ -23,10 +23,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from studio import TAP_PARAM, UA_CHARS, UA_KEYCODES, _norm, find_layer  # noqa: E402
+from studio import LS, TAP_PARAM, UA_CHARS, UA_KEYCODES, _norm, find_layer, keycode  # noqa: E402
 from config.main_config import GEOMETRY_CONFIG  # noqa: E402
 
 LAYER = "CYR"
+# Апостроф розкладки «'» на клавіатурі — це ʼ (U+02BC, Shift+` у xkb ua),
+# а не ASCII ' (GRAVE), який лежить у SYMBOL.
+APOSTROPHE = keycode("GRAVE", LS)
+CYR_KEYCODES = {**UA_KEYCODES, "'": APOSTROPHE}
+CYR_CHARS = {**UA_CHARS, APOSTROPHE: "'"}
 # Перша позиція кожного ряду Eyelash Corne для лівої і правої руки.
 _LEFT_BASE = {0: 0, 1: 13, 2: 28}
 _RIGHT_BASE = {0: 7, 1: 22, 2: 36}
@@ -79,7 +84,7 @@ def set_tap(dump, binding, pos, char):
         binding[0] = behavior_id(dump, plain)
         if plain == "Key Press":
             binding[1] = 0
-    binding[tap_param(dump, binding, pos)] = UA_KEYCODES[char]
+    binding[tap_param(dump, binding, pos)] = CYR_KEYCODES[char]
 
 
 def tap_char(dump, binding):
@@ -87,7 +92,7 @@ def tap_char(dump, binding):
     if name in PLAIN_FOR:
         return ","
     if name in TAP_PARAM:
-        return UA_CHARS.get(binding[TAP_PARAM[name]], "")
+        return CYR_CHARS.get(binding[TAP_PARAM[name]], "")
     return ""
 
 
@@ -105,7 +110,7 @@ def build(layout, base):
     placed = set()
     for item in layout:
         char, pos = item["char"], pmap.get(item["position_id"])
-        if pos is None or (char not in UA_KEYCODES and char != ","):
+        if pos is None or char not in CYR_KEYCODES:
             continue  # тхамби, порожні кути, SPA/CE
         set_tap(dump, bindings[pos], pos, char)
         placed.add(pos)
