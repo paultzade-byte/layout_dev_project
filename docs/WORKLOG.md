@@ -21,6 +21,21 @@
   `OPENBLAS_NUM_THREADS=1 cpulimit -l 60 -f -m -q -- .venv/bin/python logs/overnight_2026-11-03/overnight.py >> logs/overnight_2026-11-03/driver.log 2>&1`
   (≈1 год; можна по частинах — переривання безпечне, втрачається лише поточний етап).
 
+- **2026-11-07: запис на клавіатуру з GUI** — кнопки «На клаву» / «З клави» (`uiux/app.py`,
+  логіка — `scripts/zmk/keyboard_sync.py`). «На клаву»: читає клавіатуру, збирає шар CYR з розкладки на
+  екрані, показує diff і штраф, після «так» пише лише змінені клавіші (перечитує шар, тоді save у флеш,
+  інакше discard) і зберігає `config/zmk/studio_keymap_<дата_ЧЧХХ>-{before,written}.json` (before =
+  точка відкату), `config/layout_paul_<дата_ЧЧХХ>.json`, `~/Documents/layout/algoritmical_layouts/
+  layout_<дата_ЧЧХХ>.{svg,png}` (шаблон `scripts/zmk/layout_template.svg`) і `layers_current.html`
+  там же. Артефакт шарів на claude.ai апка не оновлює — це робить Claude (republish з layers_current.html
+  або з written-дампу). «З клави»: шар CYR -> розкладка на екрані (тхамби лишаються).
+  Прошивка для цього не потрібна (Studio міняє keymap наживо; GitHub Actions — лише для змін прошивки).
+  Супутнє: `studio.py` знаходить порт сам (`auto`; ZMK 1D50:615E, відповідає ttyACM1), читання
+  пришвидшене 14 с -> 0.3 с (`read(4096)` чекав таймаут на кожен запит), запис `write_layer` — метод;
+  `cyr_from_layout` сам ставить апостроф ʼ (`LS(GRAVE)`) — ручне відновлення 41 більше не треба;
+  `pyserial` тепер у `.venv` і requirements. Перевірено: запис i -> j туди й назад (3.6 с кожен),
+  GUI-сценарій (читання, «вже збігається», diff з відмовою). Автор ще не пробував кнопки сам.
+
 - **2026-11-07 (пізніше) i відкинуто — на клавіатурі j = f + ю↔ї** (`config/layout_paul_2026-11-07j.json`,
   дамп `config/zmk/studio_keymap_2026-11-07-paul-j.json`, відкат на i — `..._2026-11-07-before-j.json`;
   апостроф 41 `LS(GRAVE)` відновлено). Автор: ліва рука як у f «краще», кома лишається внизу мізинця.
