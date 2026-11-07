@@ -10,6 +10,7 @@ from core.layout_factory import build_layout, build_key_from_position
 from core.models import Finger, Layout, Key
 from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
+from uiux import layer_view
 from pathlib import Path
 # keeping this dead import for possible bedugging process
 #from log.loggers.state_hasher import StateHasher
@@ -174,9 +175,9 @@ class LayoutBuilderApp():
         self.root = root
         self.root.title("Аналізатор розкладки - Матриця")
         self.width = 900
-        self.heigh = 450
+        self.heigh = 490
         self.root.geometry(f"{self.width}x{self.heigh}")
-        self.root.minsize(900, 400)
+        self.root.minsize(900, 440)
         self.root.configure(bg=BG)
 
         # the real domain object -- drag/drop mutates this directly, so
@@ -200,12 +201,36 @@ class LayoutBuilderApp():
             anchor="w"
         ).pack(fill="x", padx=24, pady=(14, 0))
 
+        # вкладки: редактор розкладки (CYR з оптимізатора) або перегляд шару клавіатури
+        self.tab_bar = tk.Frame(self.root, bg=BG)
+        self.tab_bar.pack(fill="x", padx=20, pady=(8, 0))
+        self.tabs = {}
+        for name in ["Редактор"] + layer_view.lh.ORDER:
+            b = tk.Button(self.tab_bar, text=name, command=lambda n=name: self.show_tab(n),
+                          font=(FONT, 9, "bold"), relief="flat", bd=0, highlightthickness=0,
+                          padx=8, pady=3, cursor="hand2", activeforeground=TEXT)
+            b.pack(side="left", padx=(0, 4))
+            self.tabs[name] = b
+        self.button_refresh_layers = make_button(self.tab_bar, "⟳", self.on_layers_refresh)
+        self.button_refresh_layers.config(font=(FONT, 9, "bold"), padx=8, pady=3)
+        self.button_refresh_layers.pack(side="left", padx=(8, 0))
+
         # frame main
         self.board = tk.Frame(self.root, bg=PANEL, bd=0)
         self.board.pack(fill="both", expand=True, padx=20, pady=10)
+        self.layer_view = layer_view.LayerView(self.root, dict(
+            PANEL=PANEL, SLOT=SLOT, TEXT_DIM=TEXT_DIM, KEY_TEXT=KEY_TEXT, FONT=FONT,
+            FINGER={"pinky": FINGER_COLORS[Finger.PINKY], "ring": FINGER_COLORS[Finger.RING],
+                    "middle": FINGER_COLORS[Finger.MIDDLE], "index": FINGER_COLORS[Finger.INDEX],
+                    "thumb": FINGER_COLORS[Finger.THUMB]}))
+        dump_path = layer_view.latest_dump()
+        if dump_path:
+            self.layer_view.set_dump(layer_view.load_dump(dump_path), f"{dump_path.name} (файл)")
+        self.current_tab = "Редактор"
 
         # button frame
         self.button_panel = ButtonPanel(self.root, self)
+        self._style_tabs()
 
         # layout
         self.slots = []
@@ -540,11 +565,54 @@ class LayoutBuilderApp():
         self._notify_layout_changed()
 
     # ------------------------------------------------------------------
+    # Tabs: editor / read-only keyboard layers
+    # ------------------------------------------------------------------
+    def _style_tabs(self):
+        for name, b in self.tabs.items():
+            on = name == self.current_tab
+            color = layer_view.LAYER_COLORS.get(name, ACCENT)
+            b.config(bg=color if on else BUTTON, fg=KEY_TEXT if on else TEXT,
+                     activebackground=color if on else BUTTON_HOVER)
+
+    def show_tab(self, name):
+        if name == "Редактор":
+            self.layer_view.pack_forget()
+            self.board.pack(fill="both", expand=True, padx=20, pady=10,
+                            before=self.button_panel.button_frame)
+        else:
+            self.board.pack_forget()
+            self.layer_view.pack(fill="both", expand=True, padx=20, pady=10,
+                                 before=self.button_panel.button_frame)
+            self.layer_view.show(name)
+        self.current_tab = name
+        self._style_tabs()
+
+    def _set_layers_dump(self, dump, source):
+        self.layer_view.set_dump(dump, source)
+        if self.current_tab != "Редактор":
+            self.layer_view.show(self.current_tab)
+
+    def on_layers_refresh(self):
+        ks = self._keyboard_sync()
+
+        def done(dump):
+            self._set_keyboard_buttons("normal")
+            self._notify_layout_changed()
+            self._set_layers_dump(dump, f"клавіатура, {self._now()}")
+        self._keyboard_task("Читаю клавіатуру...", ks.read_dump, done)
+
+    @staticmethod
+    def _now():
+        from datetime import datetime
+        return datetime.now().strftime("%H:%M")
+
+    # ------------------------------------------------------------------
     # Keyboard: write the layout to the CYR layer / read it back
     # ------------------------------------------------------------------
     def _set_keyboard_buttons(self, state):
         self.button_panel.button_kb_write.config(state=state)
         self.button_panel.button_kb_read.config(state=state)
+        self.button_refresh_layers.config(state=state)
 
     def _layout_items(self):
         return [{"position_id": k.position_id, "char": k.char, "is_frozen": k.is_frozen}
@@ -606,6 +674,7 @@ class LayoutBuilderApp():
 
     def _keyboard_written(self, plan, out):
         self._set_keyboard_buttons("normal")
+        self._set_layers_dump(plan.target, f"{out['written'].name} (щойно записано)")
         self._notify_layout_changed()
         root = Path(__file__).resolve().parents[1]
         rel = lambda p: str(p.relative_to(root)) if root in p.parents else str(p)  # noqa: E731
@@ -617,10 +686,12 @@ class LayoutBuilderApp():
 
     def on_keyboard_read(self):
         ks = self._keyboard_sync()
-        self._keyboard_task("Читаю клавіатуру...", ks.read_layout, self._keyboard_loaded)
+        self._keyboard_task("Читаю клавіатуру...", ks.read_dump, self._keyboard_loaded)
 
-    def _keyboard_loaded(self, items):
+    def _keyboard_loaded(self, dump):
         self._set_keyboard_buttons("normal")
+        self._set_layers_dump(dump, f"клавіатура, {self._now()}")
+        items = self._keyboard_sync().cfl.extract(dump)
         # тхамби/порожні кути на клавіатурі не мають літер — лишаємо, як на екрані
         frozen = {k.position_id: k.is_frozen for k in self.layout.keys}
         data = [{"position_id": d["position_id"], "char": d["char"],
