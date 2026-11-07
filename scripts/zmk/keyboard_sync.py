@@ -132,3 +132,64 @@ def _images(plan, layout_items, score):
     html_path.write_text(layers_html.render(dump_path), encoding="utf-8")
     out["html"] = html_path
     return out
+
+
+# --- інші шари (редагування на вкладках GUI) ----------------------------------
+
+@dataclass
+class LayersPlan:
+    port: str
+    current: dict           # дамп клавіатури зараз
+    changes: dict           # {шар: [(позиція, поточний, новий)]}
+    conflicts: list         # [(шар, позиція)] — на клавіатурі вже не те, від чого редагували
+    diff_text: str
+    stamp: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d_%H%M"))
+
+    @property
+    def count(self):
+        return sum(len(v) for v in self.changes.values())
+
+
+def prepare_layers(working, base, port=None):
+    """Зміни робочої копії відносно base (стан, з якого почали редагувати) —
+    поверх того, що на клавіатурі зараз. Чіпаємо лише змінені позиції."""
+    port = port or st.find_port()
+    with st.Studio(port) as studio:
+        current = studio.dump()
+    dst_ids = {v: k for k, v in current["behaviors"].items()}
+    names = {l["id"]: l["name"] for l in current["layers"]}
+    changes, conflicts, lines = {}, [], []
+    for layer in working["layers"]:
+        name = layer["name"]
+        old = st.find_layer(base, name)["bindings"]
+        cur = st.find_layer(current, name)["bindings"]
+        for pos, (was, new) in enumerate(zip(old, layer["bindings"])):
+            if was == new:
+                continue
+            was_dev = st.translate(was, base["behaviors"], dst_ids)
+            new_dev = st.translate(new, working["behaviors"], dst_ids)
+            if cur[pos] != was_dev:
+                conflicts.append((name, pos))
+            if cur[pos] != new_dev:
+                changes.setdefault(name, []).append((pos, cur[pos], new_dev))
+    for name, ch in changes.items():
+        ua = name.startswith("CYR")
+        txt = lambda b: st.binding_text(b, current["behaviors"], names, ua)  # noqa: E731
+        lines += [f"{name}[{pos:2}]  {txt(o)}  ->  {txt(n)}" for pos, o, n in ch]
+    return LayersPlan(port, current, changes, conflicts, "\n".join(lines))
+
+
+def apply_layers(plan):
+    """Записує шари по черзі (кожен — write_layer з перевіркою і save). -> dict(шляхи, dump)."""
+    out = {"before": _save_json(DUMPS / f"studio_keymap_{plan.stamp}-before.json", plan.current)}
+    with st.Studio(plan.port) as studio:
+        for name, changes in plan.changes.items():
+            studio.write_layer(plan.current, changes, name)
+        after = studio.dump()
+    written = DUMPS / f"studio_keymap_{plan.stamp}-written.json"
+    out["written"] = _save_json(written, after)
+    IMAGES.mkdir(parents=True, exist_ok=True)
+    out["html"] = IMAGES / "layers_current.html"
+    out["html"].write_text(layers_html.render(written), encoding="utf-8")
+    out["dump"] = after
+    return out
