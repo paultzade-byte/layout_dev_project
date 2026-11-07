@@ -101,9 +101,11 @@ class LayerView(tk.Frame):
 
     Редагування (усі шари, крім READ_ONLY): перетягнути клавішу на іншу —
     обмін тапами, утримання лишаються на позиціях (як у редакторі CYR);
-    Shift+перетягування — обмін клавішами цілком. ПКМ — повернути клавішу,
-    як на клавіатурі. Зміни живуть у self.dump (робоча копія) до запису;
-    self.base — стан клавіатури, з яким порівнюємо."""
+    Shift+перетягування — обмін клавішами цілком. ПКМ — скасувати останній
+    обмін, у якому брала участь клавіша (обидві клавіші повертаються; решта
+    обмінів лишається — шар перебудовується з self.base за історією).
+    Зміни живуть у self.dump (робоча копія) до запису; self.base — стан
+    клавіатури, з яким порівнюємо; self.history — {шар: [(a, b, whole)]}."""
 
     def __init__(self, parent, colors, on_change=None):
         """colors: PANEL, SLOT, TEXT_DIM, KEY_TEXT, FONT, FINGER {pinky/ring/middle/index/thumb: колір}."""
@@ -129,6 +131,7 @@ class LayerView(tk.Frame):
         self.about = ""
         self.dump = None      # робоча копія (з незаписаними змінами)
         self.base = None      # як на клавіатурі
+        self.history = {}     # {шар: [(a, b, whole)]} — обміни від base до dump
         self.source = ""
         self.layer_name = None
         self._drag = None
@@ -150,6 +153,7 @@ class LayerView(tk.Frame):
         """Новий стан клавіатури; незаписані зміни відкидаються."""
         self.base = copy.deepcopy(dump)
         self.dump = copy.deepcopy(dump)
+        self.history = {}
         self.source = source
         self.on_change()
 
@@ -181,24 +185,40 @@ class LayerView(tk.Frame):
     def _tap_index(self, binding):
         return TAP_PARAM.get(self.dump["behaviors"].get(binding[0]))
 
-    def swap(self, a, b, whole=False):
-        bb = self._layer(self.layer_name, self.dump)["bindings"]
+    def _apply_swap(self, bb, a, b, whole):
         ia, ib = self._tap_index(bb[a]), self._tap_index(bb[b])
         if whole or ia is None or ib is None:
             bb[a], bb[b] = bb[b], bb[a]
         else:
             bb[a] = list(bb[a]); bb[b] = list(bb[b])
             bb[a][ia], bb[b][ib] = bb[b][ib], bb[a][ia]
+
+    def swap(self, a, b, whole=False):
+        self._apply_swap(self._layer(self.layer_name, self.dump)["bindings"], a, b, whole)
+        self.history.setdefault(self.layer_name, []).append((a, b, whole))
         self._changed()
 
+    def _rebuild(self, name):
+        """Шар = base + обміни з історії по черзі."""
+        bb = copy.deepcopy(self._layer(name, self.base)["bindings"])
+        for a, b, whole in self.history.get(name, []):
+            self._apply_swap(bb, a, b, whole)
+        self._layer(name, self.dump)["bindings"] = bb
+
     def revert(self, pos):
-        cur = self._layer(self.layer_name, self.dump)["bindings"]
-        cur[pos] = copy.deepcopy(self._layer(self.layer_name, self.base)["bindings"][pos])
-        self._changed()
+        """Скасувати останній обмін із участю pos (повертаються обидві клавіші)."""
+        hist = self.history.get(self.layer_name, [])
+        for i in range(len(hist) - 1, -1, -1):
+            if pos in hist[i][:2]:
+                del hist[i]
+                self._rebuild(self.layer_name)
+                self._changed()
+                return
 
     def reset_layer(self, name=None):
         name = name or self.layer_name
-        self._layer(name, self.dump)["bindings"] = copy.deepcopy(self._layer(name, self.base)["bindings"])
+        self.history.pop(name, None)
+        self._rebuild(name)
         self._changed()
 
     def _changed(self):
@@ -217,7 +237,7 @@ class LayerView(tk.Frame):
             self.caption.config(text=f"У дампі немає шару {layer_name}.")
             return
         how = ("перетягни — обмін тапами (утримання лишаються), Shift+перетягни — клавішами цілком, "
-               "ПКМ — повернути" if self.editable(layer_name) else "лише перегляд — кирилиця редагується в «Редакторі»")
+               "ПКМ — скасувати обмін" if self.editable(layer_name) else "лише перегляд — кирилиця редагується в «Редакторі»")
         self.about = (f"{lh.ABOUT.get(layer_name, '')}  ({how})\n"
                       f"Як увімкнути: {merged_activators(layer_name, self.dump)}")
         self.caption_hint(None)
