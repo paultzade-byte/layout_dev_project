@@ -55,7 +55,7 @@ _REQUIRED_MOVES_SCHEMA = {
     "base_effort": {
         "row_multiplier": ("top", "home_row", "bottom", "other"),
         "finger_multiplier": ("pinky", "ring", "middle", "index", "thumb"),
-        "column_multiplier": ("home_col", "col"),
+        "column_multiplier": ("home_col", "col_index", "col_pinky"),
     },
     # None = числовий лист; tuple = вкладена секція з числовими листами
     "same_finger": {
@@ -72,6 +72,11 @@ _REQUIRED_MOVES_SCHEMA = {
     },
     "roll": ("inward", "outward", "awkward"),
     "roll_rows": ("natural_arc", "bottom_step", "row_skip", "drop_jump"),
+    "row_shape": (
+        "ring_over_middle", "pinky_over_ring", "pinky_over_middle",
+        "pinky_over_index", "index_over_middle", "index_over_ring", "curl_ratio",
+    ),
+    "stretch": ("per_column",),
     "hand": ("left_mult", "right_mult"),
     "hand_runs": ("single", "balanced", "overload", "overload_step"),
     "finger_load": {
@@ -204,10 +209,12 @@ class MovementScoringEngine:
         self._char_bits = np.left_shift(np.uint64(1), np.arange(n, dtype=np.uint64))
 
         col_cfg = self.moves["base_effort"]["column_multiplier"]
-        # індекс 0 -> flag=0 (розтяг) -> "col"; індекс 1 -> flag=1 (домашня) -> "home_col"
+        # індекс 0 -> flag=0 (розтяг) -> "col_index"; індекс 1 -> flag=1 (домашня) -> "home_col";
+        # дотична колонка мізинця -> "col_pinky" (див. _position_effort)
         self._column_mult_by_flag = np.array(
-            [col_cfg["col"], col_cfg["home_col"], col_cfg["other"]], dtype=np.float64
+            [col_cfg["col_index"], col_cfg["home_col"], col_cfg["other"]], dtype=np.float64
         )
+        self._column_mult_pinky = col_cfg["col_pinky"]
         # Small lookup tables derived from moves_config only (never change).
         finger_mult = self.moves["base_effort"]["finger_multiplier"]
         # index by Finger.value (1..5); index 0 unused.
@@ -244,6 +251,20 @@ class MovementScoringEngine:
                     if category is None:
                         raise ValueError(f"finger_alternation: no category for pair ({a}, {b}")
                     self._finger_alt_mult[a, b] = finger_alt_cfg[category]
+
+        # "Ножиці" (row_shape): вага за пару (верхній палець, нижній палець),
+        # якщо коротший палець стоїть вище за довший. Thumb не бере участі.
+        shape_cfg = self.moves["row_shape"]
+        self._scissor_mult = np.zeros((6, 6), dtype=np.float64)
+        for upper, lower, name in (
+            (Finger.RING, Finger.MIDDLE, "ring_over_middle"),
+            (Finger.PINKY, Finger.RING, "pinky_over_ring"),
+            (Finger.PINKY, Finger.MIDDLE, "pinky_over_middle"),
+            (Finger.PINKY, Finger.INDEX, "pinky_over_index"),
+            (Finger.INDEX, Finger.MIDDLE, "index_over_middle"),
+            (Finger.INDEX, Finger.RING, "index_over_ring"),
+        ):
+            self._scissor_mult[upper.value, lower.value] = shape_cfg[name]
 
         # Внесок бі/три/скіп-грами залежить лише від позицій її літер, тому
         # штраф за одиницю частоти рахується наперед для кожного кортежу
@@ -521,6 +542,7 @@ class MovementScoringEngine:
             metrics.hand_run_penalty, metrics.finger_load_penalty,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
             metrics.finger_alternation_penalty, metrics.roll_row_penalty,
+            metrics.row_shape_penalty, metrics.stretch_penalty,
         ))
         return metrics
 
@@ -614,6 +636,9 @@ class MovementScoringEngine:
         """base_effort за одиницю частоти для кожної позиції."""
         # home_col: 0 = дотична колонка, 1 = домашня, інше (напр. 3 у thumb) -> "other"
         column_weight = self._column_mult_by_flag[np.minimum(g.home_col, 2)]
+        column_weight = np.where(
+            (g.home_col == 0) & (g.finger == Finger.PINKY.value), self._column_mult_pinky, column_weight
+        )
         hand_weight = np.where(g.hand == 0, self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"])
         row_cfg = self.moves["base_effort"]["row_multiplier"]
         row_weight = np.select(
@@ -623,6 +648,22 @@ class MovementScoringEngine:
         )
         finger_weight = self._finger_mult_by_value[g.finger]
         return g.base_cost * row_weight * column_weight * finger_weight * hand_weight
+
+    def _scissor_weight(self, g, idx1, idx2) -> np.ndarray:
+        """Штраф "ножиць" за одиницю частоти для пари натискань (0 — форма
+        нормальна). Однією рукою, різними пальцями, коротший палець вище
+        довшого: вага пари x кількість рядів між ними; якщо верхній палець
+        лише на домашньому (довший провалюється вниз) — x curl_ratio."""
+        r1, r2 = g.row[idx1], g.row[idx2]
+        f1, f2 = g.finger[idx1], g.finger[idx2]
+        first_up = r1 < r2
+        upper = np.where(first_up, f1, f2)
+        lower = np.where(first_up, f2, f1)
+        upper_row = np.minimum(r1, r2)
+        mult = self._scissor_mult[upper, lower] * np.abs(r1 - r2)
+        mult = np.where(upper_row == 0, mult, mult * self.moves["row_shape"]["curl_ratio"])
+        valid = (g.hand[idx1] == g.hand[idx2]) & (f1 != f2) & (r1 != r2) & (r1 <= 2) & (r2 <= 2)
+        return np.where(valid, mult, 0.0)
 
     def _bigram_terms(self, g, idx, weight):
         idx1, idx2 = idx
@@ -685,12 +726,37 @@ class MovementScoringEngine:
             hand1 == 0, self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"]
         )
 
+        # "Ножиці": коротший палець вище довшого (по, ер). Бонус сусідніх
+        # пальців (від'ємний brother_finger) не дається лише тоді, коли
+        # безіменний/мізинець тягнеться на верхній ряд ("по", "ле"); "об",
+        # "ам" (вказівний вище або довший провалюється вниз) бонус зберігають.
+        scissor = self._scissor_weight(g, idx1, idx2)
+        upper_finger = np.where(row1 < row2, finger1, finger2)
+        reach_up = (
+            (scissor > 0) & (np.minimum(row1, row2) == 0)
+            & ((upper_finger == Finger.RING.value) | (upper_finger == Finger.PINKY.value))
+        )
+        alt_weight = self._finger_alt_mult[finger1, finger2]
+        alt_weight = np.where(reach_up & (alt_weight < 0), 0.0, alt_weight)
+
+        # Розтяг кисті: пальці однієї руки розведені ширше за сусідні колонки
+        # (дотична вказівного або зовнішня мізинця в парі з іншим пальцем: "ри"
+        # дотична+середній, "ий" дотична вказівного -> зовнішня мізинця = 2).
+        # Штраф за кожну зайву колонку; бонус сусідніх пальців з розтягом не дається.
+        extra_cols = np.abs(col1 - col2) - np.abs(finger1 - finger2)
+        stretch_mask = alt_mask & (extra_cols > 0) & (row1 <= 2) & (row2 <= 2) \
+            & (finger1 != Finger.THUMB.value) & (finger2 != Finger.THUMB.value)
+        alt_weight = np.where(stretch_mask & (alt_weight < 0), 0.0, alt_weight)
+        stretch = np.where(stretch_mask, extra_cols * self.moves["stretch"]["per_column"], 0.0)
+
         return {
+            "row_shape_penalty": weight * scissor * hand_mult,
+            "stretch_penalty": weight * stretch * hand_mult,
             "double_tap_penalty": np.where(same_key_mask, weight * finger_mult * sf_cfg["same_key"], 0.0),
             "sfb_penalty": weight * sfb_weight * finger_mult,
             "sfs_penalty": np.where(skip_mask, weight * skip_weight, 0.0),
             "finger_alternation_penalty": np.where(
-                alt_mask, weight * self._finger_alt_mult[finger1, finger2] * hand_mult, 0.0
+                alt_mask, weight * alt_weight * hand_mult, 0.0
             ),
         }
 
@@ -735,7 +801,10 @@ class MovementScoringEngine:
         row_skip = roll_mask & has_top & has_bottom & ~drop_jump
         # 3) Природна дуга: домашній ряд + верхній лише довгими пальцями
         #    (мізинець home, середній top, вказівний home). Зручно -> бонус.
-        natural_arc = roll_mask & has_top & ~has_bottom & ~top_by_short_finger
+        #    Без "ножиць" між сусідніми натисканнями: ЕРЕ (безіменний вгорі,
+        #    середній вдома) — не дуга.
+        no_scissor = (self._scissor_weight(g, idx1, idx2) == 0) & (self._scissor_weight(g, idx2, idx3) == 0)
+        natural_arc = roll_mask & has_top & ~has_bottom & ~top_by_short_finger & no_scissor
         # 4) Домашній + нижній без верхнього (дві на home, третя внизу). Нормально.
         bottom_step = roll_mask & has_bottom & ~has_top
 

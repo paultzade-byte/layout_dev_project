@@ -1,19 +1,24 @@
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import math
+import sys
+import threading
 
 from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
 from core.layout_factory import build_layout, build_key_from_position
 from core.models import Finger, Layout, Key
 from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
+from uiux import layer_view
+from uiux.widgets import RoundButton
 from pathlib import Path
 # keeping this dead import for possible bedugging process
 #from log.loggers.state_hasher import StateHasher
 
 # необхідно для перезапису при свопах
 POSITIONS_BY_ID = {p["id"]: p for p in GEOMETRY_CONFIG["positions"]}
+ZMK_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "zmk"
 # штраф показується в тій самій шкалі, що й у scripts/ (x1e8)
 SCORE_SCALE = 1e8
 
@@ -59,16 +64,13 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     )
 
 
-def make_button(parent, text, command):
-    button = tk.Button(
-        parent, text=text, command=command, font=(FONT, 11, "bold"),
-        bg=BUTTON, fg=TEXT, activebackground=BUTTON_HOVER, activeforeground=TEXT,
-        disabledforeground=TEXT_DIM, relief="flat", bd=0, highlightthickness=0,
-        padx=16, pady=6, cursor="hand2",
+def make_button(parent, text, command, small=False):
+    """Кнопка апки: заокруглена (uiux.widgets.RoundButton), hover — сама."""
+    return RoundButton(
+        parent, text=text, command=command, font=(FONT, 9 if small else 11, "bold"),
+        bg=BUTTON, fg=TEXT, activebackground=BUTTON_HOVER, disabledforeground=TEXT_DIM,
+        padx=8 if small else 16, pady=3 if small else 6, radius=6 if small else 8,
     )
-    button.bind("<Enter>", lambda e: button.config(bg=BUTTON_HOVER) if button["state"] == "normal" else None)
-    button.bind("<Leave>", lambda e: button.config(bg=BUTTON))
-    return button
 
 def make_score_display(statistic, moves_config):
     engine_holder = {}
@@ -114,37 +116,33 @@ class ButtonPanel:
      ):
          self.root = root
          self.logic = logic
-         # frame for buttons
+         # три групи: клавіатура зліва, оптимізатор по центру, Rec справа
          self.button_frame = tk.Frame(self.root, bg=BG)
-         self.button_frame.pack(fill="both", padx=20, pady=10)
+         self.button_frame.pack(fill="x", padx=20, pady=(0, 14))
+         for col in (0, 2):
+             self.button_frame.columnconfigure(col, weight=1, uniform="side")
+         left, mid, right = (tk.Frame(self.button_frame, bg=BG) for _ in range(3))
+         left.grid(row=0, column=0, sticky="w")
+         mid.grid(row=0, column=1)
+         right.grid(row=0, column=2, sticky="e")
 
-         # Allow grid to stretch. Important for the very right button.
-         self.button_frame.rowconfigure(3, weight=1)
-         self.button_frame.columnconfigure(0, weight=1)
-         self.button_frame.columnconfigure(4, weight=1)
-
-         self.button_start = make_button(self.button_frame, "Start", self.logic.toggle_optimization)
-         self.button_start.grid(row=0, column=1, columnspan=1, padx=(160,10), pady=10)
-
-         # button_reheat
+         # клавіатура: шари <-> розкладка на екрані (scripts/zmk/keyboard_sync.py)
+         self.button_kb_write = make_button(left, "На клаву", self.logic.on_keyboard_write)
+         self.button_kb_read = make_button(left, "З клави", self.logic.on_keyboard_read)
+         self.button_start = make_button(mid, "Start", self.logic.toggle_optimization)
          self.button_reheat = make_button(
-             self.button_frame, "Reheat",
+             mid, "Reheat",
              lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None
          )
-         self.button_reheat.grid(row=0, column=2, columnspan=1, padx=(0,10), pady=10)
-
-         # button_record
          self.button_record = make_button(
-             self.button_frame, "Rec>>",
+             right, "Rec>>",
              lambda: self.logic.processor.layout_record(self.logic.layout) if self.logic.processor else None
          )
-         self.button_record.grid(row=0, column=3, columnspan=2, sticky="se", padx=(0,10),  pady=10)
-         self.button_record.config(state="normal")
-
-         # button_recall
-         self.button_recall = make_button(self.button_frame, "Rec<<", lambda: self.logic.on_recall() if self.logic.processor else None)
-         self.button_recall.grid(row=0, column=5, columnspan=2, sticky="se", pady=10)
-         self.button_record.config(state="normal")
+         self.button_recall = make_button(right, "Rec<<", lambda: self.logic.on_recall() if self.logic.processor else None)
+         for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat),
+                      (self.button_record, self.button_recall)):
+             a.pack(side="left", padx=(0, 8))
+             b.pack(side="left")
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -163,9 +161,9 @@ class LayoutBuilderApp():
         self.root = root
         self.root.title("Аналізатор розкладки - Матриця")
         self.width = 900
-        self.heigh = 450
+        self.heigh = 470
         self.root.geometry(f"{self.width}x{self.heigh}")
-        self.root.minsize(900, 400)
+        self.root.minsize(900, 450)
         self.root.configure(bg=BG)
 
         # the real domain object -- drag/drop mutates this directly, so
@@ -187,14 +185,39 @@ class LayoutBuilderApp():
             fg=TEXT,
             font=(FONT, 13, "bold"),
             anchor="w"
-        ).pack(fill="x", padx=24, pady=(14, 0))
+        ).pack(fill="x", padx=22, pady=(12, 0))
+
+        # вкладки: редактор розкладки (CYR з оптимізатора) або перегляд шару клавіатури
+        self.tab_bar = tk.Frame(self.root, bg=BG)
+        self.tab_bar.pack(fill="x", padx=20, pady=(8, 0))
+        self.tabs = {}
+        for name in ["Редактор"] + layer_view.lh.ORDER:
+            b = make_button(self.tab_bar, name, lambda n=name: self.show_tab(n), small=True)
+            b.pack(side="left", padx=(0, 4))
+            self.tabs[name] = b
+        # справа: скинути зміни шару / перечитати клавіатуру
+        self.button_refresh_layers = make_button(self.tab_bar, "⟳ з клави", self.on_layers_refresh, small=True)
+        self.button_refresh_layers.pack(side="right")
+        self.button_reset_layer = make_button(self.tab_bar, "↺ скинути шар", self.on_layer_reset, small=True)
+        self.button_reset_layer.pack(side="right", padx=(0, 4))
 
         # frame main
         self.board = tk.Frame(self.root, bg=PANEL, bd=0)
         self.board.pack(fill="both", expand=True, padx=20, pady=10)
+        self.layer_view = layer_view.LayerView(self.root, on_change=self._layers_changed, colors=dict(
+            PANEL=PANEL, SLOT=SLOT, TEXT_DIM=TEXT_DIM, KEY_TEXT=KEY_TEXT, FONT=FONT,
+            FINGER={"pinky": FINGER_COLORS[Finger.PINKY], "ring": FINGER_COLORS[Finger.RING],
+                    "middle": FINGER_COLORS[Finger.MIDDLE], "index": FINGER_COLORS[Finger.INDEX],
+                    "thumb": FINGER_COLORS[Finger.THUMB]}))
+        dump_path = layer_view.latest_dump()
+        if dump_path:
+            self.layer_view.set_dump(layer_view.load_dump(dump_path), f"{dump_path.name} (файл)")
+        self.current_tab = "Редактор"
 
         # button frame
         self.button_panel = ButtonPanel(self.root, self)
+        self._style_tabs()
+        self.button_reset_layer.config(state="disabled")
 
         # layout
         self.slots = []
@@ -223,6 +246,7 @@ class LayoutBuilderApp():
             self.button_panel.button_start.config(text="Stop")
             self.button_panel.button_record.config(state="disabled")
             self.button_panel.button_recall.config(state="disabled")
+            self._set_keyboard_buttons("disabled")
             self.status_var.set("Оптимізую...")
             self.processor.start(
                 self.layout,
@@ -248,6 +272,8 @@ class LayoutBuilderApp():
         self.button_panel.button_start.config(text="Start")
         self.button_panel.button_record.config(state="normal")
         self.button_panel.button_recall.config(state="normal")
+        self._set_keyboard_buttons("normal")
+        self._set_editor_buttons()
         self._notify_layout_changed()
 
     def _on_done(self, result_layout: Layout):
@@ -267,7 +293,7 @@ class LayoutBuilderApp():
 
     def build_grid(self):
         """Побудова сітки слотів на основі геометрії"""
-        base_x, base_y = 50, 40
+        base_x, base_y = layer_view.BASE_X, layer_view.BASE_Y  # та сама сітка, що й у вкладках шарів
         gap = 6  # Відстань між кнопками
         # відпущена клавіша прилипає до найближчого слота в межах усієї його
         # клітинки (з проміжками), а не лише tolerance_x від центру
@@ -490,7 +516,16 @@ class LayoutBuilderApp():
         self._notify_layout_changed()
 
     def _notify_layout_changed(self):
-        if self.on_layout_changed:
+        """Рядок стану: штраф у «Редакторі», незаписані зміни — на вкладках шарів."""
+        tab = getattr(self, "current_tab", "Редактор")
+        if tab != "Редактор":
+            pending = self.layer_view.pending()
+            here, total = len(pending.get(tab, [])), sum(len(v) for v in pending.values())
+            text = f"Шар {tab}" + (f" · не записано: {here}" if here else "")
+            if total > here:
+                text += f" · усього не записано: {total} ({', '.join(pending)})"
+            self.status_var.set(text)
+        elif self.on_layout_changed:
             self.status_var.set(self.on_layout_changed(self.layout))
 
 
@@ -525,6 +560,224 @@ class LayoutBuilderApp():
             style_key(widget)
         print("post-recall chars:", {k.position_id: (k.char, k.is_frozen) for k in self.layout.keys})
         self._notify_layout_changed()
+
+    # ------------------------------------------------------------------
+    # Tabs: editor / read-only keyboard layers
+    # ------------------------------------------------------------------
+    def _style_tabs(self):
+        pending = self.layer_view.pending()
+        for name, b in self.tabs.items():
+            on = name == self.current_tab
+            color = layer_view.LAYER_COLORS.get(name, ACCENT)
+            b.config(bg=color if on else BUTTON, fg=KEY_TEXT if on else TEXT,
+                     activebackground=color if on else BUTTON_HOVER,
+                     text=name + (" •" if name in pending else ""))
+
+    def _layers_changed(self):
+        if hasattr(self, "button_panel"):
+            self._style_tabs()
+            self._notify_layout_changed()
+
+    def _set_editor_buttons(self):
+        """Start/Reheat/Rec — лише для розкладки в «Редакторі»."""
+        if self.processor.is_running:
+            return
+        state = "normal" if self.current_tab == "Редактор" else "disabled"
+        for b in (self.button_panel.button_start, self.button_panel.button_reheat,
+                  self.button_panel.button_record, self.button_panel.button_recall):
+            b.config(state=state)
+        self.button_reset_layer.config(state="normal" if self.layer_view.editable(self.current_tab)
+                                       and self.current_tab != "Редактор" else "disabled")
+
+    def on_layer_reset(self):
+        if self.current_tab != "Редактор" and self.layer_view.pending().get(self.current_tab):
+            self.layer_view.reset_layer(self.current_tab)
+
+    def _confirm_discard(self):
+        pending = self.layer_view.pending()
+        if not pending:
+            return True
+        n = sum(len(v) for v in pending.values())
+        return messagebox.askyesno("Незаписані зміни",
+                                   f"Відкинути незаписані зміни ({n} клавіш у {', '.join(pending)})?")
+
+    def show_tab(self, name):
+        if name == "Редактор":
+            self.layer_view.pack_forget()
+            self.board.pack(fill="both", expand=True, padx=20, pady=10,
+                            before=self.button_panel.button_frame)
+        else:
+            self.board.pack_forget()
+            self.layer_view.pack(fill="both", expand=True, padx=20, pady=10,
+                                 before=self.button_panel.button_frame)
+            self.layer_view.show(name)
+        self.current_tab = name
+        self._style_tabs()
+        self._set_editor_buttons()
+        self._notify_layout_changed()
+
+    def _set_layers_dump(self, dump, source):
+        self.layer_view.set_dump(dump, source)
+        if self.current_tab != "Редактор":
+            self.layer_view.show(self.current_tab)
+
+    def on_layers_refresh(self):
+        if not self._confirm_discard():
+            return
+        ks = self._keyboard_sync()
+
+        def done(dump):
+            self._set_keyboard_buttons("normal")
+            self._notify_layout_changed()
+            self._set_layers_dump(dump, f"клавіатура, {self._now()}")
+        self._keyboard_task("Читаю клавіатуру...", ks.read_dump, done)
+
+    @staticmethod
+    def _now():
+        from datetime import datetime
+        return datetime.now().strftime("%H:%M")
+
+    # ------------------------------------------------------------------
+    # Keyboard: write the layout to the CYR layer / read it back
+    # ------------------------------------------------------------------
+    def _set_keyboard_buttons(self, state):
+        self.button_panel.button_kb_write.config(state=state)
+        self.button_panel.button_kb_read.config(state=state)
+        self.button_refresh_layers.config(state=state)
+
+    def _layout_items(self):
+        return [{"position_id": k.position_id, "char": k.char, "is_frozen": k.is_frozen}
+                for k in self.layout.keys]
+
+    def _current_score(self):
+        self.engine.update_layout(self.layout.keys)
+        return self.engine.score().total_penalty / SCORE_SCALE
+
+    def _keyboard_task(self, status, work, done):
+        """work() — у фоновому потоці (порт, inkscape), done(result) — в UI-потоці."""
+        if self.processor.is_running:
+            return
+        self._set_keyboard_buttons("disabled")
+        self.status_var.set(status)
+
+        def run():
+            try:
+                result = work()
+            except Exception as e:  # noqa: BLE001 — показати автору будь-яку помилку
+                self.root.after(0, lambda e=e: self._keyboard_failed(e))
+                return
+            self.root.after(0, lambda: done(result))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _keyboard_failed(self, error):
+        self._set_keyboard_buttons("normal")
+        self._notify_layout_changed()
+        messagebox.showerror("Клавіатура", f"{type(error).__name__}: {error}")
+
+    @staticmethod
+    def _keyboard_sync():
+        if str(ZMK_SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(ZMK_SCRIPTS))
+        import keyboard_sync
+        return keyboard_sync
+
+    def on_keyboard_write(self):
+        if self.current_tab != "Редактор":
+            return self.on_layers_write()
+        items = self._layout_items()
+        score = self._current_score()
+        ks = self._keyboard_sync()
+        self._keyboard_task("Читаю клавіатуру...", lambda: ks.prepare(items),
+                            lambda plan: self._confirm_keyboard_write(ks, plan, items, score))
+
+    def _confirm_keyboard_write(self, ks, plan, items, score):
+        if not plan.changes:
+            self._set_keyboard_buttons("normal")
+            self._notify_layout_changed()
+            messagebox.showinfo("Клавіатура", "Клавіатура вже збігається з розкладкою на екрані.")
+            return
+        question = (f"Записати {len(plan.changes)} клавіш у шар CYR ({plan.port})?\n\n"
+                    f"{plan.diff_text}\n\nШтраф розкладки: {score:.2f}")
+        if not messagebox.askyesno("На клаву", question):
+            self._set_keyboard_buttons("normal")
+            self._notify_layout_changed()
+            return
+        self._keyboard_task("Записую на клавіатуру...", lambda: ks.apply(plan, items, score),
+                            lambda out: self._keyboard_written(plan, out))
+
+    def _keyboard_written(self, plan, out):
+        self._set_keyboard_buttons("normal")
+        cyr = next(l for l in plan.target["layers"] if l["name"] == "CYR")["bindings"]
+        self.layer_view.sync_layer("CYR", cyr)  # незаписані зміни інших шарів лишаються
+        self._notify_layout_changed()
+        root = Path(__file__).resolve().parents[1]
+        rel = lambda p: str(p.relative_to(root)) if root in p.parents else str(p)  # noqa: E731
+        lines = [f"Записано {len(plan.changes)} клавіш у CYR.", "",
+                 f"відкат: {rel(out['before'])}", f"розкладка: {rel(out['layout'])}"]
+        lines += [f"{k}: {rel(out[k])}" for k in ("png", "svg", "html") if k in out]
+        self.status_var.set(self.status_var.get() + f"   · на клаві з {plan.stamp[-4:-2]}:{plan.stamp[-2:]}")
+        messagebox.showinfo("На клаву", "\n".join(lines))
+
+    def on_layers_write(self):
+        if not self.layer_view.pending():
+            messagebox.showinfo("На клаву", "Незаписаних змін у шарах немає.")
+            return
+        ks = self._keyboard_sync()
+        working, base = self.layer_view.dump, self.layer_view.base
+        self._keyboard_task("Читаю клавіатуру...", lambda: ks.prepare_layers(working, base),
+                            lambda plan: self._confirm_layers_write(ks, plan))
+
+    def _confirm_layers_write(self, ks, plan):
+        self._set_keyboard_buttons("normal")
+        self._notify_layout_changed()
+        if not plan.count:
+            messagebox.showinfo("На клаву", "Клавіатура вже має ці зміни.")
+            return
+        warn = ""
+        if plan.conflicts:
+            where = ", ".join(f"{n}[{p}]" for n, p in plan.conflicts)
+            warn = (f"\n\nУВАГА: на клавіатурі ці клавіші вже не такі, як при читанні: {where}. "
+                    "Запис їх перезапише.")
+        question = (f"Записати {plan.count} клавіш у {', '.join(plan.changes)} ({plan.port})?\n\n"
+                    f"{plan.diff_text}{warn}")
+        if not messagebox.askyesno("На клаву", question):
+            return
+        self._keyboard_task("Записую на клавіатуру...", lambda: ks.apply_layers(plan),
+                            lambda out: self._layers_written(plan, out))
+
+    def _layers_written(self, plan, out):
+        self._set_keyboard_buttons("normal")
+        self._set_layers_dump(out["dump"], f"{out['written'].name} (щойно записано)")
+        root = Path(__file__).resolve().parents[1]
+        rel = lambda p: str(p.relative_to(root)) if root in p.parents else str(p)  # noqa: E731
+        messagebox.showinfo("На клаву", "\n".join([
+            f"Записано {plan.count} клавіш у {', '.join(plan.changes)}.", "",
+            f"відкат: {rel(out['before'])}", f"html: {rel(out['html'])}"]))
+
+    def on_keyboard_read(self):
+        if not self._confirm_discard():
+            return
+        ks = self._keyboard_sync()
+        self._keyboard_task("Читаю клавіатуру...", ks.read_dump, self._keyboard_loaded)
+
+    def _keyboard_loaded(self, dump):
+        self._set_keyboard_buttons("normal")
+        self._set_layers_dump(dump, f"клавіатура, {self._now()}")
+        items = self._keyboard_sync().cfl.extract(dump)
+        # тхамби/порожні кути на клавіатурі не мають літер — лишаємо, як на екрані
+        frozen = {k.position_id: k.is_frozen for k in self.layout.keys}
+        data = [{"position_id": d["position_id"], "char": d["char"],
+                 "is_frozen": frozen.get(d["position_id"], False)}
+                for d in items if d["char"]]
+        incoming = {d["char"] for d in data}
+        clash = [k.char for k in self.layout.keys
+                 if k.char and k.char in incoming
+                 and k.position_id not in {d["position_id"] for d in data}]
+        if clash:
+            messagebox.showerror("З клави", f"літери з клавіатури дублюють клавіші поза шаром: {clash}")
+            self._notify_layout_changed()
+            return
+        self._apply_recorded_state(data)
 
     # ------------------------------------------------------------------
     # Record the layout into different formats
