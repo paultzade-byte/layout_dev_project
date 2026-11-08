@@ -39,6 +39,12 @@
   після root.destroy(); не через RoundButton — після прибирання tkfont.Font теж було) — даних не
   втрачає, але причину не знайдено (підозра: cpulimit/numpy-потоки на фіналізації).
 
+- **2026-11-08: RGB-кнопки у FN** — у праву колонку ▽ (FN 11/26/40, правий мізинець) записано
+  Underglow: верх `RGB_BRI` (☀+), дім `RGB_BRD` (☀−), низ `RGB_EFF` (наступний режим; поруч `RGB_TOG`).
+  `RGB_EFF` лишився й на FN 0. Відкат — `config/zmk/studio_keymap_2026-11-08-before-rgb.json`
+  (у ньому вже ручна перестановка автора: BTclr <-> RGB у лівому нижньому ряду FN після j).
+  `draw_layers.RGB_LABELS` — підписи Underglow за командою (⏻ ☀+ ☀− ▸ ◂) в артефакті й ASCII.
+
 - **2026-11-07: перегляд усіх шарів у GUI** — над дошкою вкладки «Редактор» | GRAPH CYR GRAPH_ALT CYR_S
   DIGITS SYMBOL FN FN_C | ⟳ (`uiux/layer_view.py`). Шари — лише перегляд: тап великим, утримання
   дрібно, смужка кольору шару, який вмикає утримання, у спільних шарах кириличний варіант у кутку,
@@ -425,7 +431,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-07-paul-j.json` = j (без `--mark`).
+  `config/zmk/studio_keymap_2026-11-08-rgb.json` (j + RGB у FN, без `--mark`).
 
 ---
 

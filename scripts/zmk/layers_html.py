@@ -95,6 +95,8 @@ def key(b, lang):
         return dict(tap="1× " + hold_lab(p1), kind="key")
     if n == "esc_fn":
         return dict(tap="Esc", hold="FN", kind="lt", layer="FN")
+    if n == "Underglow":
+        return dict(tap=dl.RGB_LABELS.get(p1, f"RGB{p1}"), kind="key")
     simple = {"Colon/Semi": ": ⇧;", "Lang CYR": "→ КИР", "Lang LAT": "→ LAT",
               "Lang Toggle": "мова ⇄", "Underglow": "RGB", "Caps Word": "CapsWord",
               "Bootloader": "Boot", "Reset": "Reset", "Key Repeat": "Repeat"}
