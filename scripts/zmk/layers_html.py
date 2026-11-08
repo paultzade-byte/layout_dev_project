@@ -1,6 +1,7 @@
 """HTML-схема шарів клавіатури з дампу studio.py (для артефакту).
 
     python scripts/zmk/layers_html.py DUMP.json OUT.html [--mark SYMBOL:11,30,36]
+        [--variant "k|найкраща за моделлю|165.31|dump_k.json" --variant ...]
 
 Підписи — ті самі, що в draw_layers.py (кожен шар у мові, в якій він
 працює; у спільних шарах — латиниця, а кириличний варіант окремо, де він
@@ -245,17 +246,66 @@ nav a:focus-visible { outline: 2px solid var(--l-graph); outline-offset: 2px; }
 .legend .alt { position: static; }
 .pad { visibility: hidden; }
 footer { color: var(--muted); font-size: .82rem; }
+.variants .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.variants input { position: absolute; opacity: 0; pointer-events: none; }
+.variants label { font: 600 .9rem var(--mono); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px;
+  cursor: pointer; background: var(--bg); display: inline-flex; gap: 8px; align-items: baseline; }
+.variants label small { font: 500 .75rem var(--mono); color: var(--muted); }
+.variants .panel { display: none; gap: 10px; }
+.variants .panel p { color: var(--muted); font-size: .88rem; }
 code { font-family: var(--mono); font-size: .9em; }
 """
 
 
-def render(dump_path, marks=None):
+def variants_html(variants, d):
+    """variants: [(код, опис, штраф, шлях_дампу)] -> секція з вкладками шару CYR.
+    Відкрита за замовчуванням остання; клавіші, що відрізняються від першої, обведені."""
+    if not variants:
+        return ""
+    import json
+    cyr = []
+    for code, about, score, path in variants:
+        raw = json.load(open(path, encoding="utf-8"))
+        cyr.append(next(l for l in raw["layers"] if l["name"] == "CYR")["bindings"])
+    first = cyr[0]
+    inputs, labels, panels, css = [], [], [], []
+    for n, ((code, about, score, path), bb) in enumerate(zip(variants, cyr)):
+        vid = f"v-{n}"
+        diff = {i for i, b in enumerate(bb) if list(b) != list(first[i])} if n else set()
+        rows = []
+        for row in ROWS:
+            rows.append('<div class="row">' + "".join(
+                '<div class="gap"></div>' if i is None else key_html(bb[i], "CYR", i, diff) for i in row) + "</div>")
+        th = ['<div class="gap"></div>' if i is None else key_html(bb[i], "CYR", i, diff) for i in THUMBS]
+        rows.append('<div class="row thumbs"><div class="pad"></div><div class="pad"></div><div class="pad"></div>'
+                    + "".join(th) + '<div class="pad"></div><div class="pad"></div><div class="pad"></div></div>')
+        note = f"{esc(about)} · штраф {esc(score)} · <code>{esc(os.path.basename(path))}</code>"
+        if n:
+            note += f" · обведено {len(diff)} клавіш, що відрізняються від {esc(variants[0][0])}"
+        checked = " checked" if n == len(variants) - 1 else ""
+        inputs.append(f'<input type="radio" name="variant" id="{vid}"{checked}>')
+        labels.append(f'<label for="{vid}">{esc(code)} <small>{esc(score)}</small></label>')
+        panels.append(f'<div class="panel" id="p-{n}"><p>{note}</p>'
+                      f'<div class="scroll"><div class="board">{"".join(rows)}</div></div></div>')
+        css.append(f'#{vid}:checked ~ .panels #p-{n} {{ display: grid; }}'
+                   f'#{vid}:checked ~ .tabs label[for="{vid}"] {{ border-color: var(--lc); background: var(--panel); box-shadow: inset 0 -2px 0 var(--lc); }}'
+                   f'#{vid}:focus-visible ~ .tabs label[for="{vid}"] {{ outline: 2px solid var(--lc); outline-offset: 2px; }}')
+    return f'''<style>{"".join(css)}</style>
+<section class="layer variants" id="variants" style="--lc: var(--l-cyr)">
+  <header><h2><span class="dot"></span>Розкладки CYR</h2><p>Варіанти кириличного шару для порівняння. Щоб повернутись на якийсь, скажи Claude його літеру.</p></header>
+  {"".join(inputs)}
+  <div class="tabs" role="tablist">{"".join(labels)}</div>
+  <div class="panels">{"".join(panels)}</div>
+</section>'''
+
+
+def render(dump_path, marks=None, variants=None):
     """Дамп studio.py (файл) -> HTML-сторінка схеми шарів."""
     d = dl.load(dump_path)
     marks = marks or {}
     layers = {l["name"]: l for l in d["layers"]}
     order = [n for n in ORDER if n in layers] + [n for n in layers if n not in ORDER]
-    nav = "".join(f'<a href="#{n.lower().replace("_", "-")}" style="--lc: var(--l-{n.lower().replace("_", "-")})">'
+    nav = ('<a href="#variants" style="--lc: var(--l-cyr)"><span class="dot"></span>' + " / ".join(esc(v[0]) for v in variants) + '</a>' if variants else "") + "".join(f'<a href="#{n.lower().replace("_", "-")}" style="--lc: var(--l-{n.lower().replace("_", "-")})">'
                   f'<span class="dot"></span>{n}</a>' for n in order)
     secs = "\n".join(layer_html(layers[n], d, marks) for n in order)
     legend = ('<div class="legend">'
@@ -278,6 +328,7 @@ def render(dump_path, marks=None):
   </header>
   <nav aria-label="Шари">{nav}</nav>
   {legend}
+  {variants_html(variants, d)}
   {secs}
   <footer>Згенеровано з <code>{esc(src)}</code> скриптом <code>scripts/zmk/layers_html.py</code>.</footer>
 </main>
@@ -290,12 +341,13 @@ def main():
     ap.add_argument("dump")
     ap.add_argument("out")
     ap.add_argument("--mark", action="append", default=[], help="ШАР:поз,поз")
+    ap.add_argument("--variant", action="append", default=[], help="код|опис|штраф|дамп.json")
     a = ap.parse_args()
     marks = {}
     for m in a.mark:
         L, ps = m.split(":")
         marks[L] = {int(x) for x in ps.split(",")}
-    page = render(a.dump, marks)
+    page = render(a.dump, marks, [tuple(v.split("|", 3)) for v in a.variant])
     open(a.out, "w", encoding="utf-8").write(page)
     print("записано", a.out, len(page), "байт")
 
