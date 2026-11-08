@@ -39,6 +39,13 @@
   після root.destroy(); не через RoundButton — після прибирання tkfont.Font теж було) — даних не
   втрачає, але причину не знайдено (підозра: cpulimit/numpy-потоки на фіналізації).
 
+- **2026-11-08: розкладка k = j + й↔ї** (165.31 проти 165.32 у j — практично те саме) —
+  `config/layout_paul_2026-11-08k.json`; на клаві CYR 27 = ї (правий зовн. мізинець, дім),
+  CYR 40 = й (правий мізинець, низ, утримання DIGITS). Відкат — `studio_keymap_2026-11-08-before-k.json`
+  (= j з RGB), записане — `studio_keymap_2026-11-08-paul-k.json`, картинки `layout_k_2026-11-08.{svg,png}`.
+  Спитати враження. Також автор питав: M3/M4 «не працюють» (у системі їх видно: BTN_MIDDLE/BTN_SIDE на
+  event30 — перевірити тестом), статичний режим RGB лише блакитний (колір = hue, треба RGB_HUI/HUD).
+
 - **2026-11-08: RGB-кнопки у FN** — у праву колонку ▽ (FN 11/26/40, правий мізинець) записано
   Underglow: верх `RGB_BRI` (☀+), дім `RGB_BRD` (☀−), низ `RGB_EFF` (наступний режим; поруч `RGB_TOG`).
   `RGB_EFF` лишився й на FN 0. Відкат — `config/zmk/studio_keymap_2026-11-08-before-rgb.json`
@@ -431,7 +438,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-08-rgb.json` (j + RGB у FN, без `--mark`).
+  `config/zmk/studio_keymap_2026-11-08-paul-k.json` (k + RGB у FN; `--mark CYR:27,40`).
 
 ---
 
