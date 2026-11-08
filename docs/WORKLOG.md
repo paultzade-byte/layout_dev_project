@@ -39,6 +39,11 @@
   після root.destroy(); не через RoundButton — після прибирання tkfont.Font теж було) — даних не
   втрачає, але причину не знайдено (підозра: cpulimit/numpy-потоки на фіналізації).
 
+- **2026-11-08: відтінок RGB у FN** (гілка `feat/rgb-hue` поверх #4) — правий внутр. тхамб FN 45 = `RGB_HUD`
+  (H−), правий зовн. тхамб FN 47 = `RGB_HUI` (H+), обабіч Caps. Статичний режим світить кольором hue,
+  ZMK зберігає його у флеш. Відкат — `studio_keymap_2026-11-08-before-hue.json`; поточне джерело
+  артефакту — `studio_keymap_2026-11-08-hue.json` (вкладки k/l/m ті самі, `--mark FN:45,47`).
+
 - **2026-11-08: `feat/lateral-columns` запушено, PR #4** (поверх #3 `feat/delta-scoring`; 81 коміт з 2026-10-27).
   Наступну порцію роботи — новою гілкою/PR поверх #4.
 
@@ -457,7 +462,7 @@ natural_arc (−0.5) рахував ЕРЕ/ОПО як дугу (безімен�
   (генерує `scripts/zmk/layers_html.py ДАМП OUT.html [--mark ШАР:поз,..]`; ASCII
   `draw_layers.py` лишився, тепер імпортується). Після зміни keymap: dump ->
   layers_html.py -> republish того самого файлу/URL. Поточне джерело —
-  `config/zmk/studio_keymap_2026-11-08-paul-m.json` (m) з вкладками варіантів CYR:
+  останній дамп клави (зараз `config/zmk/studio_keymap_2026-11-08-hue.json`, CYR = m) з вкладками варіантів CYR:
   `--variant "k|найкраща за моделлю (j + й↔ї)|165.31|config/zmk/studio_keymap_2026-11-08-paul-k.json"`
   `--variant "l|ручна, «людинозручна»|171.72|config/zmk/studio_keymap_2026-11-08-paul-l.json"`
   `--variant "m|на клаві зараз (2026-11-08 14:04)|169.83|config/zmk/studio_keymap_2026-11-08-paul-m.json"`

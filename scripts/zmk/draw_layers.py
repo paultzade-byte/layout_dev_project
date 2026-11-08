@@ -78,8 +78,8 @@ def cell(b, lang):
     if name == 'Bluetooth': return {4:'BTclr'}.get(p1, f'BT{p1}')
     if name == 'Underglow': return RGB_LABELS.get(p1, f'RGB{p1}')
     return name[:5]
-# ZMK dt-bindings/zmk/rgb.h: TOG 0, BRI 7, BRD 8, EFF 11, EFR 12
-RGB_LABELS = {0: 'RGB ⏻', 1: 'RGB on', 2: 'RGB off', 7: 'RGB ☀+', 8: 'RGB ☀−', 11: 'RGB ▸', 12: 'RGB ◂'}
+# ZMK dt-bindings/zmk/rgb.h: TOG 0, HUI 3, HUD 4, BRI 7, BRD 8, EFF 11, EFR 12
+RGB_LABELS = {0: 'RGB ⏻', 1: 'RGB on', 2: 'RGB off', 3: 'RGB H+', 4: 'RGB H−', 7: 'RGB ☀+', 8: 'RGB ☀−', 11: 'RGB ▸', 12: 'RGB ◂'}
 def w(s): return sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in s)
 def pad(s, n=6):
     s = s if w(s) <= n else s[:n]
