@@ -22,30 +22,12 @@ import re
 import sys
 from pathlib import Path
 
-# xkb-назва клавіші -> віртуальний код macOS (kVK_*)
-XKB_TO_VK = {
-    "TLDE": 50, "LSGT": 10, "BKSL": 42, "SPCE": 49,
-    **dict(zip([f"AE{i:02d}" for i in range(1, 13)],
-               [18, 19, 20, 21, 23, 22, 26, 28, 25, 29, 27, 24])),
-    **dict(zip([f"AD{i:02d}" for i in range(1, 13)],
-               [12, 13, 14, 15, 17, 16, 32, 34, 31, 35, 33, 30])),
-    **dict(zip([f"AC{i:02d}" for i in range(1, 12)],
-               [0, 1, 2, 3, 5, 4, 38, 40, 37, 41, 39])),
-    **dict(zip([f"AB{i:02d}" for i in range(1, 11)],
-               [6, 7, 8, 9, 11, 45, 46, 43, 47, 44])),
-}
-
-# Службові клавіші: однакові в усіх мапах (як у стандартних розкладках Apple)
-SPECIAL = {
-    36: "\r", 48: "\t", 51: "\b", 53: "\x1b", 52: "\x03", 76: "\x03",
-    71: "\x1b", 114: "\x05", 115: "\x01", 116: "\x0b", 117: "\x7f",
-    119: "\x04", 121: "\x0c", 123: "\x1c", 124: "\x1d", 125: "\x1f",
-    126: "\x1e",
-    **{vk: "\x10" for vk in (122, 120, 99, 118, 96, 97, 98, 100, 101, 109,
-                             103, 111, 105, 107, 113, 106, 64, 79, 80, 90)},
-    65: ".", 67: "*", 69: "+", 75: "/", 78: "-", 81: "=",
-    **dict(zip([82, 83, 84, 85, 86, 87, 88, 89, 91, 92], "0123456789")),
-}
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.export import (  # noqa: E402  спільне з експортом ANSI-розкладки
+    MAC_VK as XKB_TO_VK,
+    mac_control_char as control_char,
+    mac_keylayout_xml as build,
+)
 
 # Option / Shift+Option маківської ABC (мертві клавіші -> окремий знак)
 US_KEYS = "`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./"
@@ -94,64 +76,6 @@ def levels(keys, group):
         chars = [keysym_char(s) for s in syms] + [None] * 4
         out[vk] = chars[:4]
     return out
-
-
-def control_char(c):
-    if c and "a" <= c <= "z":
-        return chr(ord(c) - 96)
-    return {"[": "\x1b", "\\": "\x1c", "]": "\x1d"}.get(c, c)
-
-
-def esc(c):
-    """Видимі знаки — як є (щоб файл можна було прочитати очима), решта — &#x..;"""
-    import unicodedata
-    def one(ch):
-        cat = unicodedata.category(ch)
-        if ch in '&<>"\'' or cat[0] in "CZM" or ch == "\uf8ff":
-            return f"&#x{ord(ch):04X};"
-        return ch
-    return "".join(one(ch) for ch in c)
-
-
-def keymap_xml(index, mapping):
-    rows = [f'      <keyMap index="{index}">']
-    for vk in sorted(set(mapping) | set(SPECIAL)):
-        c = SPECIAL.get(vk, mapping.get(vk))
-        if c:
-            rows.append(f'        <key code="{vk}" output="{esc(c)}"/>')
-    rows.append("      </keyMap>")
-    return "\n".join(rows)
-
-
-def build(name, group, kid, maps):
-    sel = [
-        "",                                       # 0 без модифікаторів
-        "anyShift caps?",                         # 1 Shift
-        "caps",                                   # 2 Caps Lock
-        "anyOption caps?",                        # 3 Option
-        "anyShift anyOption caps?",               # 4 Shift+Option
-        "command caps? anyOption?",               # 5 Cmd (шорткати)
-        "command anyShift caps? anyOption?",      # 6 Cmd+Shift
-        "anyControl anyShift? caps? anyOption? command?",  # 7 Control
-    ]
-    mm = "\n".join(
-        f'    <keyMapSelect mapIndex="{i}"><modifier keys="{k}"/></keyMapSelect>'
-        for i, k in enumerate(sel))
-    km = "\n".join(keymap_xml(i, m) for i, m in enumerate(maps))
-    return f"""<?xml version="1.1" encoding="UTF-8"?>
-<!DOCTYPE keyboard SYSTEM "file://localhost/System/Library/DTDs/KeyboardLayout.dtd">
-<keyboard group="{group}" id="{kid}" name="{name}" maxout="1">
-  <layouts>
-    <layout first="0" last="255" modifiers="mods" mapSet="maps"/>
-  </layouts>
-  <modifierMap id="mods" defaultIndex="0">
-{mm}
-  </modifierMap>
-  <keyMapSet id="maps">
-{km}
-  </keyMapSet>
-</keyboard>
-"""
 
 
 def main(xkb_path, out_dir):
