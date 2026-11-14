@@ -53,6 +53,7 @@ def test_mode_toggle_hides_zmk_and_remembers(tmp_path):
         assert ui.geometry_name == "generic_105_alpha"
         assert not ui.tab_bar.winfo_manager()
         assert not ui.button_panel.button_kb_write.winfo_manager()
+        assert ui.button_panel.button_export.winfo_manager()       # експорт — лише тут
         assert settings.load()["mode"] == "generic_105_alpha"
         assert settings.initial_mode(A.GEOMETRIES) == "generic_105_alpha"
         # старт «Звичайної» — розкладка з start_layout (кандидат A)
@@ -68,11 +69,29 @@ def test_mode_toggle_hides_zmk_and_remembers(tmp_path):
         root.update()
         assert [k.char for k in ui.layout.keys] == split_chars
         assert ui.tab_bar.winfo_manager() and ui.button_panel.button_kb_write.winfo_manager()
+        assert not ui.button_panel.button_export.winfo_manager()
         ui.on_mode("generic_105_alpha")
         assert [k.char for k in ui.layout.keys] == edited
     finally:
         root.destroy()
         settings.save(mode=None)
+
+
+def test_export_button_writes_files(tmp_path, monkeypatch):
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.MOVES_CONFIG,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        monkeypatch.setattr(A.filedialog, "askdirectory", lambda **kw: str(tmp_path))
+        ui.on_export()
+        (out,) = tmp_path.glob("ukr-layout_*")
+        assert {p.suffix for p in out.iterdir()} == {".klc", ".xkb", ".keylayout", ".txt"}
+        assert "Експорт" in ui.status_var.get()
+    finally:
+        root.destroy()
 
 
 def test_altgr_marks_follow_letters():

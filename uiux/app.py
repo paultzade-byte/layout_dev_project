@@ -20,6 +20,7 @@ from uiux.widgets import RoundButton
 from uiux import render
 from uiux.toast import Toasts
 from core import knobs
+from core import export
 from core.metrics import layout_metrics
 from config.paths import layouts_dir
 from pathlib import Path
@@ -149,12 +150,15 @@ class ButtonPanel:
          self.button_save = make_button(right, "Зберегти", self.logic.on_save)
          self.button_save_as = make_button(right, "Зберегти як…", self.logic.on_save_as)
          self.button_screenshot = make_button(right, "Скрін", self.logic.on_screenshot)
+         # експорт в ОС (.klc / xkb / .keylayout) — лише «Звичайна» (core/export.py)
+         self.button_export = make_button(right, "Експорт…", self.logic.on_export)
          for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat)):
              a.pack(side="left", padx=(0, 8))
              b.pack(side="left")
          for b in (self.button_open, self.button_save, self.button_save_as):
              b.pack(side="left", padx=(0, 8))
          self.button_screenshot.pack(side="left", padx=(8, 0))
+         self.button_export.pack(side="left", padx=(8, 0))
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -348,7 +352,16 @@ class LayoutBuilderApp():
             self.tab_bar.pack_forget()
             panel.button_kb_write.pack_forget()
             panel.button_kb_read.pack_forget()
+        if self._export_mode():
+            if not panel.button_export.winfo_manager():
+                panel.button_export.pack(side="left", padx=(8, 0))
+        else:
+            panel.button_export.pack_forget()
         self._fit_window()
+
+    def _export_mode(self) -> bool:
+        """Експорт в ОС — для геометрій, де клавіші мають фізичні назви (`key`)."""
+        return any(p.get("key") for p in self.geometry["positions"])
 
     def _fit_window(self):
         """Вікно не вужче за дошку і ряд кнопок (інакше праві кнопки обрізаються)."""
@@ -854,7 +867,8 @@ class LayoutBuilderApp():
     # ------------------------------------------------------------------
     def _set_file_buttons(self, state):
         panel = self.button_panel
-        for b in (panel.button_open, panel.button_save, panel.button_save_as, panel.button_screenshot):
+        for b in (panel.button_open, panel.button_save, panel.button_save_as, panel.button_screenshot,
+                  panel.button_export):
             b.config(state=state)
 
     def _dialog_dir(self):
@@ -1201,6 +1215,27 @@ class LayoutBuilderApp():
         self._last_dir = saved.parent
         self.status_var.set(f"Картинка: {saved}")
         self.toasts.show(f"Картинка: {saved}")
+
+    def on_export(self):
+        """Файли розкладки для Windows / Linux / macOS + README у вибрану теку
+        (підтека ukr-layout_<дата_час>)."""
+        if self.processor.is_running or not self._export_mode():
+            return
+        base = filedialog.askdirectory(parent=self.root, title="Куди покласти файли розкладки",
+                                       initialdir=self._dialog_dir(), mustexist=True)
+        if not base:
+            return
+        out = Path(base) / f"ukr-layout_{datetime.now().strftime('%Y-%m-%d_%H%M')}"
+        try:
+            export.export_all(export.chars_from_keys(self.layout.keys), self.geometry, out)
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Експорт", f"Не вдалося експортувати:\n{error}")
+            return
+        self._last_dir = Path(base)
+        self.status_var.set(f"Експорт: {out}")
+        self.toasts.show(f"Розкладку експортовано: {out}\n"
+                         "Windows — .klc (MSKLC), Linux — .xkb, macOS — .keylayout;\n"
+                         "як встановити — README.txt там же.", ms=12000)
 
 
 if __name__ == "__main__":
