@@ -16,11 +16,7 @@ from typing import Any, Callable, Dict, Optional, List
 import core.scorer as scoring
 from core.models import Layout, Key, clone_layout
 
-with open(Path(__file__).resolve().parents[1] / "config" / "statistic.json") as f:
-    statistics = json.load(f)
 
-with open(Path(__file__).resolve().parents[1] / "config" / "mutator_config.json") as f:
-    mutator_config = json.load(f)
 
 class LayoutOptimizerSA:
     """Simulated-annealing optimizer for a validated keyboard ``Layout``."""

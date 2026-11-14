@@ -7,14 +7,7 @@ from pathlib import Path
 import yaml
 
 
-with open(Path(__file__).resolve().parents[1] / "config" / "moves.yaml") as f:
-    moves_config = yaml.safe_load(f)
-
-with open(Path(__file__).resolve().parents[1] / "config" / "statistic.json") as f:
-    statistic = json.load(f)
-
-with open(Path(__file__).resolve().parents[1] / "config" / "mutator_config.json") as f:
-    config = json.load(f)
+from config.main_config import MUTATOR_CONFIG as config
 
 class OptimizationProcessor:
     """Driver for the optimization life cycle in the individual thread."""

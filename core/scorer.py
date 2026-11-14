@@ -147,9 +147,8 @@ def calculate_total_penalty(
     + ``update_layout`` + ``score`` instead (see ``LayoutOptimizerSA``).
     """
     if moves_config is None:
-        moves_config = load_moves_config(
-            Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
-        )
+        from config.paths import CONFIG_DIR
+        moves_config = load_moves_config(CONFIG_DIR / "moves.yaml")
     engine = MovementScoringEngine(layout.keys, moves_config)
     engine.prepare_statistics(statistics)
     return engine.score().total_penalty / 1000000000
