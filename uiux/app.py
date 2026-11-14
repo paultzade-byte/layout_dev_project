@@ -5,6 +5,7 @@ from datetime import datetime
 import math
 import sys
 import threading
+from types import SimpleNamespace
 
 from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEOMETRY_TITLES, geometry_config,
                                 load_moves, start_layout)
@@ -52,6 +53,16 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
         text=text, bg=bg, fg=fg, font=font,
         highlightthickness=2, highlightbackground=border, highlightcolor=border,
     )
+    # AltGr-символ клавіші (geometry["altgr"]: літера -> символ) — дрібно в
+    # правому верхньому куті, як на картинці; іде за літерою при перетягуванні
+    mark = getattr(widget, "altgr_label", None)
+    if mark is not None:
+        extra = "" if widget.is_frozen else getattr(widget, "altgr", {}).get(key.char, "")
+        if extra:
+            mark.config(text=extra, bg=bg, fg=fg)
+            mark.place(relx=1.0, x=-5, y=2, anchor="ne")
+        else:
+            mark.place_forget()
 
 
 def make_button(parent, text, command, small=False):
@@ -422,6 +433,9 @@ class LayoutBuilderApp():
 
             # Внутрішній стан кнопки
             widget.labels = render.MOD_LABELS.get(self.geometry_name, {})
+            widget.altgr = self.geometry.get("altgr", {})
+            widget.altgr_label = tk.Label(widget, font=(FONT, 10, "bold"), bd=0, padx=0, pady=0,
+                                          cursor="hand2")
             widget.key = key
             widget.is_frozen = key.is_frozen
             style_key(widget)
@@ -433,6 +447,12 @@ class LayoutBuilderApp():
             widget.bind("<B1-Motion>", self.on_drag_motion)
             widget.bind("<ButtonRelease-1>", self.on_drag_release)
             widget.bind("<Button-3>", self.toggle_freeze)
+            # мітка AltGr лежить поверх клавіші — її події віддаємо клавіші
+            for sequence, handler in (("<Button-1>", self.on_drag_start), ("<B1-Motion>", self.on_drag_motion),
+                                      ("<ButtonRelease-1>", self.on_drag_release),
+                                      ("<Button-3>", self.toggle_freeze)):
+                widget.altgr_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
+                    widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
 
     def on_drag_start(self, event):
         widget = event.widget

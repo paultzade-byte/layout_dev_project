@@ -73,3 +73,29 @@ def test_mode_toggle_hides_zmk_and_remembers(tmp_path):
     finally:
         root.destroy()
         settings.save(mode=None)
+
+
+def test_altgr_marks_follow_letters():
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        altgr = ui.geometry["altgr"]
+        marks = {s.current_key.key.char: s.current_key.altgr_label for s in ui.slots}
+        for char, extra in altgr.items():
+            assert marks[char].winfo_manager() and marks[char].cget("text") == extra
+        assert not marks["а"].winfo_manager()
+        # своп «о» з «а»: мітка ' переїжджає разом з «о»
+        o = next(s for s in ui.slots if s.current_key.key.char == "о")
+        a = next(s for s in ui.slots if s.current_key.key.char == "а")
+        wo, wa = o.current_key, a.current_key
+        ui.snap_to_slot(wo, a)
+        ui.snap_to_slot(wa, o)
+        ui._sync_layout_from_ui()
+        root.update()
+        assert wo.altgr_label.cget("text") == altgr["о"] and wo.current_slot is a
+        assert not wa.altgr_label.winfo_manager()
+    finally:
+        root.destroy()
