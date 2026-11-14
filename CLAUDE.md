@@ -37,6 +37,9 @@
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
   «Відкрити… / Зберегти / Зберегти як…», «Скрін»; `set_geometry(name)` перемикає геометрію в рантаймі.
+- `core/export.py` — експорт розкладки в ОС: `.klc` (MSKLC), xkb, `.keylayout`
+  + README; кнопка «Експорт…» (лише «Звичайна»), CLI
+  `python -m core.export LAYOUT.json OUT_DIR`. Фізичні клавіші — `key` у geometry.json.
 - `uiux/render.py` — картинка розкладки (PNG через Pillow / SVG) для будь-якої
   геометрії; `key_cells()` — сітка, спільна з GUI. Для картинок у чат —
   `python -m uiux.render LAYOUT.json OUT.png [--geometry ...]` (той самий код,

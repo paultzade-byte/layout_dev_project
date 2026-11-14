@@ -180,16 +180,28 @@
 - [ ] Голосні Л/П і «vs ЙЦУКЕН» у цифрах панелі.
 - [ ] «↺ ЙЦУКЕН» — старт оптимізації з ЙЦУКЕН (для повзунка близькості).
 
-## Фаза 5 — експорт розкладки в ОС
+## Фаза 5 — експорт розкладки в ОС — ЗРОБЛЕНО (2026-11-14), чекає тесту на ОС
 
 Без цього людям нічим друкувати отриману розкладку.
 
-- [ ] Windows: генератор `.klc` для MSKLC (база — Ukrainian Enhanced:
-      апостроф, ₴, AltGr-дублі ї на і, ґ на г — рішення 3). Інструкція:
-      відкрити в MSKLC → Build DLL and Setup Package → встановити.
-- [ ] Linux: xkb symbols-файл + інструкція.
-- [ ] macOS: є `scripts/macos_keylayout.py` (Corne) — узагальнити на ANSI.
-- [ ] Кнопка «Експорт розкладки…» в GUI (вибір ОС).
+`core/export.py`: одна таблиця `keymap()` {xkb-назва клавіші: [без мод., Shift,
+AltGr, Shift+AltGr]} → три формати. Фізичні клавіші — поле `key` у позиціях
+`generic_105_alpha` (geometry.json). CLI: `python -m core.export LAYOUT.json OUT_DIR`.
+
+- [x] Windows: `.klc` (UTF-16 LE + BOM, CRLF), VK позиційні як у штатній
+      українській (Ctrl+C/V на фізичних C/V), Caps = Shift, на і/г Caps діє і
+      на AltGr (ї→Ї). Інструкція — README.txt. **MSKLC ще не відкривав** — тест автора.
+- [x] Linux: xkb symbols (`ukr_optimized`), іменовані keysym-и, типи
+      ALPHABETIC / FOUR_LEVEL_*; `xkbcomp` компілює (тест). Інструкція для X11
+      без root (`setxkbmap -I ~/.config/xkb … | xkbcomp`); Wayland — лише нотатка.
+- [x] macOS: `.keylayout` (Option = AltGr, Cmd/Ctrl — QWERTY за фізичною
+      клавішею); `scripts/macos_keylayout.py` тепер бере спільний код з
+      `core/export.py` (вивід побайтово той самий).
+- [x] Кнопка «Експорт…» в GUI (лише «Звичайна»): вибір теки → підтека
+      `ukr-layout_<дата_час>` з усіма трьома файлами + README.txt (без вибору ОС).
+- Вибрано без автора (легко змінити — `NUMBER_ROW`, `PUNCT_SHIFT`, `ALTGR_SHIFT`):
+  Shift+, = `;`, Shift+. = `:` (дублі цифрового ряду); AltGr+о = `'`,
+  Shift+AltGr+о = `ʼ` (U+02BC); AltGr+4 = ₴; решта AltGr цифрового ряду порожні.
 
 ## Фаза 6 — збірка exe (п. 3)
 
