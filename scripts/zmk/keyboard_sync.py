@@ -10,17 +10,14 @@
 - config/zmk/studio_keymap_<час>-before.json — точка відкату (стан до запису);
 - config/zmk/studio_keymap_<час>-written.json — записаний дамп;
 - config/layout_paul_<час>.json — розкладка у форматі Rec>>;
-- ~/Documents/layout/algoritmical_layouts/layout_<час>.{svg,png} (PNG — inkscape,
-  якщо є) і layers_current.html — схема шарів (для артефакту).
+- ~/Documents/layout/algoritmical_layouts/layout_<час>.{svg,png} (uiux/render.py,
+  той самий код, що й кнопка «Скрін») і layers_current.html — схема шарів (для артефакту).
 Відкат: `studio.py write auto <before.json> --layer CYR --yes`.
 
 Прошивка тут не потрібна: Studio міняє keymap у живій клавіатурі.
 """
 
 import json
-import re
-import shutil
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -36,9 +33,6 @@ ROOT = Path(__file__).resolve().parents[2]
 DUMPS = ROOT / "config" / "zmk"
 LAYOUTS = ROOT / "config"
 IMAGES = Path.home() / "Documents" / "layout" / "algoritmical_layouts"
-TEMPLATE = Path(__file__).resolve().parent / "layout_template.svg"
-# порядок підписів у шаблоні: позиції 0..31, тхамби, кути 38/39
-TEMPLATE_ORDER = list(range(32)) + ["⌫", "␣", 38, 39]
 
 
 @dataclass
@@ -82,21 +76,18 @@ def _save_json(path, data):
     return path
 
 
-def render_svg(layout_items, title):
+def _render(layout_items, title, path):
+    """Картинка розкладки тим самим кодом, що й кнопка «Скрін» (uiux/render.py)."""
+    from config.main_config import geometry_config
+    from core.layout_factory import build_layout
+    from uiux import render
+    geometry = geometry_config("corne_42")
+    layout = build_layout(geometry)
     chars = {d["position_id"]: d["char"] for d in layout_items}
-    labels = iter([chars.get(p, "") if isinstance(p, int) else p for p in TEMPLATE_ORDER])
-    svg = TEMPLATE.read_text(encoding="utf-8")
-    # перший <text> — заголовок, далі підписи клавіш (1–2 символи)
-    svg = re.sub(r'(<text [^>]*>)[^<]*(</text>)', lambda m: m.group(1) + _esc(title) + m.group(2), svg, count=1)
-    head, rest = svg.split("</text>", 1)
-    rest, n = re.subn(r'>[^<>]{1,2}</text>', lambda m: ">" + _esc(next(labels)) + "</text>", rest)
-    if n != len(TEMPLATE_ORDER):
-        raise RuntimeError(f"шаблон SVG: {n} підписів замість {len(TEMPLATE_ORDER)}")
-    return head + "</text>" + rest
-
-
-def _esc(s):
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    for key in layout.keys:
+        if key.position_id in chars:
+            key.char = chars[key.position_id]
+    return render.save(layout.keys, geometry, "corne_42", path, title)
 
 
 def apply(plan, layout_items, score=None, write_images=True):
@@ -119,14 +110,7 @@ def _images(plan, layout_items, score):
     IMAGES.mkdir(parents=True, exist_ok=True)
     when = plan.stamp.replace("_", " ")[:-2] + ":" + plan.stamp[-2:]
     title = f"на клавіатурі з {when}" + (f" (штраф {score:.2f})" if score is not None else "")
-    svg = IMAGES / f"layout_{plan.stamp}.svg"
-    svg.write_text(render_svg(layout_items, title), encoding="utf-8")
-    out = {"svg": svg}
-    if shutil.which("inkscape"):
-        png = svg.with_suffix(".png")
-        subprocess.run(["inkscape", str(svg), "--export-type=png", f"--export-filename={png}"],
-                       check=True, capture_output=True, timeout=120)
-        out["png"] = png
+    out = {ext: _render(layout_items, title, IMAGES / f"layout_{plan.stamp}.{ext}") for ext in ("svg", "png")}
     html_path = IMAGES / "layers_current.html"
     dump_path = DUMPS / f"studio_keymap_{plan.stamp}-written.json"
     html_path.write_text(layers_html.render(dump_path), encoding="utf-8")

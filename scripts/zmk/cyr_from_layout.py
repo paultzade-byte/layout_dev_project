@@ -24,7 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from studio import LS, TAP_PARAM, UA_CHARS, UA_KEYCODES, _norm, find_layer, keycode  # noqa: E402
-from config.main_config import GEOMETRY_CONFIG  # noqa: E402
+from config.main_config import geometry_config  # noqa: E402
+
+GEOMETRY_CONFIG = geometry_config("corne_42")  # клавіатура — завжди спліт, незалежно від LAYOUT_GEOMETRY
 
 LAYER = "CYR"
 # Апостроф розкладки «'» на клавіатурі — це ʼ (U+02BC, Shift+` у xkb ua),
