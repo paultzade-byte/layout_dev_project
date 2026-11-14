@@ -6,6 +6,7 @@ import math
 import sys
 import threading
 from types import SimpleNamespace
+import copy
 
 from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEOMETRY_TITLES, geometry_config,
                                 load_moves, start_layout)
@@ -17,6 +18,9 @@ from uiux.processors import OptimizationProcessor
 from uiux import layer_view
 from uiux.widgets import RoundButton
 from uiux import render
+from uiux.toast import Toasts
+from core import knobs
+from core.metrics import layout_metrics
 from config.paths import layouts_dir
 from pathlib import Path
 # keeping this dead import for possible bedugging process
@@ -73,8 +77,9 @@ def make_button(parent, text, command, small=False):
         padx=8 if small else 16, pady=3 if small else 6, radius=6 if small else 8,
     )
 
-def make_score_display(statistic, moves_config):
-    engine_holder = {}
+def make_score_display(statistic, moves_config, engine=None):
+    """engine — уже підготовлений (prepare_statistics) — щоб не рахувати двічі."""
+    engine_holder = {"engine": engine} if engine is not None else {}
 
     def on_layout_changed(layout):
         engine = engine_holder.get("engine")
@@ -173,6 +178,8 @@ class LayoutBuilderApp():
         self.root.geometry(f"{self.width}x{self.heigh}")
         self.root.minsize(900, 450)
         self.root.configure(bg=BG)
+        self.toasts = Toasts(self.root)  # неблокувальні жовті сповіщення
+        self._weights_gen = 0            # номер перерахунку ваг (старі результати відкидаються)
 
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
@@ -241,6 +248,7 @@ class LayoutBuilderApp():
 
         # button frame
         self.button_panel = ButtonPanel(self.root, self)
+        self._build_knob_panel()
         self._style_tabs()
         self.button_reset_layer.config(state="disabled")
 
@@ -262,7 +270,8 @@ class LayoutBuilderApp():
         self.geometry_name = name
         self.geometry = geometry_config(name)
         self.positions_by_id = {p["id"]: p for p in self.geometry["positions"]}  # для ресинку при свопах
-        self.moves = moves if moves is not None else load_moves(name)
+        self.base_moves = moves if moves is not None else load_moves(name)  # ваги з файлу
+        self.moves = self._effective_moves()                                # + повзунки
         self.key_width = self.geometry["key_width"]
         self.key_height = self.geometry["key_height"]
         self.tolerance = self.geometry["tolerance_x"]
@@ -295,10 +304,12 @@ class LayoutBuilderApp():
         self.slots = []
         self.build_grid()
         self.populate_initial_keys()
+        self._weights_gen += 1  # перерахунок ваг попереднього режиму вже не потрібен
         self.processor = OptimizationProcessor(self.statistic, self.moves)
-        if self.on_layout_changed is not None:
-            self.on_layout_changed = make_score_display(self.statistic, self.moves)
         self._build_engine()
+        if self.on_layout_changed is not None:
+            self.on_layout_changed = make_score_display(self.statistic, self.moves, engine=self.engine)
+        self._build_knob_rows()
         self._notify_layout_changed()
         self._apply_mode_ui()
         return True
@@ -345,7 +356,8 @@ class LayoutBuilderApp():
         cells = render.key_cells(self.geometry, self.geometry_name)
         board = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X + 40
         buttons = self.button_panel.button_frame.winfo_reqwidth() + 40 + 24
-        needed = max(900, board, buttons)
+        panel = self.knob_frame.winfo_reqwidth() + 40 if getattr(self, "knobs_open", False) else 0
+        needed = max(900, board, buttons, panel)
         self.root.minsize(needed, 450)
         if self.root.winfo_width() < needed:
             self.root.geometry(f"{needed}x{max(self.root.winfo_height(), self.heigh)}")
@@ -358,6 +370,7 @@ class LayoutBuilderApp():
             self.button_panel.button_start.config(text="Stop")
             self._set_file_buttons("disabled")
             self._set_keyboard_buttons("disabled")
+            self._set_knobs_state("disabled")
             self.status_var.set("Оптимізую...")
             self.processor.start(
                 self.layout,
@@ -383,6 +396,7 @@ class LayoutBuilderApp():
         self.button_panel.button_start.config(text="Start")
         self._set_file_buttons("normal")
         self._set_keyboard_buttons("normal")
+        self._set_knobs_state("normal")
         self._set_editor_buttons()
         self._notify_layout_changed()
 
@@ -634,7 +648,206 @@ class LayoutBuilderApp():
             self.status_var.set(text)
         elif self.on_layout_changed:
             self.status_var.set(self.on_layout_changed(self.layout))
+        if tab == "Редактор":
+            self._update_knob_metrics()
 
+
+    # ------------------------------------------------------------------
+    # Повзунки впливу (core/knobs.py): «Детальніше ▸» під клавіатурою
+    # ------------------------------------------------------------------
+    def _knob_state(self, name=None) -> dict:
+        """{"values": {id: положення}, "closeness": bool} режиму (з settings)."""
+        name = name or self.geometry_name
+        state = settings.load().get("knobs", {}).get(name) or {}
+        return {"values": dict(state.get("values") or {}), "closeness": bool(state.get("closeness"))}
+
+    def _save_knob_state(self, state) -> None:
+        all_states = settings.load().get("knobs") or {}
+        settings.save(knobs={**all_states, self.geometry_name: state})
+
+    def _effective_moves(self) -> dict:
+        state = self._knob_state()
+        return knobs.apply(self.base_moves, state["values"], self.geometry, state["closeness"])
+
+    def _build_knob_panel(self):
+        self.knobs_open = False
+        self.knob_bar = tk.Frame(self.root, bg=BG)
+        self.knob_bar.pack(fill="x", padx=20, pady=(0, 6), before=self.button_panel.button_frame)
+        self.button_knobs = make_button(self.knob_bar, "Детальніше ▸", self.toggle_knobs, small=True)
+        self.button_knobs.pack(side="left")
+        self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
+                                              self.on_knobs_reset, small=True)
+        self.knob_frame = tk.Frame(self.root, bg=PANEL)
+        self.knob_rows = {}
+        self._build_knob_rows()
+
+    def _build_knob_rows(self):
+        """Рядки повзунків поточного режиму (близькість — лише «Звичайна»)."""
+        if not hasattr(self, "knob_frame"):
+            return
+        for widget in self.knob_frame.winfo_children():
+            widget.destroy()
+        self.knob_rows = {}
+        state = self._knob_state()
+        self.closeness_var = tk.BooleanVar(value=state["closeness"])
+        label_opts = dict(bg=PANEL, font=(FONT, 10, "bold"))
+        for row, knob in enumerate(knobs.knobs_for(self.geometry_name)):
+            # назва, під нею дрібно — цифра, на яку повзунок впливає
+            cell = tk.Frame(self.knob_frame, bg=PANEL)
+            cell.grid(row=row, column=0, sticky="w", padx=(12, 10), pady=(4, 2))
+            if knob.id == "closeness":
+                title = tk.Checkbutton(cell, text=knob.title, variable=self.closeness_var,
+                                       command=self.on_closeness_toggle, fg=TEXT, selectcolor=SLOT,
+                                       activebackground=PANEL, activeforeground=TEXT, bd=0,
+                                       highlightthickness=0, **label_opts)
+            else:
+                title = tk.Label(cell, text=knob.title, fg=TEXT, **label_opts)
+            title.pack(anchor="w")
+            metric = tk.Label(cell, fg=TEXT_DIM, anchor="w", bg=PANEL, font=(FONT, 9))
+            metric.pack(anchor="w")
+            tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts).grid(
+                row=row, column=1, sticky="e")
+            scale = tk.Scale(self.knob_frame, from_=-knobs.LIMIT, to=knobs.LIMIT, resolution=0.05,
+                             orient="horizontal", showvalue=0, length=220, sliderlength=18, width=12,
+                             bg=PANEL, fg=TEXT, troughcolor=SLOT, activebackground=ACCENT,
+                             highlightthickness=0, bd=0,
+                             command=lambda _v, k=knob.id: self._on_knob_move(k))
+            scale.set(state["values"].get(knob.id, 0.0))
+            scale.grid(row=row, column=2, padx=6)
+            scale.bind("<ButtonRelease-1>", lambda _e, k=knob.id: self.on_knob_release(k))
+            tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts).grid(
+                row=row, column=3, sticky="w")
+            step_label = tk.Label(self.knob_frame, fg=ACCENT, width=14, anchor="w", **label_opts)
+            step_label.grid(row=row, column=4, sticky="w", padx=(10, 12))
+            self.knob_rows[knob.id] = SimpleNamespace(scale=scale, step=step_label, metric=metric)
+            self._on_knob_move(knob.id)
+        self._set_knobs_state("disabled" if self.processor.is_running else "normal")
+        self._update_knob_metrics()
+
+    def toggle_knobs(self):
+        self.knobs_open = not self.knobs_open
+        if self.knobs_open:
+            self.knob_frame.pack(fill="x", padx=20, pady=(0, 8), before=self.button_panel.button_frame)
+            self.button_knobs_reset.pack(side="right")
+            self.button_knobs.config(text="Детальніше ▾")
+            self._update_knob_metrics()
+            self._fit_window()
+        else:
+            self.knob_frame.pack_forget()
+            self.button_knobs_reset.pack_forget()
+            self.button_knobs.config(text="Детальніше ▸")
+        # вікно росте/зменшується на висоту панелі, щоб клавіатуру не стискало
+        self.root.update_idletasks()
+        extra = self.knob_frame.winfo_reqheight() + 8
+        width, height = self.root.winfo_width(), self.root.winfo_height()
+        min_width = self.root.minsize()[0]
+        if self.knobs_open:
+            self.root.minsize(min_width, 450 + extra)
+            height = max(height, self.heigh) + extra
+        else:
+            self.root.minsize(min_width, 450)
+            height = max(self.heigh, height - extra)
+        self.root.geometry(f"{max(width, min_width)}x{height}")
+
+    def _set_knobs_state(self, state):
+        for row in getattr(self, "knob_rows", {}).values():
+            disabled = state == "disabled" or (row is self.knob_rows.get("closeness")
+                                               and not self.closeness_var.get())
+            row.scale.config(state="disabled" if disabled else "normal")
+
+    def _knob_values(self) -> dict:
+        return {k: round(float(r.scale.get()), 2) for k, r in self.knob_rows.items()}
+
+    def _on_knob_move(self, knob_id):
+        """Плавний рух: лише підпис кроку; перерахунок — на відпусканні."""
+        row = self.knob_rows.get(knob_id)
+        if row is not None:
+            row.step.config(text=knobs.STEP_TITLES[knobs.step(row.scale.get())])
+
+    def on_knob_release(self, knob_id):
+        if self.processor.is_running:
+            return
+        old = self._knob_state()
+        values = self._knob_values()
+        self._save_knob_state({"values": values, "closeness": old["closeness"]})
+        if knobs.step(old["values"].get(knob_id, 0.0)) != knobs.step(values[knob_id]):
+            knob = knobs.KNOBS_BY_ID[knob_id]
+            self._rebuild_weights(f"{knob.title}: {knobs.STEP_TITLES[knobs.step(values[knob_id])]}")
+
+    def on_closeness_toggle(self):
+        if self.processor.is_running:
+            self.closeness_var.set(not self.closeness_var.get())
+            return
+        on = self.closeness_var.get()
+        self._save_knob_state({"values": self._knob_values(), "closeness": on})
+        self._set_knobs_state("normal")
+        self._rebuild_weights("Близькість до ЙЦУКЕН: " + ("увімкнено" if on else "вимкнено"))
+
+    def on_knobs_reset(self):
+        if self.processor.is_running:
+            return
+        old = self._knob_state()
+        changed = old["closeness"] or any(knobs.step(v) for v in old["values"].values())
+        self._save_knob_state({"values": {}, "closeness": False})
+        self._build_knob_rows()
+        if changed:
+            self._rebuild_weights("Ваги — рекомендовані")
+
+    def _rebuild_weights(self, what: str):
+        """Нові ваги -> новий engine (prepare_statistics ~2 с) у фоні. Розкладка
+        не змінюється — лише штраф; юзер сам тисне Start. Нічого не блокує."""
+        self._weights_gen += 1
+        gen, name = self._weights_gen, self.geometry_name
+        moves = self._effective_moves()
+        snapshot = [copy.copy(k) for k in self.layout.keys]
+        self.button_panel.button_start.config(state="disabled")
+        self.status_var.set("Перераховую штраф за новими вагами…")
+
+        result = {}
+
+        def work():  # без tkinter: з фонового потоку його чіпати не можна
+            engine = MovementScoringEngine(snapshot, moves)
+            engine.prepare_statistics(self.statistic)
+            result["engine"] = engine
+
+        def poll():
+            if "engine" not in result:
+                self.root.after(100, poll)
+                return
+            done(result["engine"])
+
+        def done(engine):
+            if gen != self._weights_gen or name != self.geometry_name:
+                return  # прийшли новіші ваги або інший режим
+            self.moves, self.engine = moves, engine
+            self.processor = OptimizationProcessor(self.statistic, moves)
+            if self.on_layout_changed is not None:
+                self.on_layout_changed = make_score_display(self.statistic, moves, engine=engine)
+            self._set_editor_buttons()
+            self._notify_layout_changed()
+            self.toasts.show(f"Ваги змінено — {what}.\n"
+                             f"Штраф поточної розкладки: {self._current_score():.2f}. "
+                             "Натисни Start, щоб підлаштувати розкладку.")
+
+        threading.Thread(target=work, daemon=True).start()
+        self.root.after(100, poll)
+
+    def _update_knob_metrics(self):
+        """Цифри біля повзунків (лише коли панель відкрита — метрики не безкоштовні)."""
+        if not getattr(self, "knobs_open", False) or not self.knob_rows:
+            return
+        m = layout_metrics(self.layout.keys, self.statistic)
+        text = {
+            "home_row": f"зараз {m['home_row']:.0f}% натискань",
+            "vertical": f"зараз {m['sfb']:.1f}% пар літер одним пальцем",
+            "pinky": f"зараз лівий {m['pinky_left']:.1f}% · правий {m['pinky_right']:.1f}%",
+            "alternation": f"зараз чергування {m['alternation']:.0f}% · перекати {m['rolls']:.0f}%",
+        }
+        if "closeness" in self.knob_rows:
+            c = knobs.closeness_metrics(self.layout.keys, self.geometry, self.statistic)
+            text["closeness"] = f"на своїх місцях {c['in_place']} з {c['of']} ({c['share']:.0f}% тексту)"
+        for knob_id, row in self.knob_rows.items():
+            row.metric.config(text=text.get(knob_id, ""))
 
     # ------------------------------------------------------------------
     # Файли розкладки: «Відкрити…», «Зберегти», «Зберегти як…»
@@ -680,6 +893,7 @@ class LayoutBuilderApp():
             return
         self._set_current_file(saved)
         self.status_var.set(f"Збережено: {saved}")
+        self.toasts.show(f"Збережено: {saved}")
 
     def on_open(self):
         if self.processor.is_running:
@@ -874,7 +1088,7 @@ class LayoutBuilderApp():
         if not plan.changes:
             self._set_keyboard_buttons("normal")
             self._notify_layout_changed()
-            messagebox.showinfo("Клавіатура", "Клавіатура вже збігається з розкладкою на екрані.")
+            self.toasts.show("Клавіатура вже збігається з розкладкою на екрані.")
             return
         question = (f"Записати {len(plan.changes)} клавіш у шар CYR ({plan.port})?\n\n"
                     f"{plan.diff_text}\n\nШтраф розкладки: {score:.2f}")
@@ -896,11 +1110,11 @@ class LayoutBuilderApp():
                  f"відкат: {rel(out['before'])}", f"розкладка: {rel(out['layout'])}"]
         lines += [f"{k}: {rel(out[k])}" for k in ("png", "svg", "html") if k in out]
         self.status_var.set(self.status_var.get() + f"   · на клаві з {plan.stamp[-4:-2]}:{plan.stamp[-2:]}")
-        messagebox.showinfo("На клаву", "\n".join(lines))
+        self.toasts.show("\n".join(lines), ms=12000)
 
     def on_layers_write(self):
         if not self.layer_view.pending():
-            messagebox.showinfo("На клаву", "Незаписаних змін у шарах немає.")
+            self.toasts.show("Незаписаних змін у шарах немає.")
             return
         ks = self._keyboard_sync()
         working, base = self.layer_view.dump, self.layer_view.base
@@ -911,7 +1125,7 @@ class LayoutBuilderApp():
         self._set_keyboard_buttons("normal")
         self._notify_layout_changed()
         if not plan.count:
-            messagebox.showinfo("На клаву", "Клавіатура вже має ці зміни.")
+            self.toasts.show("Клавіатура вже має ці зміни.")
             return
         warn = ""
         if plan.conflicts:
@@ -930,9 +1144,9 @@ class LayoutBuilderApp():
         self._set_layers_dump(out["dump"], f"{out['written'].name} (щойно записано)")
         root = Path(__file__).resolve().parents[1]
         rel = lambda p: str(p.relative_to(root)) if root in p.parents else str(p)  # noqa: E731
-        messagebox.showinfo("На клаву", "\n".join([
-            f"Записано {plan.count} клавіш у {', '.join(plan.changes)}.", "",
-            f"відкат: {rel(out['before'])}", f"html: {rel(out['html'])}"]))
+        self.toasts.show("\n".join([
+            f"Записано {plan.count} клавіш у {', '.join(plan.changes)}.",
+            f"відкат: {rel(out['before'])}", f"html: {rel(out['html'])}"]), ms=12000)
 
     def on_keyboard_read(self):
         if not self._confirm_discard():
@@ -986,6 +1200,7 @@ class LayoutBuilderApp():
             return
         self._last_dir = saved.parent
         self.status_var.set(f"Картинка: {saved}")
+        self.toasts.show(f"Картинка: {saved}")
 
 
 if __name__ == "__main__":

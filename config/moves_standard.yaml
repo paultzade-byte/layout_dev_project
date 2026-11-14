@@ -131,3 +131,13 @@ finger_load:
 skip_bigram:
   same_finger: 2.00
   same_hand: 0.50
+
+# Близькість до ЙЦУКЕН (повзунок у GUI, лише звичайна клавіатура). Вимкнено —
+# модель як без неї. Штраф = weight * частота літери * (0 — на своїй
+# ЙЦУКЕН-клавіші, same_finger — на іншій клавіші того самого пальця,
+# 1 — інакше). reference (де літера на ЙЦУКЕН) підставляє core/knobs.apply
+# з `default` позицій geometry.json. Повзунок множить weight на ×0.5…×2.
+closeness:
+  enabled: false
+  weight: 0.30
+  same_finger: 0.50

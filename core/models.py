@@ -68,6 +68,9 @@ class ScoreMetrics:
     hand_run_penalty: float = 0.0
     # натискання понад ліміт навантаження пальця (finger_load)
     finger_load_penalty: float = 0.0
+    # літери не на своїх ЙЦУКЕН-місцях (повзунок «Близькість до ЙЦУКЕН»;
+    # необов'язкова секція moves `closeness`, вимкнена — 0)
+    closeness_penalty: float = 0.0
     # Загальний бал
     total_penalty: float = 0.0
 

@@ -281,6 +281,7 @@ class MovementScoringEngine:
         # позицій (P^2 / P^3) — тими самими *_terms, що описують модель.
         # Оцінка далі = таблиця[код позицій] * частота.
         self._pos_effort = self._position_effort(self._pos)
+        self._closeness_weight, self._closeness_cost = self._closeness_table(layout_keys)
         self._pos_slot = self._pos.hand.astype(np.int64) * 6 + self._pos.finger  # палець з рукою, 0..11
         self._load_cap = np.zeros(12)
         self._position_tables = {
@@ -539,7 +540,7 @@ class MovementScoringEngine:
         """
         self._require_statistics()
         metrics = ScoreMetrics()
-        metrics.base_effort, metrics.finger_load_penalty = self._unigram_terms()
+        metrics.base_effort, metrics.finger_load_penalty, metrics.closeness_penalty = self._unigram_terms()
         metrics.hand_run_penalty = self._hand_run_constant()
         for fam in self._families.values():
             code = fam.code(fam.keys)
@@ -554,7 +555,7 @@ class MovementScoringEngine:
             metrics.hand_run_penalty, metrics.finger_load_penalty,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
             metrics.finger_alternation_penalty, metrics.roll_row_penalty,
-            metrics.row_shape_penalty, metrics.stretch_penalty,
+            metrics.row_shape_penalty, metrics.stretch_penalty, metrics.closeness_penalty,
         ))
         return metrics
 
@@ -625,12 +626,37 @@ class MovementScoringEngine:
         # частина hand_runs, що не залежить від розкладки (див. _prepare_word_ngrams)
         return self._hand_run_const
 
-    def _unigram_terms(self) -> Tuple[float, float]:
-        """(base_effort, finger_load_penalty) — по ~36 літерах, дешевше
-        рахувати завжди повністю, ніж інкрементально."""
+    def _closeness_table(self, layout_keys: List[Key]):
+        """Необов'язкова секція moves `closeness` (повзунок «Близькість до
+        ЙЦУКЕН», лише звичайна клавіатура):
+            enabled: bool, weight: float, same_finger: 0..1,
+            reference: {літера: position_id} — де літера стоїть на ЙЦУКЕН.
+        Штраф за одиницю частоти: 0 — літера на своїй клавіші, same_finger —
+        на іншій клавіші того самого пальця («палець пам'ятає»), 1 — інакше.
+        -> (weight, таблиця [літера, позиція]) або (0.0, None)."""
+        cfg = self.moves.get("closeness") or {}
+        weight = float(cfg.get("weight", 0.0)) if cfg.get("enabled") else 0.0
+        if not weight:
+            return 0.0, None
+        reference = cfg.get("reference") or {}
+        same_finger = float(cfg.get("same_finger", 0.5))
+        pos = self._pos
+        cost = np.ones((len(self.chars), len(pos.row)), dtype=np.float64)
+        for char, i in self.char_to_idx.items():
+            ref = self._pos_index.get(reference.get(char))
+            if ref is None:  # літери нема на ЙЦУКЕН (службові) — не штрафуємо
+                cost[i] = 0.0
+                continue
+            cost[i, (pos.finger == pos.finger[ref]) & (pos.hand == pos.hand[ref])] = same_finger
+            cost[i, ref] = 0.0
+        return weight, cost
+
+    def _unigram_terms(self) -> Tuple[float, float, float]:
+        """(base_effort, finger_load_penalty, closeness_penalty) — по ~36
+        літерах, дешевше рахувати завжди повністю, ніж інкрементально."""
         idx = self._unigram_idx
         if idx is None or len(idx) == 0:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0
         pos = self.position[idx]
         weight = self._unigram_weight
         base_effort = float((self._pos_effort[pos] * weight).sum())
@@ -642,7 +668,10 @@ class MovementScoringEngine:
         finger_load = float(
             self.moves["finger_load"]["over_cap"] * np.maximum(load - self._load_cap, 0.0).sum()
         )
-        return base_effort, finger_load
+        closeness = 0.0
+        if self._closeness_cost is not None:
+            closeness = self._closeness_weight * float((self._closeness_cost[idx, pos] * weight).sum())
+        return base_effort, finger_load, closeness
 
     def _position_effort(self, g) -> np.ndarray:
         """base_effort за одиницю частоти для кожної позиції."""

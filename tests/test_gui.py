@@ -99,3 +99,64 @@ def test_altgr_marks_follow_letters():
         assert not wa.altgr_label.winfo_manager()
     finally:
         root.destroy()
+
+
+def _wait(root, cond, timeout=60):
+    import time
+    end = time.time() + timeout
+    while not cond() and time.time() < end:
+        root.update()
+        time.sleep(0.05)
+    assert cond()
+
+
+def test_knob_release_rebuilds_weights_without_blocking():
+    from config import settings
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                on_layout_changed=A.make_score_display(A.STATISTIC,
+                                                                       A.load_moves("generic_105_alpha")),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        ui.toggle_knobs()
+        root.update()
+        assert "% натискань" in ui.knob_rows["home_row"].metric.cget("text")
+        before = ui._current_score()
+        engine = ui.engine
+        ui.knob_rows["vertical"].scale.set(2)
+        ui.on_knob_release("vertical")
+        _wait(root, lambda: ui.engine is not engine)
+        assert ui.moves["same_finger"]["vertical"] == ui.base_moves["same_finger"]["vertical"] * 2
+        assert ui._current_score() != before
+        assert ui.toasts.items and "Start" in ui.toasts.items[-1].winfo_children()[0].cget("text")
+        assert settings.load()["knobs"]["generic_105_alpha"]["values"]["vertical"] == 2
+        # рух у межах того ж кроку — без перерахунку
+        engine = ui.engine
+        ui.knob_rows["vertical"].scale.set(1.8)
+        ui.on_knob_release("vertical")
+        root.update()
+        assert ui.engine is engine
+        # скинути — назад до файлових ваг
+        ui.on_knobs_reset()
+        _wait(root, lambda: ui.engine is not engine)
+        assert ui.moves == ui.base_moves
+        assert abs(ui._current_score() - before) < 1e-9
+    finally:
+        root.destroy()
+        settings.save(knobs={})
+
+
+def test_toasts_stack_and_close():
+    from uiux.toast import Toasts
+    root = tk.Tk()
+    try:
+        t = Toasts(root)
+        a, b = t.show("один"), t.show("два\nрядки", ms=10)
+        root.update()
+        assert t.items == [a, b]
+        t.close(a)
+        _wait(root, lambda: not t.items, timeout=5)
+    finally:
+        root.destroy()
