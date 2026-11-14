@@ -5,7 +5,7 @@ import math
 import sys
 import threading
 
-from config.main_config import GEOMETRY_CONFIG, MOVES_CONFIG, STATISTIC, ACTIVE
+from config.main_config import MOVES_CONFIG, STATISTIC, ACTIVE, geometry_config, load_moves
 from core.layout_factory import build_layout, build_key_from_position
 from core.models import Finger, Layout, Key
 from core.scorer import MovementScoringEngine
@@ -17,8 +17,6 @@ from pathlib import Path
 # keeping this dead import for possible bedugging process
 #from log.loggers.state_hasher import StateHasher
 
-# необхідно для перезапису при свопах
-POSITIONS_BY_ID = {p["id"]: p for p in GEOMETRY_CONFIG["positions"]}
 ZMK_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "zmk"
 # штраф показується в тій самій шкалі, що й у scripts/ (x1e8)
 SCORE_SCALE = 1e8
@@ -93,14 +91,15 @@ def make_score_display(statistic, moves_config):
 
 
 class Slot:
-    def __init__(self, slot_id, x, y, width, height):
+    def __init__(self, position, x, y, width, height):
+        slot_id = position["id"]
         self.id = slot_id
         self.x = x
         self.y = y
         self.center_x = x + width / 2
         self.center_y = y + height / 2
         self.current_key = None  # the tkinter widget permanently anchored here
-        self.finger = build_key_from_position(POSITIONS_BY_ID[slot_id]).finger
+        self.finger = build_key_from_position(position).finger
 
 
 class KeyLabel(tk.Label):
@@ -155,6 +154,7 @@ class LayoutBuilderApp():
         moves_config: dict,
         layout: Layout | None = None,
         on_layout_changed=None,
+        geometry_name: str | None = None,
     ):
         self.root = root
         self.root.title("Аналізатор розкладки - Матриця")
@@ -166,14 +166,15 @@ class LayoutBuilderApp():
 
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
-        self.geometry_name = ACTIVE
-        self.layout = (layout if layout is not None else build_layout(GEOMETRY_CONFIG))
+        self.statistic = statistic
+        self._load_geometry(geometry_name or ACTIVE, moves_config)
+        self.layout = (layout if layout is not None else build_layout(self.geometry))
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
 
         self.on_layout_changed = on_layout_changed
 
         # --- оптимізатор живе тут, а не на рівні модуля ---
-        self.processor = OptimizationProcessor(statistic, moves_config)
+        self.processor = OptimizationProcessor(statistic, self.moves)
 
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
@@ -220,22 +221,56 @@ class LayoutBuilderApp():
 
         # layout
         self.slots = []
-        self.key_width = GEOMETRY_CONFIG["key_width"]
-        self.key_height = GEOMETRY_CONFIG["key_height"]
-        self.tolerance = GEOMETRY_CONFIG["tolerance_x"]
-        self.stages = GEOMETRY_CONFIG["stages"]
         self.HAND_GAP_KEYS = 4
         self.build_grid()
         self.populate_initial_keys()
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
         self._notify_layout_changed()
+        self._build_engine()
 
-        # scoring
-        self.engine = MovementScoringEngine(self.layout.keys, moves_config)
-        # heavy / depends on statistic / recalled once
-        self.engine.prepare_statistics(statistic)
+    # ------------------------------------------------------------------
+    # Геометрія: спліт / звичайна, перемикається в рантаймі
+    # ------------------------------------------------------------------
+    def _load_geometry(self, name: str, moves: dict | None = None):
+        """Атрибути геометрії: позиції, розміри клавіш, ваги."""
+        self.geometry_name = name
+        self.geometry = geometry_config(name)
+        self.positions_by_id = {p["id"]: p for p in self.geometry["positions"]}  # для ресинку при свопах
+        self.moves = moves if moves is not None else load_moves(name)
+        self.key_width = self.geometry["key_width"]
+        self.key_height = self.geometry["key_height"]
+        self.tolerance = self.geometry["tolerance_x"]
+        self.stages = self.geometry["stages"]
+
+    def _build_engine(self):
+        # heavy / depends on statistic / once per geometry
+        self.engine = MovementScoringEngine(self.layout.keys, self.moves)
+        self.engine.prepare_statistics(self.statistic)
         # refreshing after mutation/swap
         self.engine.update_layout(self.layout.keys)
+
+    def set_geometry(self, name: str, layout: Layout | None = None) -> bool:
+        """Перемикає режим (геометрію): нова розкладка (типова для геометрії
+        або передана), ваги з її moves-файлу, свіжий оптимізатор і engine,
+        перебудована сітка. False — якщо оптимізація ще йде."""
+        if self.processor.is_running:
+            return False
+        if name == self.geometry_name and layout is None:
+            return True
+        self._load_geometry(name)
+        self.layout = layout if layout is not None else build_layout(self.geometry)
+        self.keys_by_position = {key.position_id: key for key in self.layout.keys}
+        for widget in self.board.winfo_children():
+            widget.destroy()
+        self.slots = []
+        self.build_grid()
+        self.populate_initial_keys()
+        self.processor = OptimizationProcessor(self.statistic, self.moves)
+        if self.on_layout_changed is not None:
+            self.on_layout_changed = make_score_display(self.statistic, self.moves)
+        self._build_engine()
+        self._notify_layout_changed()
+        return True
 
     # ------------------------------------------------------------------
     # Start / Stop
@@ -281,7 +316,7 @@ class LayoutBuilderApp():
 
     def redraw_keys(self):
         """Перемальовує клавіші на дошці згідно з поточним self.layout після оптимізації."""
-        for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
+        for pos, slot in zip(self.geometry["positions"], self.slots):
             key = self.keys_by_position[pos["id"]]
             widget = slot.current_key
             if widget is None:
@@ -298,7 +333,7 @@ class LayoutBuilderApp():
         # клітинки (з проміжками), а не лише tolerance_x від центру
         self.tolerance = max(self.tolerance, math.hypot(self.key_width + gap, self.key_height + gap) / 2)
 
-        for pos in GEOMETRY_CONFIG["positions"]:
+        for pos in self.geometry["positions"]:
             if self.stages == 1:
                 x = base_x + pos["offset_x"] + pos["col"] * (self.key_width + gap)
                 y = base_y + pos["row"] * (self.key_height + gap)
@@ -309,9 +344,9 @@ class LayoutBuilderApp():
                 raise KeyError
 
             if pos.get("hand") == "R":
-                if ACTIVE == "generic_105_alpha":
+                if self.geometry_name == "generic_105_alpha":
                     x = x
-                elif ACTIVE == "corne_42":
+                elif self.geometry_name == "corne_42":
                     x += 400  # self.HAND_GAP_KEYS + self.key_width + gap
                 else:
                     raise KeyError("Unknown active layout")
@@ -322,12 +357,12 @@ class LayoutBuilderApp():
                 bg=SLOT,
                 width=self.key_width,
                 height=self.key_height).place(x=x, y=y)
-            self.slots.append(Slot(pos["id"], x, y, self.key_width, self.key_height))
+            self.slots.append(Slot(pos, x, y, self.key_width, self.key_height))
 
     def populate_initial_keys(self):
         """Автоматична прив'язка літер до гріда
         Прив'язує кожен tkinter-віджет до реального доменного Key."""
-        for pos, slot in zip(GEOMETRY_CONFIG["positions"], self.slots):
+        for pos, slot in zip(self.geometry["positions"], self.slots):
             key = self.keys_by_position[pos["id"]]
             #char = pos.get("default", "")
             widget = KeyLabel(self.board, relief="flat", bd=0, cursor="hand2")
@@ -487,7 +522,7 @@ class LayoutBuilderApp():
     def _resync_key_geometry(self, key):
         """Оновлює геометричні поля key під його поточний position_id,
         зберігаючи char/is_frozen (доменний, а не геометричний стан)."""
-        fresh = build_key_from_position(POSITIONS_BY_ID[key.position_id])
+        fresh = build_key_from_position(self.positions_by_id[key.position_id])
         key.x = fresh.x
         key.y = fresh.y
         key.row = fresh.row
