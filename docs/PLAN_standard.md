@@ -64,21 +64,26 @@
 - Перешкоди для exe: шляхи через `PROJ_DIR`, запис `recorded_layout.json` у
   теку проєкту, ZMK/pyserial-функції, зламаний `main.py`.
 
-## Фаза 0 — фундамент (гілка `feat/standard-keyboard`)
+## Фаза 0 — фундамент (гілка `feat/standard-keyboard`) — ЗРОБЛЕНО 2026-11-14
 
-- [ ] Перемикання геометрії в рантаймі: одна функція перебудовує `Layout`,
-      `MovementScoringEngine` (+ `prepare_statistics`), сітку GUI.
-- [ ] Ваги окремо для кожної геометрії: `config/moves.yaml` лишається для
-      `corne_42` **без змін**; новий `config/moves_standard.yaml` (стартово —
-      копія з поправками). Схема — та сама `_REQUIRED_MOVES_SCHEMA`.
-- [ ] Дані юзера (записані розкладки, пресети повзунків, вибраний режим) —
-      у юзерській теці (`%APPDATA%\ukr-layout` / `~/.config/ukr-layout`),
-      окремо для кожного режиму. Репозиторні конфіги — лише для читання.
-- [ ] Викинути `'\n'` з оцінки (рішення 6) — для обох режимів; переоцінити
-      поточні розкладки автора і зафіксувати, що скори не змінились (Enter і
-      так відкидався) або на скільки змінились.
-- [ ] Полагодити `main.py`; завести `tests/` (pytest): `check_delta` для обох
-      геометрій, smoke-тест побудови кожної геометрії, перемикання режимів.
+- [x] Перемикання геометрії в рантаймі: `LayoutBuilderApp.set_geometry(name)`
+      перебудовує `Layout`, ваги, оптимізатор, engine (+ `prepare_statistics`),
+      сітку. Видимого перемикача ще нема (фаза 3).
+- [x] Ваги окремо для кожної геометрії: `config/moves.yaml` (спліт) без змін;
+      `config/moves_standard.yaml` — поки копія. `MOVES_FILES` у
+      `main_config.py`; для скриптів — `LAYOUT_GEOMETRY=generic_105_alpha`.
+- [x] Дані юзера — `config/paths.py`: `~/.config/ukr-layout`,
+      `%APPDATA%\ukr-layout`, macOS Application Support; `LAYOUT_USER_DIR`
+      перекриває. Rec>> → `recorded_<геометрія>.json` там; старий
+      `config/recorded_layout.json` більше не перезаписується (Rec<< читає
+      його як запасний для спліта). Пресети/режим — додадуться у фазах 3–4.
+- [x] Enter викинуто з оцінки явно (`UNSCORED_CHARS` у `core/scorer.py`).
+      Скори k/l/m/n/еталона — побітово ті самі.
+- [x] `main.py` полагоджено (`--geometry --iterations --seed --out`);
+      `tests/` (pytest, 14 тестів, ~30 с): конфіги, шляхи, delta == score на
+      обох геометріях, Enter, headless-прогін, GUI-перемикання (xvfb-run).
+- Знайдено й виправлено: `generic_105_alpha` падав в engine (дві клавіші
+  `Shft` → дубль у словнику символів).
 
 ## Фаза 1 — кнопка скріна (п. 4)
 

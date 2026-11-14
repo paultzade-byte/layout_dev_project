@@ -36,16 +36,25 @@
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
-  Rec>>/Rec<<. Слайдерів ваг немає (прибрані за рішенням автора) — ваги
+  Rec>>/Rec<<; `set_geometry(name)` перемикає геометрію в рантаймі. Слайдерів ваг немає (прибрані за рішенням автора) — ваги
   лише в `moves.yaml`. `uiux/processors.py` — оптимізація в окремому потоці.
-- `config/moves.yaml` — усі ваги штрафів (з коментарями).
+- `config/moves.yaml` — усі ваги штрафів (з коментарями) для спліта
+  (`corne_42`); `config/moves_standard.yaml` — для звичайної клавіатури
+  (`generic_105_alpha`). Відповідність — `MOVES_FILES` у `main_config.py`.
   `column_multiplier`: `col_index` / `col_pinky` — дотичні колонки вказівного
   і мізинця окремо.
 - `config/geometry.json` — фізичні позиції (`active_layout`).
 - `config/statistic.json` — уні/бі/три/скіп-грами корпусу UberText.
 - `config/word_stats.json` — частоти слів (для `hand_runs`), генерує
   `scripts/word_counter.py`.
-- `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`.
+- `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`;
+  `geometry_config(name)` / `load_moves(name)`; активна геометрія —
+  `active_layout` або змінна `LAYOUT_GEOMETRY` (для скриптів).
+- `config/paths.py` — ресурси (з урахуванням PyInstaller) і тека даних юзера
+  (`~/.config/ukr-layout`, `%APPDATA%\ukr-layout`; перекриває
+  `LAYOUT_USER_DIR`). Rec>> пише туди `recorded_<геометрія>.json`;
+  `config/recorded_layout.json` (файл автора) Rec<< читає лише як запасний
+  для спліта.
 - `scripts/compare_reference.py` — оптимізатор vs еталон автора
   (`config/reference_layout.json`); `scripts/sa_bench.py` — параметри SA на
   кількох seed (дивись середнє: розкид між seed 3–4 пункти);
@@ -65,10 +74,14 @@
 ```bash
 source .venv/bin/activate
 python -m uiux.app            # GUI (з кореня проєкту)
+python main.py --geometry generic_105_alpha --iterations 20000   # без GUI
 ```
 
-`main.py` наразі зламаний (див. WORKLOG). Тести в `.ignore_tests/` не
-запускаються (`pytest.ini` вказує на неіснуючу `tests/`).
+Тести (`tests/`, разом ~30 с; GUI-тест потребує дисплея):
+```bash
+xvfb-run -a env OPENBLAS_NUM_THREADS=1 nice -n 10 cpulimit -l 60 -f -m -q -- .venv/bin/python -m pytest -q -p no:cacheprovider
+```
+cpulimit — лише на `python` (xvfb-run — shell-скрипт, див. правила нижче).
 
 ## Правила роботи
 
