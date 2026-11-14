@@ -178,7 +178,9 @@ class MovementScoringEngine:
         # Vocabulary: the SET of chars never changes during optimization —
         # only WHICH position each char sits at changes. So the char->index
         # mapping is fixed for the engine's whole lifetime.
-        self.chars = [key.char for key in layout_keys if key.char]
+        # Унікальні: на звичайній клавіатурі дві клавіші "Shft" (role: mod) —
+        # з дублем частина char-масивів лишалась неініціалізованою.
+        self.chars = list(dict.fromkeys(key.char for key in layout_keys if key.char))
         self.char_to_idx = {c: i for i, c in enumerate(self.chars)}
         n = len(self.chars)
         print("n(layout_keys with char):", len(self.chars))
