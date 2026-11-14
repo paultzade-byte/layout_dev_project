@@ -194,6 +194,9 @@ class MovementScoringEngine:
             row=np.array([key.row for key in layout_keys], dtype=np.int64),
             home_row=np.array([key.home_row for key in layout_keys], dtype=np.int64),
             col=np.array([key.col for key in layout_keys], dtype=np.int64),
+            # фізична позиція по горизонталі в одиницях клавіші: на спліті = col,
+            # на звичайній — зі зсувом ряду (стаггер 0 / 0.25 / 0.75)
+            x=np.array([key.x for key in layout_keys], dtype=np.float64),
             home_col=np.array([key.home_col for key in layout_keys], dtype=np.int64),
             hand=np.array([key.hand.value == "right" for key in layout_keys], dtype=np.int8),  # 0 = ліва, 1 = права
             finger=np.array([key.finger.value for key in layout_keys], dtype=np.int64),
@@ -650,9 +653,13 @@ class MovementScoringEngine:
         )
         hand_weight = np.where(g.hand == 0, self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"])
         row_cfg = self.moves["base_effort"]["row_multiplier"]
+        # необов'язкові (лише звичайна клавіатура): bottom_left — лівий нижній
+        # ряд окремо (стаггер іде всупереч куту лівої кисті); number — цифровий
+        # ряд (row -1, клавіша `)
+        bottom = np.where(g.hand == 0, row_cfg.get("bottom_left", row_cfg["bottom"]), row_cfg["bottom"])
         row_weight = np.select(
-            [g.row == 0, g.row == 1, g.row == 2],
-            [row_cfg["top"], row_cfg["home_row"], row_cfg["bottom"]],
+            [g.row == 0, g.row == 1, g.row == 2, g.row == -1],
+            [row_cfg["top"], row_cfg["home_row"], bottom, row_cfg.get("number", row_cfg["other"])],
             default=row_cfg["other"],
         )
         finger_weight = self._finger_mult_by_value[g.finger]
@@ -670,7 +677,7 @@ class MovementScoringEngine:
         lower = np.where(first_up, f2, f1)
         upper_row = np.minimum(r1, r2)
         mult = self._scissor_mult[upper, lower] * np.abs(r1 - r2)
-        mult = np.where(upper_row == 0, mult, mult * self.moves["row_shape"]["curl_ratio"])
+        mult = np.where(upper_row <= 0, mult, mult * self.moves["row_shape"]["curl_ratio"])
         valid = (g.hand[idx1] == g.hand[idx2]) & (f1 != f2) & (r1 != r2) & (r1 <= 2) & (r2 <= 2)
         return np.where(valid, mult, 0.0)
 
@@ -680,6 +687,8 @@ class MovementScoringEngine:
         finger1, finger2 = g.finger[idx1], g.finger[idx2]
         row1, row2 = g.row[idx1], g.row[idx2]
         col1, col2 = g.col[idx1], g.col[idx2]
+        x1, x2 = g.x[idx1], g.x[idx2]
+        dx = np.abs(x1 - x2)
 
         same_hand = hand1 == hand2
         same_finger = same_hand & (finger1 == finger2)
@@ -690,7 +699,9 @@ class MovementScoringEngine:
         # --- same finger: класифікація руху пальця між двома клавішами ---
         # row: 0 = верхній, 1 = домашній, 2 = нижній (більше = нижче)
         row_diff = np.abs(row1 - row2)
-        same_col = col1 == col2
+        # «та сама колонка» — фізично: на звичайній клавіатурі Й->Ф (зсув 0.25)
+        # вертикаль, К->П... за відстанню; на спліті x = col, тобто як раніше
+        same_col = dx <= 0.5
 
         sf_cfg = self.moves["same_finger"]
         # Одна клавіша двічі ("нн") — палець не переміщується, це не SFB.
@@ -714,6 +725,20 @@ class MovementScoringEngine:
         )
         # для одно-рядних рухів зберігається множник сили пальця
         finger_mult = self._finger_mult_by_value[finger1]
+
+        # Необов'язково (звичайна клавіатура): SFB/SFS дорожчають чи дешевшають
+        # пропорційно реальній відстані відносно «сіткової» (вертикаль 1,
+        # діагональ √2, перескок 2): factor = 1 + k * (dist / nominal - 1).
+        distance_k = sf_cfg.get("distance_mult", 0.0)
+        if distance_k:
+            dist = np.hypot(dx, row_diff)
+            nominal = np.where(row_diff >= 2, row_diff,
+                               np.where(same_col | (row_diff == 0), 1.0, np.sqrt(2.0)))
+            nominal = np.where(row_diff == 0, np.maximum(dx, 1.0), nominal)
+            distance_factor = np.where(same_finger & ~same_key_mask,
+                                       1.0 + distance_k * (dist / nominal - 1.0), 1.0)
+        else:
+            distance_factor = 1.0
 
         # SFS — перескок через домашній ряд (нижній <-> верхній).
         # Абсолютна шкала, без множника пальця: max — мізинець з дотичної
@@ -742,7 +767,7 @@ class MovementScoringEngine:
         scissor = self._scissor_weight(g, idx1, idx2)
         upper_finger = np.where(row1 < row2, finger1, finger2)
         reach_up = (
-            (scissor > 0) & (np.minimum(row1, row2) == 0)
+            (scissor > 0) & (np.minimum(row1, row2) <= 0)
             & ((upper_finger == Finger.RING.value) | (upper_finger == Finger.PINKY.value))
         )
         alt_weight = self._finger_alt_mult[finger1, finger2]
@@ -752,8 +777,10 @@ class MovementScoringEngine:
         # (дотична вказівного або зовнішня мізинця в парі з іншим пальцем: "ри"
         # дотична+середній, "ий" дотична вказівного -> зовнішня мізинця = 2).
         # Штраф за кожну зайву колонку; бонус сусідніх пальців з розтягом не дається.
-        extra_cols = np.abs(col1 - col2) - np.abs(finger1 - finger2)
-        stretch_mask = alt_mask & (extra_cols > 0) & (row1 <= 2) & (row2 <= 2) \
+        # фізична відстань: на звичайній клавіатурі ряди зсунуті, тож дрібні
+        # зсуви (< 0.3 u) — не розтяг; на спліті різниця ціла, як раніше
+        extra_cols = dx - np.abs(finger1 - finger2)
+        stretch_mask = alt_mask & (extra_cols > 0.3) & (row1 <= 2) & (row2 <= 2) \
             & (finger1 != Finger.THUMB.value) & (finger2 != Finger.THUMB.value)
         alt_weight = np.where(stretch_mask & (alt_weight < 0), 0.0, alt_weight)
         stretch = np.where(stretch_mask, extra_cols * self.moves["stretch"]["per_column"], 0.0)
@@ -762,8 +789,8 @@ class MovementScoringEngine:
             "row_shape_penalty": weight * scissor * hand_mult,
             "stretch_penalty": weight * stretch * hand_mult,
             "double_tap_penalty": np.where(same_key_mask, weight * finger_mult * sf_cfg["same_key"], 0.0),
-            "sfb_penalty": weight * sfb_weight * finger_mult,
-            "sfs_penalty": np.where(skip_mask, weight * skip_weight, 0.0),
+            "sfb_penalty": weight * sfb_weight * finger_mult * distance_factor,
+            "sfs_penalty": np.where(skip_mask, weight * skip_weight * distance_factor, 0.0),
             "finger_alternation_penalty": np.where(
                 alt_mask, weight * alt_weight * hand_mult, 0.0
             ),
@@ -795,16 +822,16 @@ class MovementScoringEngine:
         roll_mask = same_hand_mask & (f1 != f2) & (f2 != f3)
         r1, r2, r3 = g.row[idx1], g.row[idx2], g.row[idx3]
 
-        has_top = (r1 == 0) | (r2 == 0) | (r3 == 0)
+        has_top = (r1 <= 0) | (r2 <= 0) | (r3 <= 0)  # цифровий ряд (-1) — теж «верх»
         has_bottom = (r1 == 2) | (r2 == 2) | (r3 == 2)
         # Довгі пальці (середній, безіменний) природно дістають верхній ряд.
         short1 = (f1 == Finger.INDEX.value) | (f1 == Finger.PINKY.value)
         short2 = (f2 == Finger.INDEX.value) | (f2 == Finger.PINKY.value)
         short3 = (f3 == Finger.INDEX.value) | (f3 == Finger.PINKY.value)
-        top_by_short_finger = ((r1 == 0) & short1) | ((r2 == 0) & short2) | ((r3 == 0) & short3)
+        top_by_short_finger = ((r1 <= 0) & short1) | ((r2 <= 0) & short2) | ((r3 <= 0) & short3)
         # 1) Провал і перескок: проміжна літера скидає палець на нижній ряд,
         #    а наступна змушує стрибнути з нижнього на верхній. Найгірше.
-        drop_jump = roll_mask & (r1 != 2) & (r2 == 2) & (r3 == 0)
+        drop_jump = roll_mask & (r1 != 2) & (r2 == 2) & (r3 <= 0)
         # 2) Перекат через ряд: є і верхній, і нижній (напр. третя літера внизу
         #    після верхнього ряду). Трохи гірше.
         row_skip = roll_mask & has_top & has_bottom & ~drop_jump
