@@ -4,10 +4,8 @@ from typing import Callable, Optional
 from core.mutator import LayoutOptimizerSA
 from core.models import Layout
 from pathlib import Path
-import yaml
-
-
 from config.main_config import MUTATOR_CONFIG as config
+from config.paths import recorded_layout_path
 
 class OptimizationProcessor:
     """Driver for the optimization life cycle in the individual thread."""
@@ -62,14 +60,16 @@ class OptimizationProcessor:
         self._thread = threading.Thread(target=worker, daemon=True)
         self._thread.start()
 
-    # button rec >> / recording current layout into json file in the config/
-    def layout_record(self, layout: Layout):
+    # button rec >> / recording current layout into the user data dir
+    # (окремий файл для кожної геометрії, див. config/paths.py)
+    def layout_record(self, layout: Layout, geometry: str) -> Path:
         data = [
             {"position_id": key.position_id, "char": key.char , "is_frozen": key.is_frozen } for key in layout.keys
         ]
-        path = Path(__file__).resolve().parents[1] / "config" / "recorded_layout.json"
+        path = recorded_layout_path(geometry)
         with open (path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        return path
 
     # button rec << / recalling previously recorded layout from json to the builder
     def layout_recall(self, path: Path) -> list[dict]:

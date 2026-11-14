@@ -12,6 +12,7 @@ from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
 from uiux import layer_view
 from uiux.widgets import RoundButton
+from config.paths import recall_layout_path
 from pathlib import Path
 # keeping this dead import for possible bedugging process
 #from log.loggers.state_hasher import StateHasher
@@ -134,11 +135,8 @@ class ButtonPanel:
              mid, "Reheat",
              lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None
          )
-         self.button_record = make_button(
-             right, "Rec>>",
-             lambda: self.logic.processor.layout_record(self.logic.layout) if self.logic.processor else None
-         )
-         self.button_recall = make_button(right, "Rec<<", lambda: self.logic.on_recall() if self.logic.processor else None)
+         self.button_record = make_button(right, "Rec>>", self.logic.on_record)
+         self.button_recall = make_button(right, "Rec<<", self.logic.on_recall)
          for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat),
                       (self.button_record, self.button_recall)):
              a.pack(side="left", padx=(0, 8))
@@ -168,6 +166,7 @@ class LayoutBuilderApp():
 
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
+        self.geometry_name = ACTIVE
         self.layout = (layout if layout is not None else build_layout(GEOMETRY_CONFIG))
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
 
@@ -533,8 +532,19 @@ class LayoutBuilderApp():
     # Recall the layout
     # ------------------------------------------------------------------
 
+    def on_record(self):
+        if self.processor.is_running:
+            return
+        path = self.processor.layout_record(self.layout, self.geometry_name)
+        self.status_var.set(f"Записано: {path}")
+
     def on_recall(self):
-        path = Path(__file__).resolve().parents[1] / "config" / "recorded_layout.json"
+        if self.processor.is_running:
+            return
+        path = recall_layout_path(self.geometry_name)
+        if path is None:
+            messagebox.showinfo("Rec<<", "Для цього режиму ще нічого не записано (Rec>>).")
+            return
         data = self.processor.layout_recall(path)
         self._apply_recorded_state(data)
 
