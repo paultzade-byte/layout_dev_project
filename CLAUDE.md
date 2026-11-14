@@ -36,7 +36,7 @@
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
-  Rec>>/Rec<<, «Скрін»; `set_geometry(name)` перемикає геометрію в рантаймі.
+  «Відкрити… / Зберегти / Зберегти як…», «Скрін»; `set_geometry(name)` перемикає геометрію в рантаймі.
 - `uiux/render.py` — картинка розкладки (PNG через Pillow / SVG) для будь-якої
   геометрії; `key_cells()` — сітка, спільна з GUI. Для картинок у чат —
   `python -m uiux.render LAYOUT.json OUT.png [--geometry ...]` (той самий код,
@@ -54,11 +54,10 @@
 - `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`;
   `geometry_config(name)` / `load_moves(name)`; активна геометрія —
   `active_layout` або змінна `LAYOUT_GEOMETRY` (для скриптів).
-- `config/paths.py` — ресурси (з урахуванням PyInstaller) і тека даних юзера
-  (`~/.config/ukr-layout`, `%APPDATA%\ukr-layout`; перекриває
-  `LAYOUT_USER_DIR`). Rec>> пише туди `recorded_<геометрія>.json`;
-  `config/recorded_layout.json` (файл автора) Rec<< читає лише як запасний
-  для спліта.
+- `config/paths.py` — ресурси (з урахуванням PyInstaller), тека налаштувань
+  юзера (`~/.config/ukr-layout`, `%APPDATA%\ukr-layout`; перекриває
+  `LAYOUT_USER_DIR`) і `layouts_dir()` — Документи/ukr-layout, типова тека
+  діалогів «Відкрити… / Зберегти як… / Скрін».
 - `scripts/compare_reference.py` — оптимізатор vs еталон автора
   (`config/reference_layout.json`); `scripts/sa_bench.py` — параметри SA на
   кількох seed (дивись середнє: розкид між seed 3–4 пункти);
