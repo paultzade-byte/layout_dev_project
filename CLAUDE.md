@@ -36,7 +36,11 @@
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
-  Rec>>/Rec<<; `set_geometry(name)` перемикає геометрію в рантаймі. Слайдерів ваг немає (прибрані за рішенням автора) — ваги
+  Rec>>/Rec<<, «Скрін»; `set_geometry(name)` перемикає геометрію в рантаймі.
+- `uiux/render.py` — картинка розкладки (PNG через Pillow / SVG) для будь-якої
+  геометрії; `key_cells()` — сітка, спільна з GUI. Для картинок у чат —
+  `python -m uiux.render LAYOUT.json OUT.png [--geometry ...]` (той самий код,
+  що й кнопка «Скрін» і «На клаву»). Кольори — `uiux/theme.py`. Слайдерів ваг немає (прибрані за рішенням автора) — ваги
   лише в `moves.yaml`. `uiux/processors.py` — оптимізація в окремому потоці.
 - `config/moves.yaml` — усі ваги штрафів (з коментарями) для спліта
   (`corne_42`); `config/moves_standard.yaml` — для звичайної клавіатури
