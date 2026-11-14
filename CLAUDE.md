@@ -54,6 +54,9 @@
 - `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`;
   `geometry_config(name)` / `load_moves(name)`; активна геометрія —
   `active_layout` або змінна `LAYOUT_GEOMETRY` (для скриптів).
+- `config/settings.py` — налаштування юзера між запусками (режим GUI),
+  `user_data_dir()/settings.json`; `initial_mode()`: LAYOUT_GEOMETRY >
+  запам'ятований > типовий («Звичайна» в exe).
 - `config/paths.py` — ресурси (з урахуванням PyInstaller), тека налаштувань
   юзера (`~/.config/ukr-layout`, `%APPDATA%\ukr-layout`; перекриває
   `LAYOUT_USER_DIR`) і `layouts_dir()` — Документи/ukr-layout, типова тека

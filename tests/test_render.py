@@ -33,3 +33,12 @@ def test_svg_is_valid_and_has_every_letter(geometry_name, tmp_path):
 def test_cli_default_layout(tmp_path, capsys):
     render.main(["-", str(tmp_path / "x.png"), "--geometry", "generic_105_alpha", "--title", "t", "--subtitle", "s"])
     assert (tmp_path / "x.png").exists()
+
+
+def test_altgr_legends_in_svg():
+    from config.main_config import geometry_config, start_layout
+    from uiux import render
+    name = "generic_105_alpha"
+    svg = render.render_svg(start_layout(name).keys, geometry_config(name), name)
+    for extra in geometry_config(name)["altgr"].values():
+        assert f">{render.escape(extra)}</text>" in svg

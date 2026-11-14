@@ -51,6 +51,21 @@ def load_moves(name: str) -> dict:
         return yaml.safe_load(file)
 
 
+def start_layout(name: str):
+    """Розкладка, з якої режим стартує в GUI: `start_layout` геометрії
+    (файл у config/) поверх типової; без нього — типова (`default` позицій)."""
+    from core.layout_factory import build_layout
+    geometry = geometry_config(name)
+    layout = build_layout(geometry)
+    file_name = geometry.get("start_layout")
+    if file_name:
+        with open(CONFIG_DIR / file_name, "r", encoding="utf-8") as file:
+            chars = {d["position_id"]: d["char"] for d in json.load(file)}
+        for key in layout.keys:
+            key.char = chars.get(key.position_id, key.char)
+    return layout
+
+
 ACTIVE = os.environ.get("LAYOUT_GEOMETRY") or DEFAULT_GEOMETRY
 GEOMETRY_CONFIG = geometry_config(ACTIVE)
 MOVES_CONFIG = load_moves(ACTIVE)

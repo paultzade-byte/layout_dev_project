@@ -6,7 +6,9 @@ import math
 import sys
 import threading
 
-from config.main_config import MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRY_TITLES, geometry_config, load_moves
+from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEOMETRY_TITLES, geometry_config,
+                                load_moves, start_layout)
+from config import settings
 from core.layout_factory import build_layout, build_key_from_position
 from core.models import Finger, Layout, Key
 from core.scorer import MovementScoringEngine
@@ -20,6 +22,10 @@ from pathlib import Path
 #from log.loggers.state_hasher import StateHasher
 
 ZMK_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "zmk"
+# порядок кнопок перемикача: спершу «Звичайна» (для більшості людей)
+GEOMETRIES_ORDER = ["generic_105_alpha", "corne_42"]
+# режим, у якому є шари клавіатури і запис по USB (ZMK Studio)
+ZMK_GEOMETRY = "corne_42"
 # штраф показується в тій самій шкалі, що й у scripts/ (x1e8)
 SCORE_SCALE = 1e8
 
@@ -105,14 +111,16 @@ class ButtonPanel:
          # три групи: клавіатура зліва, оптимізатор по центру, Rec справа
          self.button_frame = tk.Frame(self.root, bg=BG)
          self.button_frame.pack(fill="x", padx=20, pady=(0, 14))
-         for col in (0, 2):
-             self.button_frame.columnconfigure(col, weight=1, uniform="side")
+         # середня колонка забирає вільне місце: групи не обрізаються, коли
+         # ліва (клавіатура) схована в режимі «Звичайна»
+         self.button_frame.columnconfigure(1, weight=1)
          left, mid, right = (tk.Frame(self.button_frame, bg=BG) for _ in range(3))
          left.grid(row=0, column=0, sticky="w")
          mid.grid(row=0, column=1)
          right.grid(row=0, column=2, sticky="e")
 
          # клавіатура: шари <-> розкладка на екрані (scripts/zmk/keyboard_sync.py)
+         self.keyboard_frame = left
          self.button_kb_write = make_button(left, "На клаву", self.logic.on_keyboard_write)
          self.button_kb_read = make_button(left, "З клави", self.logic.on_keyboard_read)
          self.button_start = make_button(mid, "Start", self.logic.toggle_optimization)
@@ -160,8 +168,9 @@ class LayoutBuilderApp():
         self.statistic = statistic
         self._last_dir = None      # остання тека діалогів (у межах сесії)
         self.current_file = None   # файл розкладки для «Зберегти» (None — ще не збережено)
+        self._mode_layouts = {}    # розкладка кожного режиму в межах сесії (перемикач не губить її)
         self._load_geometry(geometry_name or ACTIVE, moves_config)
-        self.layout = (layout if layout is not None else build_layout(self.geometry))
+        self.layout = (layout if layout is not None else start_layout(self.geometry_name))
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
 
         self.on_layout_changed = on_layout_changed
@@ -169,16 +178,28 @@ class LayoutBuilderApp():
         # --- оптимізатор живе тут, а не на рівні модуля ---
         self.processor = OptimizationProcessor(statistic, self.moves)
 
+        # перемикач режиму — у самому верху, щоб його бачив будь-хто
+        self.mode_bar = tk.Frame(self.root, bg=BG)
+        self.mode_bar.pack(fill="x", padx=20, pady=(12, 0))
+        tk.Label(self.mode_bar, text="Клавіатура:", bg=BG, fg=TEXT_DIM,
+                 font=(FONT, 11, "bold")).pack(side="left", padx=(2, 8))
+        self.mode_buttons = {}
+        for name in GEOMETRIES_ORDER:
+            b = make_button(self.mode_bar, GEOMETRY_TITLES.get(name, name), lambda n=name: self.on_mode(n))
+            b.pack(side="left", padx=(0, 6))
+            self.mode_buttons[name] = b
+
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
-        tk.Label(
+        self.status_label = tk.Label(
             self.root,
             textvariable=self.status_var,
             bg=BG,
             fg=TEXT,
             font=(FONT, 13, "bold"),
             anchor="w"
-        ).pack(fill="x", padx=22, pady=(12, 0))
+        )
+        self.status_label.pack(fill="x", padx=22, pady=(10, 0))
 
         # вкладки: редактор розкладки (CYR з оптимізатора) або перегляд шару клавіатури
         self.tab_bar = tk.Frame(self.root, bg=BG)
@@ -220,6 +241,7 @@ class LayoutBuilderApp():
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
         self._notify_layout_changed()
         self._build_engine()
+        self._apply_mode_ui()
 
     # ------------------------------------------------------------------
     # Геометрія: спліт / звичайна, перемикається в рантаймі
@@ -250,9 +272,12 @@ class LayoutBuilderApp():
             return False
         if name == self.geometry_name and layout is None:
             return True
+        self._mode_layouts[self.geometry_name] = (self.layout, self.current_file)
+        layout, current_file = ((layout, None) if layout is not None
+                                else self._mode_layouts.get(name) or (start_layout(name), None))
         self._load_geometry(name)
-        self._set_current_file(None)  # файл був для іншого режиму
-        self.layout = layout if layout is not None else build_layout(self.geometry)
+        self._set_current_file(current_file)  # файл — свого режиму
+        self.layout = layout
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
         for widget in self.board.winfo_children():
             widget.destroy()
@@ -264,7 +289,55 @@ class LayoutBuilderApp():
             self.on_layout_changed = make_score_display(self.statistic, self.moves)
         self._build_engine()
         self._notify_layout_changed()
+        self._apply_mode_ui()
         return True
+
+    def on_mode(self, name: str):
+        """Кнопка перемикача режиму: міняє геометрію і запам'ятовує вибір."""
+        if name == self.geometry_name:
+            return
+        if not self.set_geometry(name):
+            self.status_var.set("Спершу зупини оптимізацію (Stop), потім перемикай клавіатуру.")
+            return
+        settings.save(mode=name)
+
+    def _zmk_mode(self) -> bool:
+        """Шари клавіатури й «На клаву» — лише для спліта і коли є ZMK-скрипти
+        (у зібраному exe їх нема)."""
+        return self.geometry_name == ZMK_GEOMETRY and ZMK_SCRIPTS.is_dir()
+
+    def _apply_mode_ui(self):
+        """Що видно в режимі: перемикач підсвічує поточний; ZMK-вкладки шарів
+        і кнопки клавіатури — лише в режимі спліта."""
+        for name, b in self.mode_buttons.items():
+            on = name == self.geometry_name
+            b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
+                     activebackground=ACCENT if on else BUTTON_HOVER)
+        panel = self.button_panel
+        if self._zmk_mode():
+            if not self.tab_bar.winfo_manager():
+                self.tab_bar.pack(fill="x", padx=20, pady=(8, 0), before=self.board)
+            if not panel.button_kb_write.winfo_manager():
+                panel.button_kb_write.pack(side="left", padx=(0, 8))
+                panel.button_kb_read.pack(side="left")
+        else:
+            if self.current_tab != "Редактор":
+                self.show_tab("Редактор")
+            self.tab_bar.pack_forget()
+            panel.button_kb_write.pack_forget()
+            panel.button_kb_read.pack_forget()
+        self._fit_window()
+
+    def _fit_window(self):
+        """Вікно не вужче за дошку і ряд кнопок (інакше праві кнопки обрізаються)."""
+        self.root.update_idletasks()
+        cells = render.key_cells(self.geometry, self.geometry_name)
+        board = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X + 40
+        buttons = self.button_panel.button_frame.winfo_reqwidth() + 40 + 24
+        needed = max(900, board, buttons)
+        self.root.minsize(needed, 450)
+        if self.root.winfo_width() < needed:
+            self.root.geometry(f"{needed}x{max(self.root.winfo_height(), self.heigh)}")
 
     # ------------------------------------------------------------------
     # Start / Stop
@@ -326,12 +399,7 @@ class LayoutBuilderApp():
         self.tolerance = max(self.tolerance, math.hypot(self.key_width + gap, self.key_height + gap) / 2)
 
         cells = render.key_cells(self.geometry, self.geometry_name)
-        # вікно — під ширину клавіатури (звичайна ANSI ширша за спліт)
-        board_width = max(x + width for _, x, _, width in cells) + 2 * base_x
-        needed = board_width + 40  # відступи дошки (padx=20 з обох боків)
-        self.root.minsize(max(900, needed), 450)
-        if self.root.winfo_width() < needed:
-            self.root.geometry(f"{needed}x{max(self.root.winfo_height(), self.heigh)}")
+        # ширина вікна під дошку й кнопки — _fit_window()
         for pos, x, y, width in cells:
             x, y = base_x + x, base_y + y
 
@@ -902,11 +970,13 @@ class LayoutBuilderApp():
 
 if __name__ == "__main__":
     statistic = STATISTIC
-    moves_config = MOVES_CONFIG
+    mode = settings.initial_mode(GEOMETRIES)  # запам'ятований режим; в exe типово «Звичайна»
+    moves_config = load_moves(mode)
     root = tk.Tk()
     app = LayoutBuilderApp(
         root,
         statistic=statistic,
         moves_config=moves_config,
-        on_layout_changed=make_score_display(statistic, moves_config))
+        on_layout_changed=make_score_display(statistic, moves_config),
+        geometry_name=mode)
     root.mainloop()

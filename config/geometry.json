@@ -6,6 +6,9 @@
       "key_height": 50,
       "tolerance_x": 25,
       "stages": 2,
+      "start_layout": "layout_standard_A.json",
+      "altgr": { "о": "'", "і": "ї", "г": "ґ" },
+      "_comment_altgr": "start_layout — з чого стартує режим у GUI (кандидат A, 2026-11-14); default у positions лишається ЙЦУКЕН (база для порівнянь). altgr — другий символ на клавіші з цією літерою (AltGr+літера): дублі ї/ґ і апостроф (scripts/apostrophe_altgr.py, логи logs/standard_2026-11-14/apostrophe_A.log). Не оцінюються, малюються на картинці й ідуть в експорт (фаза 5).",
       "_comment": "ANSI, одиниці u: x — лівий край клавіші від лівого краю Й (Q), w — ширина (типово 1). Зсуви рядів 0 / 0.25 / 0.75 u, як на справжній ANSI. col — номер у ряду (для сумісності). role: mod — службова (не переставляється, не оцінюється). ` (id 38) — 35-й слот для символів.",
       "positions": [
         { "id": 0, "row": 0, "home_row": 0, "col": 0, "x": 0.0, "home_col": 1, "hand": "L", "finger": "L_pinky", "default": "й" },

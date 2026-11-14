@@ -6,6 +6,7 @@
     python -m uiux.render - OUT.svg --geometry generic_105_alpha   # типова розкладка
 
 LAYOUT.json — у форматі Rec>> ([{"position_id", "char", "is_frozen"}]).
+`altgr` геометрії (AltGr+літера) малюється дрібно в правому верхньому куті.
 Pillow, без браузера/inkscape — щоб працювало і в зібраному exe.
 """
 
@@ -70,6 +71,7 @@ def _cells(keys, geometry: dict, geometry_name: str) -> list[dict]:
     """Клавіші з координатами (від 0), підписом і кольором."""
     by_position = {k.position_id: k for k in keys}
     labels = MOD_LABELS.get(geometry_name, {})
+    altgr = geometry.get("altgr", {})  # другий символ на клавіші (AltGr+літера)
     out = []
     for pos, x, y, width in key_cells(geometry, geometry_name):
         key = by_position.get(pos["id"])
@@ -80,6 +82,7 @@ def _cells(keys, geometry: dict, geometry_name: str) -> list[dict]:
             "x": x, "y": y, "w": width, "h": geometry["key_height"],
             "label": labels.get(char, char) if is_mod else char,
             "mod": is_mod,
+            "altgr": "" if is_mod else altgr.get(char, ""),
             "color": FINGER_COLORS.get(finger, TEXT_DIM) if finger is not None else TEXT_DIM,
         })
     return out
@@ -116,6 +119,7 @@ def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", 
     symbol_font = _font(SYMBOL_FONTS, 20 * s)
     small_font = _font(TEXT_FONTS, 12 * s)
     small_symbol_font = _font(SYMBOL_FONTS, 12 * s)
+    altgr_font = _font(TEXT_FONTS, 13 * s)
 
     if title:
         draw.text((MARGIN * s, (MARGIN + 18) * s), title, font=title_font, fill=TEXT, anchor="ls")
@@ -137,6 +141,9 @@ def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", 
         else:
             draw.rounded_rectangle(box, radius=3 * s, fill=c["color"])
             draw.text(center, c["label"], font=key_font, fill=KEY_TEXT, anchor="mm")
+            if c["altgr"]:  # AltGr-символ — дрібно в правому верхньому куті
+                draw.text((x0 + (c["w"] - 5) * s, y0 + 3 * s), c["altgr"], font=altgr_font,
+                          fill=KEY_TEXT, anchor="ra")
 
     path = Path(path)
     image.save(path)
@@ -169,6 +176,10 @@ def render_svg(keys, geometry: dict, geometry_name: str, title: str = "", subtit
             size, fill = 22, KEY_TEXT
         parts.append(f'<text x="{cx}" y="{cy}" font-family="{SVG_FONT}" font-weight="bold" font-size="{size}" '
                      f'text-anchor="middle" dominant-baseline="central" fill="{fill}">{escape(c["label"])}</text>')
+        if c["altgr"]:
+            parts.append(f'<text x="{x + c["w"] - 5}" y="{y + 3}" font-family="{SVG_FONT}" font-weight="bold" '
+                         f'font-size="13" text-anchor="end" dominant-baseline="hanging" fill="{KEY_TEXT}">'
+                         f'{escape(c["altgr"])}</text>')
     parts.append("</svg>")
     return "\n".join(parts)
 
