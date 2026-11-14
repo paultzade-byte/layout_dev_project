@@ -51,6 +51,12 @@ import yaml
 from core.models import Finger, Key, Layout, ScoreMetrics
 
 
+# Символи, які не оцінюються ніколи, навіть якщо стоять на розкладці.
+# Enter: частота '\n' у корпусі неадекватна (Telegram-новини, чати,
+# розмовний стиль у книжках — переноси довільні), рішення автора 2026-11-14.
+UNSCORED_CHARS = frozenset({"\n"})
+
+
 _REQUIRED_MOVES_SCHEMA = {
     "base_effort": {
         "row_multiplier": ("top", "home_row", "bottom", "other"),
@@ -326,6 +332,8 @@ class MovementScoringEngine:
 
         uni_idx, uni_w = [], []
         for char, freq in statistics.get("unigrams", {}).items():
+            if char in UNSCORED_CHARS:
+                continue
             i = self.char_to_idx.get(char)
             if i is None:
                 continue
@@ -393,7 +401,7 @@ class MovementScoringEngine:
 
         self._word_total = 0.0
         for word, freq in words.items():
-            if len(word) < 2:
+            if len(word) < 2 or not UNSCORED_CHARS.isdisjoint(word):
                 continue
             ids = [self.char_to_idx.get(ch) for ch in word]
             if None in ids:
@@ -450,7 +458,7 @@ class MovementScoringEngine:
         позиція n-грами — суцільний масив, щоб коди збиралися поелементно."""
         rows, w = [], []
         for ngram, freq in ngrams.items():
-            if len(ngram) != n:
+            if len(ngram) != n or not UNSCORED_CHARS.isdisjoint(ngram):
                 continue
             ids = [self.char_to_idx.get(ch) for ch in ngram]
             if None in ids:
