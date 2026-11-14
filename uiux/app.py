@@ -6,7 +6,7 @@ import math
 import sys
 import threading
 
-from config.main_config import MOVES_CONFIG, STATISTIC, ACTIVE, geometry_config, load_moves
+from config.main_config import MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRY_TITLES, geometry_config, load_moves
 from core.layout_factory import build_layout, build_key_from_position
 from core.models import Finger, Layout, Key
 from core.scorer import MovementScoringEngine
@@ -14,7 +14,7 @@ from uiux.processors import OptimizationProcessor
 from uiux import layer_view
 from uiux.widgets import RoundButton
 from uiux import render
-from config.paths import recall_layout_path
+from config.paths import layouts_dir
 from pathlib import Path
 # keeping this dead import for possible bedugging process
 #from log.loggers.state_hasher import StateHasher
@@ -120,15 +120,17 @@ class ButtonPanel:
              mid, "Reheat",
              lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None
          )
-         self.button_record = make_button(right, "Rec>>", self.logic.on_record)
-         self.button_recall = make_button(right, "Rec<<", self.logic.on_recall)
-         # картинка розкладки (uiux/render.py) — окремо від Rec, справа
+         # файли: розкладка (json) і картинка — завжди через діалог, юзер бачить куди
+         self.button_open = make_button(right, "Відкрити…", self.logic.on_open)
+         self.button_save = make_button(right, "Зберегти", self.logic.on_save)
+         self.button_save_as = make_button(right, "Зберегти як…", self.logic.on_save_as)
          self.button_screenshot = make_button(right, "Скрін", self.logic.on_screenshot)
-         for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat),
-                      (self.button_record, self.button_recall)):
+         for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat)):
              a.pack(side="left", padx=(0, 8))
              b.pack(side="left")
-         self.button_screenshot.pack(side="left", padx=(16, 0))
+         for b in (self.button_open, self.button_save, self.button_save_as):
+             b.pack(side="left", padx=(0, 8))
+         self.button_screenshot.pack(side="left", padx=(8, 0))
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -146,7 +148,7 @@ class LayoutBuilderApp():
         geometry_name: str | None = None,
     ):
         self.root = root
-        self.root.title("Аналізатор розкладки - Матриця")
+        self.root.title("Аналізатор розкладки")
         self.width = 900
         self.heigh = 470
         self.root.geometry(f"{self.width}x{self.heigh}")
@@ -156,7 +158,8 @@ class LayoutBuilderApp():
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
         self.statistic = statistic
-        self._screenshot_dir = None  # остання тека «Скрін» (у межах сесії)
+        self._last_dir = None      # остання тека діалогів (у межах сесії)
+        self.current_file = None   # файл розкладки для «Зберегти» (None — ще не збережено)
         self._load_geometry(geometry_name or ACTIVE, moves_config)
         self.layout = (layout if layout is not None else build_layout(self.geometry))
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
@@ -248,6 +251,7 @@ class LayoutBuilderApp():
         if name == self.geometry_name and layout is None:
             return True
         self._load_geometry(name)
+        self._set_current_file(None)  # файл був для іншого режиму
         self.layout = layout if layout is not None else build_layout(self.geometry)
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
         for widget in self.board.winfo_children():
@@ -268,8 +272,7 @@ class LayoutBuilderApp():
     def toggle_optimization(self):
         if not self.processor.is_running:
             self.button_panel.button_start.config(text="Stop")
-            self.button_panel.button_record.config(state="disabled")
-            self.button_panel.button_recall.config(state="disabled")
+            self._set_file_buttons("disabled")
             self._set_keyboard_buttons("disabled")
             self.status_var.set("Оптимізую...")
             self.processor.start(
@@ -294,8 +297,7 @@ class LayoutBuilderApp():
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
         self.redraw_keys()
         self.button_panel.button_start.config(text="Start")
-        self.button_panel.button_record.config(state="normal")
-        self.button_panel.button_recall.config(state="normal")
+        self._set_file_buttons("normal")
         self._set_keyboard_buttons("normal")
         self._set_editor_buttons()
         self._notify_layout_changed()
@@ -547,24 +549,86 @@ class LayoutBuilderApp():
 
 
     # ------------------------------------------------------------------
-    # Recall the layout
+    # Файли розкладки: «Відкрити…», «Зберегти», «Зберегти як…»
     # ------------------------------------------------------------------
+    def _set_file_buttons(self, state):
+        panel = self.button_panel
+        for b in (panel.button_open, panel.button_save, panel.button_save_as, panel.button_screenshot):
+            b.config(state=state)
 
-    def on_record(self):
+    def _dialog_dir(self):
+        return str(self._last_dir or layouts_dir())
+
+    def _set_current_file(self, path):
+        self.current_file = Path(path) if path else None
+        self._last_dir = self.current_file.parent if self.current_file else self._last_dir
+        name = f" — {self.current_file.name}" if self.current_file else ""
+        self.root.title(f"Аналізатор розкладки{name}")
+
+    def on_save(self):
+        """Перезаписує відкритий/збережений файл; якщо його ще нема — як «Зберегти як…»."""
         if self.processor.is_running:
             return
-        path = self.processor.layout_record(self.layout, self.geometry_name)
-        self.status_var.set(f"Записано: {path}")
+        if self.current_file is None:
+            return self.on_save_as()
+        self._save_to(self.current_file)
 
-    def on_recall(self):
+    def on_save_as(self):
         if self.processor.is_running:
             return
-        path = recall_layout_path(self.geometry_name)
-        if path is None:
-            messagebox.showinfo("Rec<<", "Для цього режиму ще нічого не записано (Rec>>).")
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        path = filedialog.asksaveasfilename(
+            parent=self.root, title="Зберегти розкладку",
+            initialdir=self._dialog_dir(), initialfile=f"layout_{self.geometry_name}_{stamp}.json",
+            defaultextension=".json", filetypes=[("Розкладка (JSON)", "*.json")])
+        if path:
+            self._save_to(path)
+
+    def _save_to(self, path):
+        try:
+            saved = self.processor.layout_save(self.layout, path)
+        except OSError as error:
+            messagebox.showerror("Зберегти", f"Не вдалося зберегти:\n{error}")
             return
-        data = self.processor.layout_recall(path)
+        self._set_current_file(saved)
+        self.status_var.set(f"Збережено: {saved}")
+
+    def on_open(self):
+        if self.processor.is_running:
+            return
+        path = filedialog.askopenfilename(
+            parent=self.root, title="Відкрити розкладку", initialdir=self._dialog_dir(),
+            filetypes=[("Розкладка (JSON)", "*.json"), ("Усі файли", "*")])
+        if not path:
+            return
+        try:
+            data = self.processor.layout_load(path)
+            problem = self.layout_file_problem(data)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            problem = f"файл не читається як розкладка: {error}"
+        if problem:
+            messagebox.showerror("Відкрити", f"{Path(path).name}: {problem}")
+            return
         self._apply_recorded_state(data)
+        self._set_current_file(path)
+        self.status_var.set(f"Відкрито: {path} · {self.status_var.get()}")
+
+    def layout_file_problem(self, data) -> str | None:
+        """Чи підходить файл до поточного режиму: ті самі позиції й той самий
+        набір літер (інакше — розкладка іншої клавіатури або зіпсований файл)."""
+        if not isinstance(data, list) or not all(isinstance(d, dict) for d in data):
+            return "очікується список клавіш"
+        ids = {k.position_id for k in self.layout.keys}
+        file_ids = {d["position_id"] for d in data}
+        if not file_ids <= ids:
+            return (f"це розкладка для іншої клавіатури (режим зараз — "
+                    f"{GEOMETRY_TITLES.get(self.geometry_name, self.geometry_name)})")
+        letters = lambda chars: sorted(c for c in chars if len(c) == 1)
+        here = letters(k.char for k in self.layout.keys if k.position_id in file_ids)
+        there = letters(d["char"] for d in data)
+        if here != there:
+            return "набір символів не збігається з поточним режимом"
+        return None
 
     def _apply_recorded_state(self, data: list[dict]):
         state_by_position = {
@@ -611,9 +675,9 @@ class LayoutBuilderApp():
         if self.processor.is_running:
             return
         state = "normal" if self.current_tab == "Редактор" else "disabled"
-        for b in (self.button_panel.button_start, self.button_panel.button_reheat,
-                  self.button_panel.button_record, self.button_panel.button_recall):
+        for b in (self.button_panel.button_start, self.button_panel.button_reheat):
             b.config(state=state)
+        self._set_file_buttons(state)
         self.button_reset_layer.config(state="normal" if self.layer_view.editable(self.current_tab)
                                        and self.current_tab != "Редактор" else "disabled")
 
@@ -820,7 +884,7 @@ class LayoutBuilderApp():
         return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle)
 
     def on_screenshot(self):
-        initial_dir = self._screenshot_dir or Path.home()
+        initial_dir = self._dialog_dir()
         path = filedialog.asksaveasfilename(
             parent=self.root, title="Зберегти картинку розкладки",
             initialdir=str(initial_dir), initialfile=self.screenshot_name(), defaultextension=".png",
@@ -832,7 +896,7 @@ class LayoutBuilderApp():
         except OSError as error:
             messagebox.showerror("Скрін", f"Не вдалося зберегти: {error}")
             return
-        self._screenshot_dir = saved.parent
+        self._last_dir = saved.parent
         self.status_var.set(f"Картинка: {saved}")
 
 

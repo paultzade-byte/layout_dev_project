@@ -5,7 +5,6 @@ from core.mutator import LayoutOptimizerSA
 from core.models import Layout
 from pathlib import Path
 from config.main_config import MUTATOR_CONFIG as config
-from config.paths import recorded_layout_path
 
 class OptimizationProcessor:
     """Driver for the optimization life cycle in the individual thread."""
@@ -60,19 +59,21 @@ class OptimizationProcessor:
         self._thread = threading.Thread(target=worker, daemon=True)
         self._thread.start()
 
-    # button rec >> / recording current layout into the user data dir
-    # (окремий файл для кожної геометрії, див. config/paths.py)
-    def layout_record(self, layout: Layout, geometry: str) -> Path:
+    # «Зберегти» / «Зберегти як…»: розкладка у форматі, який читають і
+    # scripts/ (multistart --from, layout_report, uiux.render)
+    @staticmethod
+    def layout_save(layout: Layout, path) -> Path:
         data = [
-            {"position_id": key.position_id, "char": key.char , "is_frozen": key.is_frozen } for key in layout.keys
+            {"position_id": key.position_id, "char": key.char, "is_frozen": key.is_frozen} for key in layout.keys
         ]
-        path = recorded_layout_path(geometry)
-        with open (path, "w", encoding="utf-8") as f:
+        path = Path(path)
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return path
 
-    # button rec << / recalling previously recorded layout from json to the builder
-    def layout_recall(self, path: Path) -> list[dict]:
+    # «Відкрити…»
+    @staticmethod
+    def layout_load(path) -> list[dict]:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 

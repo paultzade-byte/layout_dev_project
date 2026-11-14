@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from config import paths
@@ -38,17 +36,10 @@ def test_build_layout(geometry_name):
 def test_user_dir_override(tmp_path, monkeypatch):
     monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path / "u"))
     assert paths.user_data_dir() == tmp_path / "u"
-    assert paths.recorded_layout_path("generic_105_alpha").parent == tmp_path / "u"
 
 
-def test_recall_path(tmp_path, monkeypatch):
-    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
-    legacy = tmp_path / "legacy.json"
-    monkeypatch.setattr(paths, "LEGACY_RECORDED_LAYOUT", legacy)
-    assert paths.recall_layout_path("corne_42") is None
-    legacy.write_text("[]")
-    assert paths.recall_layout_path("corne_42") == legacy        # старий файл — лише для спліта
-    assert paths.recall_layout_path("generic_105_alpha") is None
-    new = paths.recorded_layout_path("corne_42")
-    new.write_text(json.dumps([]))
-    assert paths.recall_layout_path("corne_42") == new           # новий має пріоритет
+def test_layouts_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
+    assert paths.layouts_dir() == tmp_path / "ukr-layout"          # немає Documents
+    (tmp_path / "Documents").mkdir()
+    assert paths.layouts_dir() == tmp_path / "Documents" / "ukr-layout"
