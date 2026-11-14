@@ -1,6 +1,7 @@
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+from datetime import datetime
 import math
 import sys
 import threading
@@ -12,6 +13,7 @@ from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
 from uiux import layer_view
 from uiux.widgets import RoundButton
+from uiux import render
 from config.paths import recall_layout_path
 from pathlib import Path
 # keeping this dead import for possible bedugging process
@@ -21,30 +23,10 @@ ZMK_SCRIPTS = Path(__file__).resolve().parents[1] / "scripts" / "zmk"
 # штраф показується в тій самій шкалі, що й у scripts/ (x1e8)
 SCORE_SCALE = 1e8
 
-# --- тема ---------------------------------------------------------------
-BG = "#16181d"            # вікно
-PANEL = "#1f2229"         # дошка
-SLOT = "#2a2e37"          # порожній слот
-TEXT = "#e6e8ee"
-TEXT_DIM = "#8b91a0"
-ACCENT = "#7aa2f7"
-BUTTON = "#2c313c"
-BUTTON_HOVER = "#3a4050"
-KEY_TEXT = "#16181d"
-FROZEN_BG = "#2c313c"     # заморожена клавіша: темна з бурштиновою рамкою
-FROZEN_FG = "#f6c177"
-DROP_OK = "#ffffff"       # підсвітка цілі при перетягуванні
-DROP_BLOCKED = "#eb6f92"
-# зони пальців — однакові для обох рук
-FINGER_COLORS = {
-    Finger.PINKY: "#c4a7e7",
-    Finger.RING: "#9ccfd8",
-    Finger.MIDDLE: "#f6c177",
-    Finger.INDEX: "#a6da95",
-    Finger.THUMB: "#8b91a0",
-}
-FONT = "Ubuntu"
-KEY_FONT = (FONT, 17, "bold")
+from uiux.theme import (  # noqa: E402  (тема спільна з uiux/render.py)
+    ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, DROP_OK, FINGER_COLORS, FONT, FROZEN_BG, FROZEN_FG,
+    KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM,
+)
 
 
 def style_key(widget, border: str | None = None, finger: Finger | None = None) -> None:
@@ -136,10 +118,13 @@ class ButtonPanel:
          )
          self.button_record = make_button(right, "Rec>>", self.logic.on_record)
          self.button_recall = make_button(right, "Rec<<", self.logic.on_recall)
+         # картинка розкладки (uiux/render.py) — окремо від Rec, справа
+         self.button_screenshot = make_button(right, "Скрін", self.logic.on_screenshot)
          for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat),
                       (self.button_record, self.button_recall)):
              a.pack(side="left", padx=(0, 8))
              b.pack(side="left")
+         self.button_screenshot.pack(side="left", padx=(16, 0))
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -167,6 +152,7 @@ class LayoutBuilderApp():
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
         self.statistic = statistic
+        self._screenshot_dir = None  # остання тека «Скрін» (у межах сесії)
         self._load_geometry(geometry_name or ACTIVE, moves_config)
         self.layout = (layout if layout is not None else build_layout(self.geometry))
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
@@ -328,28 +314,13 @@ class LayoutBuilderApp():
     def build_grid(self):
         """Побудова сітки слотів на основі геометрії"""
         base_x, base_y = layer_view.BASE_X, layer_view.BASE_Y  # та сама сітка, що й у вкладках шарів
-        gap = 6  # Відстань між кнопками
+        gap = render.GAP  # Відстань між кнопками
         # відпущена клавіша прилипає до найближчого слота в межах усієї його
         # клітинки (з проміжками), а не лише tolerance_x від центру
         self.tolerance = max(self.tolerance, math.hypot(self.key_width + gap, self.key_height + gap) / 2)
 
-        for pos in self.geometry["positions"]:
-            if self.stages == 1:
-                x = base_x + pos["offset_x"] + pos["col"] * (self.key_width + gap)
-                y = base_y + pos["row"] * (self.key_height + gap)
-            elif self.stages == 0:
-                x = base_x + pos["col"] * (self.key_width + gap)
-                y = base_y + pos["row"] * (self.key_height + gap)
-            else:
-                raise KeyError
-
-            if pos.get("hand") == "R":
-                if self.geometry_name == "generic_105_alpha":
-                    x = x
-                elif self.geometry_name == "corne_42":
-                    x += 400  # self.HAND_GAP_KEYS + self.key_width + gap
-                else:
-                    raise KeyError("Unknown active layout")
+        for pos, x, y in render.key_cells(self.geometry, self.geometry_name):
+            x, y = base_x + x, base_y + y
 
             # Малюємо заглушку (контур слота) для візуалізації
             tk.Frame(
@@ -827,14 +798,30 @@ class LayoutBuilderApp():
     # ------------------------------------------------------------------
     # Record the layout into different formats
     # ------------------------------------------------------------------
-    def export_svg(self):
-        width = self.width
-        heigh = self.heigh
-        parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 {width} {heigh}">']
-        pass
+    def screenshot_name(self):
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        return f"layout_{self.geometry_name}_{stamp}.png"
 
-    def save_layout_dialog():
-        pass
+    def save_screenshot(self, path):
+        """Картинка поточної розкладки «Редактора» (PNG або SVG за розширенням)."""
+        title, subtitle = render.default_title(self.geometry_name, self._current_score())
+        return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle)
+
+    def on_screenshot(self):
+        initial_dir = self._screenshot_dir or Path.home()
+        path = filedialog.asksaveasfilename(
+            parent=self.root, title="Зберегти картинку розкладки",
+            initialdir=str(initial_dir), initialfile=self.screenshot_name(), defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("SVG", "*.svg")])
+        if not path:
+            return
+        try:
+            saved = self.save_screenshot(path)
+        except OSError as error:
+            messagebox.showerror("Скрін", f"Не вдалося зберегти: {error}")
+            return
+        self._screenshot_dir = saved.parent
+        self.status_var.set(f"Картинка: {saved}")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ def test_set_geometry_round_trip():
         assert ui.status_var.get() != split_status
         path = ui.processor.layout_record(ui.layout, ui.geometry_name)
         assert path.name == "recorded_generic_105_alpha.json"
+        shot = ui.save_screenshot(path.parent / ui.screenshot_name())
+        assert shot.exists() and "generic_105_alpha" in shot.name
         assert ui.set_geometry("corne_42")
         root.update()
         assert ui.status_var.get() == split_status
