@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Optional, List
 
 import core.scorer as scoring
 from core.models import Layout, Key, clone_layout
+from config.main_config import MUTATOR_CONFIG as mutator_config
 
 
 
