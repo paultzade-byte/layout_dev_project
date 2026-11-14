@@ -30,7 +30,7 @@ TITLE_H = 34          # смуга заголовка над клавішами
 # переплутані (WORKLOG «Наступні кроки» 4): 33 — Backspace, 36 — пробіл.
 MOD_LABELS = {
     "corne_42": {"SPA": "⌫", "CE": "␣"},
-    "generic_105_alpha": {"Shft": "⇧", "SPA": "␣", "CE": "AltGr"},
+    "generic_105_alpha": {"Shft": "⇧ Shift", "SPA": "", "CE": "AltGr", "Enter": "Enter ⏎"},
 }
 
 # Шрифти шукаються за іменем файлу в системних теках (Linux, Windows, macOS).
@@ -39,37 +39,45 @@ SYMBOL_FONTS = ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "seguisym.ttf", "Apple 
 SVG_FONT = "Ubuntu, 'DejaVu Sans', 'Segoe UI', Arial, sans-serif"
 
 
-def key_cells(geometry: dict, geometry_name: str) -> list[tuple[dict, int, int]]:
-    """[(position, x, y)] — верхній лівий кут клавіші відносно початку дошки.
-    Та сама сітка, що й у GUI (LayoutBuilderApp.build_grid)."""
+def key_cells(geometry: dict, geometry_name: str) -> list[tuple[dict, int, int, int]]:
+    """[(position, x, y, width)] — верхній лівий кут і ширина клавіші в px,
+    від (0, 0) дошки. Та сама сітка, що й у GUI (LayoutBuilderApp.build_grid).
+
+    stages: 0 — рівна сітка по col; 1 — col + offset_x (px);
+    2 — x і w в одиницях клавіші u (звичайна ANSI-клавіатура)."""
     w, h = geometry["key_width"], geometry["key_height"]
-    cells = []
+    pitch_x, pitch_y = w + GAP, h + GAP
+    stages = geometry["stages"]
+    raw = []
     for pos in geometry["positions"]:
-        x = pos["col"] * (w + GAP)
-        if geometry["stages"] == 1:
-            x += pos.get("offset_x", 0)
-        elif geometry["stages"] != 0:
-            raise KeyError(f"невідоме stages={geometry['stages']}")
+        width = w
+        if stages == 2:
+            x = round(pos["x"] * pitch_x)
+            width = round(pos.get("w", 1) * pitch_x) - GAP
+        elif stages in (0, 1):
+            x = pos["col"] * pitch_x + (pos.get("offset_x", 0) if stages == 1 else 0)
+        else:
+            raise KeyError(f"невідоме stages={stages}")
         if pos.get("hand") == "R" and geometry_name == "corne_42":
             x += SPLIT_GAP
-        cells.append((pos, x, pos["row"] * (h + GAP)))
-    return cells
+        raw.append((pos, x, pos["row"] * pitch_y, width))
+    min_x = min(x for _, x, _, _ in raw)
+    min_y = min(y for _, _, y, _ in raw)
+    return [(pos, x - min_x, y - min_y, width) for pos, x, y, width in raw]
 
 
 def _cells(keys, geometry: dict, geometry_name: str) -> list[dict]:
     """Клавіші з координатами (від 0), підписом і кольором."""
     by_position = {k.position_id: k for k in keys}
     labels = MOD_LABELS.get(geometry_name, {})
-    raw = key_cells(geometry, geometry_name)
-    min_x = min(x for _, x, _ in raw)
     out = []
-    for pos, x, y in raw:
+    for pos, x, y, width in key_cells(geometry, geometry_name):
         key = by_position.get(pos["id"])
         char = key.char if key is not None else pos.get("default", "")
         is_mod = pos.get("role") == "mod" or not char
         finger = key.finger if key is not None else None
         out.append({
-            "x": x - min_x, "y": y, "w": geometry["key_width"], "h": geometry["key_height"],
+            "x": x, "y": y, "w": width, "h": geometry["key_height"],
             "label": labels.get(char, char) if is_mod else char,
             "mod": is_mod,
             "color": FINGER_COLORS.get(finger, TEXT_DIM) if finger is not None else TEXT_DIM,
@@ -107,6 +115,7 @@ def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", 
     key_font = _font(TEXT_FONTS, 22 * s)
     symbol_font = _font(SYMBOL_FONTS, 20 * s)
     small_font = _font(TEXT_FONTS, 12 * s)
+    small_symbol_font = _font(SYMBOL_FONTS, 12 * s)
 
     if title:
         draw.text((MARGIN * s, (MARGIN + 18) * s), title, font=title_font, fill=TEXT, anchor="ls")
@@ -120,7 +129,10 @@ def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", 
         if c["mod"]:
             draw.rounded_rectangle(box, radius=3 * s, fill=FROZEN_BG, outline=FROZEN_FG, width=s)
             label = c["label"]
-            font = symbol_font if len(label) == 1 else small_font
+            if len(label) == 1:
+                font = symbol_font
+            else:  # «⇧ Shift», «Enter ⏎»: стрілки є лише в символьному шрифті
+                font = small_font if label.isascii() else small_symbol_font
             draw.text(center, label, font=font, fill=FROZEN_FG, anchor="mm")
         else:
             draw.rounded_rectangle(box, radius=3 * s, fill=c["color"])

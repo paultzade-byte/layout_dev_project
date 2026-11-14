@@ -14,7 +14,7 @@ def test_png_every_geometry(geometry_name, tmp_path):
     with Image.open(path) as image:
         width, height = image.size
     cells = render.key_cells(geometry, geometry_name)
-    span = max(x for _, x, _ in cells) - min(x for _, x, _ in cells) + geometry["key_width"]
+    span = max(x + w for _, x, _, w in cells)
     assert width == (span + 2 * render.MARGIN) * 2          # scale=2
     assert height > geometry["key_height"] * 3
 

@@ -39,8 +39,11 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     else:
         bg, fg = FINGER_COLORS.get(finger or key.finger, TEXT_DIM), KEY_TEXT
     border = border or (FROZEN_FG if widget.is_frozen else bg)
+    # службові клавіші (Shft, SPA...) — підписи як на картинці (render.MOD_LABELS)
+    text = getattr(widget, "labels", {}).get(key.char, key.char)
+    font = KEY_FONT if len(text) <= 2 else (FONT, 11, "bold")
     widget.config(
-        text=key.char, bg=bg, fg=fg, font=KEY_FONT,
+        text=text, bg=bg, fg=fg, font=font,
         highlightthickness=2, highlightbackground=border, highlightcolor=border,
     )
 
@@ -78,6 +81,7 @@ class Slot:
         self.id = slot_id
         self.x = x
         self.y = y
+        self.width = width
         self.center_x = x + width / 2
         self.center_y = y + height / 2
         self.current_key = None  # the tkinter widget permanently anchored here
@@ -319,16 +323,23 @@ class LayoutBuilderApp():
         # клітинки (з проміжками), а не лише tolerance_x від центру
         self.tolerance = max(self.tolerance, math.hypot(self.key_width + gap, self.key_height + gap) / 2)
 
-        for pos, x, y in render.key_cells(self.geometry, self.geometry_name):
+        cells = render.key_cells(self.geometry, self.geometry_name)
+        # вікно — під ширину клавіатури (звичайна ANSI ширша за спліт)
+        board_width = max(x + width for _, x, _, width in cells) + 2 * base_x
+        needed = board_width + 40  # відступи дошки (padx=20 з обох боків)
+        self.root.minsize(max(900, needed), 450)
+        if self.root.winfo_width() < needed:
+            self.root.geometry(f"{needed}x{max(self.root.winfo_height(), self.heigh)}")
+        for pos, x, y, width in cells:
             x, y = base_x + x, base_y + y
 
             # Малюємо заглушку (контур слота) для візуалізації
             tk.Frame(
                 self.board,
                 bg=SLOT,
-                width=self.key_width,
+                width=width,
                 height=self.key_height).place(x=x, y=y)
-            self.slots.append(Slot(pos, x, y, self.key_width, self.key_height))
+            self.slots.append(Slot(pos, x, y, width, self.key_height))
 
     def populate_initial_keys(self):
         """Автоматична прив'язка літер до гріда
@@ -337,9 +348,10 @@ class LayoutBuilderApp():
             key = self.keys_by_position[pos["id"]]
             #char = pos.get("default", "")
             widget = KeyLabel(self.board, relief="flat", bd=0, cursor="hand2")
-            widget.place(x=slot.x, y=slot.y, width=self.key_width, height=self.key_height)
+            widget.place(x=slot.x, y=slot.y, width=slot.width, height=self.key_height)
 
             # Внутрішній стан кнопки
+            widget.labels = render.MOD_LABELS.get(self.geometry_name, {})
             widget.key = key
             widget.is_frozen = key.is_frozen
             style_key(widget)
@@ -506,7 +518,7 @@ class LayoutBuilderApp():
 
     def snap_to_slot(self, widget, slot):
         """Жорстка прив'язка віджета до координат слота"""
-        widget.place(x=slot.x, y=slot.y)
+        widget.place(x=slot.x, y=slot.y, width=slot.width)
         widget.current_slot = slot
         slot.current_key = widget
 
