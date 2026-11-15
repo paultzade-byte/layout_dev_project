@@ -1,5 +1,7 @@
 """Кольори й шрифт — спільні для GUI (uiux/app.py) і картинок (uiux/render.py)."""
 
+import sys
+
 from core.models import Finger
 
 BG = "#16181d"            # вікно
@@ -23,5 +25,7 @@ FINGER_COLORS = {
     Finger.INDEX: "#a6da95",
     Finger.THUMB: "#8b91a0",
 }
-FONT = "Ubuntu"
+# шрифт інтерфейсу: на кожній ОС — штатний (Ubuntu на Windows/macOS немає,
+# і Tk підставив би випадковий)
+FONT = {"win32": "Segoe UI", "darwin": "Helvetica Neue"}.get(sys.platform, "Ubuntu")
 KEY_FONT = (FONT, 17, "bold")

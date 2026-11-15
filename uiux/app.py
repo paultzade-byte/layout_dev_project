@@ -1238,7 +1238,32 @@ class LayoutBuilderApp():
                          "як встановити — README.txt там же.", ms=12000)
 
 
-if __name__ == "__main__":
+def _windows_setup():
+    """Windows: чіткий текст на екранах з масштабом 125–200% (інакше Tk
+    розмиває вікно) і знижений пріоритет процесу — оптимізація не гальмує
+    решту системи."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # system DPI aware
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+    try:
+        BELOW_NORMAL_PRIORITY_CLASS = 0x4000
+        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(),
+                                                BELOW_NORMAL_PRIORITY_CLASS)
+    except Exception:
+        pass
+
+
+def main(smoke_ms: int | None = None):
+    """Запуск GUI. smoke_ms — закрити вікно через стільки мс (перевірка
+    зібраного exe в CI: вікно будується повністю і процес виходить з кодом 0)."""
+    _windows_setup()
     statistic = STATISTIC
     mode = settings.initial_mode(GEOMETRIES)  # запам'ятований режим; в exe типово «Звичайна»
     moves_config = load_moves(mode)
@@ -1249,4 +1274,11 @@ if __name__ == "__main__":
         moves_config=moves_config,
         on_layout_changed=make_score_display(statistic, moves_config),
         geometry_name=mode)
+    if smoke_ms:
+        root.after(smoke_ms, root.destroy)
     root.mainloop()
+    return app
+
+
+if __name__ == "__main__":
+    main()

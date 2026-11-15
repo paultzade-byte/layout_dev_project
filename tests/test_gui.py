@@ -179,3 +179,10 @@ def test_toasts_stack_and_close():
         _wait(root, lambda: not t.items, timeout=5)
     finally:
         root.destroy()
+
+
+def test_entry_point_smoke():
+    """ukr_layout.py --smoke (те саме, що перевіряє CI на зібраному exe):
+    вікно будується повністю і закривається без помилки."""
+    import ukr_layout
+    assert ukr_layout.run(["--smoke"]) == 0
