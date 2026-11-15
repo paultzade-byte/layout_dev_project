@@ -85,7 +85,18 @@
 source .venv/bin/activate
 python -m uiux.app            # GUI (з кореня проєкту)
 python main.py --geometry generic_105_alpha --iterations 20000   # без GUI
+python ukr_layout.py          # GUI через точку входу exe (--smoke — закрити через 3 с)
 ```
+
+Збірка exe (фаза 6): Windows — GitHub Actions `Build Windows` (вручну або тег `v*`).
+Локально (Linux, перевірка spec):
+```bash
+systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m PyInstaller \
+  --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
+```
+PyInstaller — **не** під cpulimit: він запускає дочірні процеси, і cpulimit
+2026-11-15 лишив збірку зупиненою (SIGSTOP) на 6 годин. `systemd-run … CPUQuota`
+обмежує через cgroup і покриває дочірні.
 
 Тести (`tests/`, разом ~30 с; GUI-тест потребує дисплея):
 ```bash

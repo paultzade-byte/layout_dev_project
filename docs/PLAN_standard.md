@@ -203,16 +203,26 @@ AltGr, Shift+AltGr]} → три формати. Фізичні клавіші �
   Shift+, = `;`, Shift+. = `:` (дублі цифрового ряду); AltGr+о = `'`,
   Shift+AltGr+о = `ʼ` (U+02BC); AltGr+4 = ₴; решта AltGr цифрового ряду порожні.
 
-## Фаза 6 — збірка exe (п. 3)
+## Фаза 6 — збірка exe (п. 3) — ЗІБРАНО (2026-11-15), чекає запуску в Actions і тесту автора
 
-- [ ] PyInstaller, режим `onedir` (швидший старт, менше хибних спрацювань
-      антивірусів, ніж `onefile`); конфіги й статистика (~2.6 МБ) — ресурси
-      через `sys._MEIPASS`-сумісний резолвер шляхів.
-- [ ] ZMK/pyserial — не включати в exe (або імпорт за запитом і сховано).
-- [ ] GitHub Actions `windows-latest` → артефакт `.zip`, реліз за тегом
-      (з Linux exe для Windows нормально не зібрати).
-- [ ] Tk на Windows: шрифти (`FONT`), DPI-масштабування; оптимізатор не
-      вантажить CPU на 100% (менший пріоритет / потоки).
+Точка входу — `ukr_layout.py` (= `uiux.app.main()`); spec — `packaging/ukr_layout.spec`;
+CI — `.github/workflows/build-windows.yml`.
+
+- [x] PyInstaller `onedir`, без UPX; ресурси — лише те, що читає
+      `config/main_config.py` + `start_layout` з geometry.json (~3 МБ), через
+      `sys._MEIPASS` (`config/paths.py`). Особисті розкладки, дампи, корпус — ні.
+      Локальна збірка на Linux: 14 с, 96 МБ, `--smoke` — код 0.
+- [x] ZMK: модулі `scripts/zmk` потрапляють у збірку (їх імпортує
+      `uiux/layer_view.py`; pyserial маленький), але теки `scripts/zmk` у збірці
+      нема — `_zmk_mode()` ховає вкладки шарів і «На клаву» / «З клави».
+- [x] GitHub Actions `windows-latest`: тести → збірка → запуск exe з `--smoke`
+      (вікно будується і закривається, код 0) → zip-артефакт; тег `v*` → Release.
+      Запуск — вручну (Run workflow) або тегом. **Ще жодного разу не запускався.**
+- [x] Tk на Windows: шрифт за ОС (`uiux/theme.py`: Segoe UI / Helvetica Neue /
+      Ubuntu), DPI-awareness (`SetProcessDpiAwareness`), процес з пріоритетом
+      BELOW_NORMAL. Оптимізація — один потік (GIL), тобто ≤ 1 ядро.
+- [x] Віконний exe без консолі: необроблена помилка → `user_data_dir()/error.log`
+      + вікно з помилкою.
 - [ ] Автор тестує на Windows-машині; чекліст: запуск, тогл, Start/Stop,
       скрін, повзунки, експорт `.klc`.
 
