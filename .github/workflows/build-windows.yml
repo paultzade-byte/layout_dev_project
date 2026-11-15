@@ -1,0 +1,55 @@
+# Windows-збірка GUI (PyInstaller onedir) -> zip-артефакт.
+# Запуск: вручну (Actions -> Build Windows -> Run workflow) або тег v* —
+# тоді zip ще й прикріплюється до GitHub Release.
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # для релізу за тегом
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Залежності
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy==2.2.6 PyYAML==6.0.3 Pillow==12.3.0 pyserial==3.5 pytest==9.1.1 pyinstaller==6.22.3
+
+      - name: Тести
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Збірка
+        run: pyinstaller --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
+
+      - name: Перевірка exe (вікно відкривається і закривається)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\ukr-layout\ukr-layout.exe -ArgumentList "--smoke" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "exe завершився з кодом $($p.ExitCode)"; exit 1 }
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\ukr-layout -DestinationPath ukr-layout-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ukr-layout-windows
+          path: ukr-layout-windows.zip
+
+      - name: Реліз (лише для тегу)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ukr-layout-windows.zip
