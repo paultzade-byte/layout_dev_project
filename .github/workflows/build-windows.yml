@@ -19,9 +19,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -30,8 +30,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install numpy==2.2.6 PyYAML==6.0.3 Pillow==12.3.0 pyserial==3.5 pytest==9.1.1 pyinstaller==6.22.3
 
+      # Tk на Windows-раннерах зрідка не стартує («Can't find a usable init.tcl»,
+      # 2026-11-15) — впалі тести проганяються ще раз.
       - name: Тести
-        run: python -m pytest -q -p no:cacheprovider
+        shell: pwsh
+        run: |
+          python -m pytest -q
+          if ($LASTEXITCODE -ne 0) { python -m pytest -q --lf }
 
       - name: Збірка
         run: pyinstaller --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
@@ -46,7 +51,7 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist\ukr-layout -DestinationPath ukr-layout-windows.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ukr-layout-windows
           path: ukr-layout-windows.zip

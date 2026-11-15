@@ -28,7 +28,7 @@ US = {'MINUS': '-', 'EQUAL': '=', 'LBKT': '[', 'RBKT': ']', 'BSLH': '\\', 'SEMI'
       'DOWN': '↓', 'HOME': 'Home', 'END': 'End', 'PG_UP': 'PgUp', 'PG_DN': 'PgDn', 'CAPS': 'Caps',
       'K_APP': 'Menu', 'PSCRN': 'PrSc', 'LSHFT': '⇧', 'RSHFT': '⇧', 'LCTRL': 'Ctl', 'LALT': 'Alt',
       'RALT': 'AltG', 'LGUI': 'Win'}
-US_S = dict(zip("1234567890-=[]\;',./`", '!@#$%^&*()_+{}|:"<>?~')); US_S['<'] = '>'
+US_S = dict(zip("1234567890-=[]\\;',./`", '!@#$%^&*()_+{}|:"<>?~')); US_S['<'] = '>'
 UA_S = dict(zip('1234567890-=', '!"№;%:?*()_+'))
 UA_N = {'FSLH': '.', 'GRAVE': "'", 'NUBS': '/', 'BSLH': 'ґ'}
 UA_SH = {'FSLH': ',', 'GRAVE': 'ʼ', 'NUBS': '|'}
