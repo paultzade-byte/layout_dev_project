@@ -132,8 +132,6 @@ def key_html(b, layer, i, marks):
         parts.append(f'<span class="hold">{esc(k["hold"])}</span>')
     if alt:
         parts.append(f'<span class="alt" title="кирилиця">{esc(alt)}</span>')
-    if i in marks:
-        parts.append('<span class="flag">тест</span>')
     parts.append("</div>")
     return "".join(parts)
 
