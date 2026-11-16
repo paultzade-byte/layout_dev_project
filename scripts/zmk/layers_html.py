@@ -257,7 +257,7 @@ code { font-family: var(--mono); font-size: .9em; }
 
 def variants_html(variants, d):
     """variants: [(код, опис, штраф, шлях_дампу)] -> секція з вкладками шару CYR.
-    Відкрита за замовчуванням остання; клавіші, що відрізняються від першої, обведені."""
+    Відкрита за замовчуванням остання; в описі — скільки клавіш відрізняється від першої."""
     if not variants:
         return ""
     import json
@@ -273,13 +273,13 @@ def variants_html(variants, d):
         rows = []
         for row in ROWS:
             rows.append('<div class="row">' + "".join(
-                '<div class="gap"></div>' if i is None else key_html(bb[i], "CYR", i, diff) for i in row) + "</div>")
-        th = ['<div class="gap"></div>' if i is None else key_html(bb[i], "CYR", i, diff) for i in THUMBS]
+                '<div class="gap"></div>' if i is None else key_html(bb[i], "CYR", i, set()) for i in row) + "</div>")
+        th = ['<div class="gap"></div>' if i is None else key_html(bb[i], "CYR", i, set()) for i in THUMBS]
         rows.append('<div class="row thumbs"><div class="pad"></div><div class="pad"></div><div class="pad"></div>'
                     + "".join(th) + '<div class="pad"></div><div class="pad"></div><div class="pad"></div></div>')
         note = f"{esc(about)} · штраф {esc(score)} · <code>{esc(os.path.basename(path))}</code>"
         if n:
-            note += f" · обведено {len(diff)} клавіш, що відрізняються від {esc(variants[0][0])}"
+            note += f" · відрізняється від {esc(variants[0][0])}: {len(diff)} клав."
         checked = " checked" if n == len(variants) - 1 else ""
         inputs.append(f'<input type="radio" name="variant" id="{vid}"{checked}>')
         labels.append(f'<label for="{vid}">{esc(code)} <small>{esc(score)}</small></label>')
