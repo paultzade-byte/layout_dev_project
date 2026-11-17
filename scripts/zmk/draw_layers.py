@@ -57,7 +57,7 @@ def ch(p, lang):
 def cell(b, lang):
     bid, p1, p2 = b; name = beh[bid]
     hold = lambda h: {'LSHFT':'⇧','RSHFT':'⇧','LCTRL':'⌃','LALT':'⌥','LGUI':'◆','RALT':'AG'}.get(keycode_name(h), ch(h, 'us'))
-    if name == 'Key Press': return ch(p1, lang)
+    if name in ('Key Press', 'No Repeat'): return ch(p1, lang)
     if name == 'Transparent': return '·'
     if name == 'None': return ''
     if name in ('Mod-Tap', 'HRM Left', 'HRM Right'):

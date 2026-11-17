@@ -152,6 +152,7 @@ def binding(b, behaviors, layer, override=None):
         return f"&{override} {keycode(p1)} {keycode(p2)}"
     return {
         "Key Press": lambda: f"&kp {keycode(p1)}",
+        "No Repeat": lambda: f"&nr {keycode(p1)}",
         "Transparent": lambda: "&trans",
         "None": lambda: "&none",
         "Mod-Tap": lambda: f"&mt {keycode(p1)} {keycode(p2)}",

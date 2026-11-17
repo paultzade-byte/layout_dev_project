@@ -57,8 +57,16 @@ def position_map():
 
 
 # Пари behavior «звичайний тап» <-> «кома-крапка» з тим самим холдом.
-COMMA_FOR = {"Layer-Tap": "LT Comma/Dot", "Key Press": "ua_comma_dot"}
-PLAIN_FOR = {v: k for k, v in COMMA_FOR.items()}
+COMMA_FOR = {"Layer-Tap": "LT Comma/Dot", "Key Press": "ua_comma_dot", "No Repeat": "ua_comma_dot"}
+PLAIN_FOR = {"LT Comma/Dot": "Layer-Tap", "ua_comma_dot": "Key Press"}
+
+
+def plain_for(dump, name):
+    """Літера, що зайняла місце коми: на прошивці з &nr — без автоповтору."""
+    plain = PLAIN_FOR[name]
+    if plain == "Key Press" and "No Repeat" in dump["behaviors"].values():
+        return "No Repeat"
+    return plain
 
 
 def behavior_id(dump, name):
@@ -78,13 +86,13 @@ def set_tap(dump, binding, pos, char):
             raise SystemExit(f"позиція {pos}: кому не можна поставити на {name!r}")
         binding[0] = behavior_id(dump, COMMA_FOR[name])
         binding[2] = 0
-        if name == "Key Press":
+        if name in ("Key Press", "No Repeat"):
             binding[1] = 0
         return
     if name in PLAIN_FOR:
-        plain = PLAIN_FOR[name]
+        plain = plain_for(dump, name)
         binding[0] = behavior_id(dump, plain)
-        if plain == "Key Press":
+        if plain in ("Key Press", "No Repeat"):
             binding[1] = 0
     binding[tap_param(dump, binding, pos)] = CYR_KEYCODES[char]
 

@@ -72,7 +72,7 @@ def key(b, lang):
     bid, p1, p2 = b
     n = dl.beh[bid]
     L = dl.lname.get(p1)
-    if n == "Key Press":
+    if n in ("Key Press", "No Repeat"):  # No Repeat = &nr, літера без автоповтору
         return dict(tap=lab(p1, lang), kind="key")
     if n == "Transparent":
         return dict(tap="", kind="trans")
