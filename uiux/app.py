@@ -1016,12 +1016,14 @@ class LayoutBuilderApp():
     def show_tab(self, name):
         if name == "Редактор":
             self.layer_view.pack_forget()
+            # над «Детальніше ▸» (knob_bar), а не просто над кнопками —
+            # інакше після зміни вкладки панель повзунків стрибала вгору
             self.board.pack(fill="both", expand=True, padx=20, pady=10,
-                            before=self.button_panel.button_frame)
+                            before=self.knob_bar)
         else:
             self.board.pack_forget()
             self.layer_view.pack(fill="both", expand=True, padx=20, pady=10,
-                                 before=self.button_panel.button_frame)
+                                 before=self.knob_bar)
             self.layer_view.show(name)
         self.current_tab = name
         self._style_tabs()
