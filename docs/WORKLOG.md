@@ -21,6 +21,13 @@
   `OPENBLAS_NUM_THREADS=1 cpulimit -l 60 -f -m -q -- .venv/bin/python logs/overnight_2026-11-03/overnight.py >> logs/overnight_2026-11-03/driver.log 2>&1`
   (≈1 год; можна по частинах — переривання безпечне, втрачається лише поточний етап).
 
+- **2026-11-17: ⌫ з автоповтором на GRAPH_ALT і CYR_S.** Автор: вчора недопоняв — на шарах під правим тхамбом
+  (GRAPH_ALT на GRAPH 45, CYR_S на CYR 45) лівий середній тхамб (43) мав бути звичайним `&kp BSPC`, бо `&mt LALT BSPC`
+  при утриманні дає Alt і не повторює ⌫ (у терміналі критично). Повернуто `&kp BSPC` на GRAPH_ALT 43 і CYR_S 43;
+  на решті шарів 43 лишився `&mt LALT BSPC`. CYR_S 42 (RAlt -> Ctrl/Alt+Shift+←) не чіпали. Відкат —
+  `studio_keymap_2026-11-17-before-bspc.json`; записане — `studio_keymap_2026-11-17-bspc-written.json` (джерело
+  артефакту, v24, `--mark GRAPH_ALT:43 --mark CYR_S:43`, вкладки k/l/m/o/n).
+
 - **2026-11-16: модифікатори на всіх шарах, як на GRAPH/CYR.** Лівий зовн. тхамб (42) — утримання Ctrl,
   середній (43) — `&mt LALT BSPC` (тап ⌫), внутр. (44) — утримання Win/Cmd; Shift — `&hml LSHFT` (16) / `&hmr RSHFT` (24).
   Тапи 42/44 лишились свої для кожного шару. Записано: GRAPH_ALT 16 24 42 43 44; DIGITS 42 (було Alt) 43 (було Shift) 44 (Del);
