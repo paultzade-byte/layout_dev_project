@@ -262,8 +262,12 @@ class LayoutBuilderApp():
         self.build_grid()
         self.populate_initial_keys()
         self.hovered_key = None  # Пам'ять для кнопки, на яку зараз наведено
-        self._notify_layout_changed()
         self._build_engine()
+        # штраф — за тими ж вагами (з повзунками), що й в оптимізатора;
+        # переданий ззовні дисплей рахує за сирими вагами з файлу
+        if self.on_layout_changed is not None:
+            self.on_layout_changed = make_score_display(self.statistic, self.moves, engine=self.engine)
+        self._notify_layout_changed()
         self._apply_mode_ui()
 
     # ------------------------------------------------------------------
