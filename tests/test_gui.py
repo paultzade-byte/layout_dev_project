@@ -241,3 +241,32 @@ def test_ycuken_button_resets_board(monkeypatch):
         assert ui.current_file is None
     finally:
         root.destroy()
+
+
+def test_presets_menu_apply_save_delete(monkeypatch):
+    from config import settings
+    from uiux import app as A
+    settings.save(knobs={}, presets={})
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        assert "Рекомендовано" in ui.button_preset.cget("text")
+        ui.apply_preset("Бережу мізинці", A.knobs.PRESETS[2].state())
+        root.update()
+        assert "Бережу мізинці" in ui.button_preset.cget("text")
+        assert A.knobs.step(ui.knob_rows["pinky"].scale.get()) == 2
+        ui.knob_rows["vertical"].scale.set(1)
+        ui.on_knob_release("vertical")
+        assert "свій" in ui.button_preset.cget("text")
+        monkeypatch.setattr(A.simpledialog, "askstring", lambda *a, **k: "мій")
+        ui.on_preset_save()
+        assert "мій" in ui.button_preset.cget("text")
+        assert "мій" in settings.load()["presets"]["generic_105_alpha"]
+        ui.on_preset_delete("мій")
+        assert "свій" in ui.button_preset.cget("text")
+        ui.show_preset_menu()   # меню будується без помилок
+        root.update()
+    finally:
+        root.destroy()

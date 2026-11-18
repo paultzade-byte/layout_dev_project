@@ -65,3 +65,20 @@ def test_closeness_metrics(statistic):
     geo = geometry_config(GEO)
     c = knobs.closeness_metrics(build_layout(geo).keys, geo, statistic)
     assert c["in_place"] == c["of"] and abs(c["share"] - 100) < 1e-9
+
+
+def test_presets_match_by_steps():
+    from core import knobs
+    std, split = "generic_105_alpha", "corne_42"
+    assert knobs.matching_preset({"values": {}, "closeness": False}, std) == "Рекомендовано"
+    # близькість вимкнена — її повзунок не діє, крок 0.3 ≈ 0
+    assert knobs.matching_preset({"values": {"closeness": 2, "home_row": 0.3}}, std) == "Рекомендовано"
+    assert knobs.matching_preset({"values": {"pinky": 1.8, "home_row": 1.2}}, split) == "Бережу мізинці"
+    assert knobs.matching_preset({"values": {"closeness": 2}, "closeness": True}, std) == "Мінімум змін від ЙЦУКЕН"
+    # на спліті пресету близькості нема, а прапорець там не діє
+    assert "Мінімум змін від ЙЦУКЕН" not in [p.title for p in knobs.presets_for(split)]
+    assert knobs.matching_preset({"values": {"pinky": 1}}, std) is None
+    mine = {"мій": {"values": {"pinky": 1}, "closeness": False}}
+    assert knobs.matching_preset({"values": {"pinky": 0.9}}, std, mine) == "мій"
+    for p in knobs.PRESETS:   # усі id пресетів — справжні повзунки
+        assert all(k in knobs.KNOBS_BY_ID for k, _ in p.values)

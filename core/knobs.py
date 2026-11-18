@@ -118,3 +118,55 @@ def closeness_metrics(keys, geometry: dict, statistic: dict) -> Dict[str, float]
     same = [k for k in letters if ref[k.char] == k.position_id]
     return {"in_place": len(same), "of": len(letters),
             "share": 100.0 * sum(uni.get(k.char, 0.0) for k in same) / total}
+
+
+# ----------------------------------------------------------------------
+# Пресети: іменовані положення повзунків (стан як у settings.json → knobs:
+# {"values": {id: положення}, "closeness": bool}). Порівнюються за кроками.
+# ----------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Preset:
+    title: str
+    values: Tuple[Tuple[str, int], ...] = ()
+    closeness: bool = False
+    geometry: str | None = None   # лише для цієї геометрії (None — для всіх)
+
+    def state(self) -> dict:
+        return {"values": {k: float(v) for k, v in self.values}, "closeness": self.closeness}
+
+
+RECOMMENDED = Preset("Рекомендовано")
+PRESETS = (
+    RECOMMENDED,
+    Preset("Мінімум змін від ЙЦУКЕН", (("closeness", 2),), closeness=True,
+           geometry="generic_105_alpha"),
+    Preset("Бережу мізинці", (("pinky", 2), ("home_row", 1))),
+    Preset("Більше перекатів", (("alternation", -2), ("vertical", 1))),
+)
+
+
+def presets_for(geometry_name: str):
+    return [p for p in PRESETS if p.geometry in (None, geometry_name)]
+
+
+def state_key(state: dict, geometry_name: str) -> tuple:
+    """Що реально діє: кроки повзунків цього режиму + близькість (лише там,
+    де вона є). Два стани з однаковим ключем дають однакові ваги."""
+    ids = [k.id for k in knobs_for(geometry_name)]
+    values = state.get("values") or {}
+    closeness = bool(state.get("closeness")) and "closeness" in ids
+    steps = tuple(step(values.get(i, 0.0)) for i in ids if i != "closeness" or closeness)
+    return steps, closeness
+
+
+def matching_preset(state: dict, geometry_name: str, custom: Dict[str, dict] | None = None):
+    """Назва пресету, що збігається зі станом (вбудовані першими), або None."""
+    key = state_key(state, geometry_name)
+    for p in presets_for(geometry_name):
+        if state_key(p.state(), geometry_name) == key:
+            return p.title
+    for name, s in (custom or {}).items():
+        if state_key(s, geometry_name) == key:
+            return name
+    return None

@@ -1,6 +1,6 @@
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 from datetime import datetime
 import math
 import re
@@ -384,16 +384,19 @@ class LayoutBuilderApp():
         (звичайна клавіатура; на спліті default — не ЙЦУКЕН)."""
         return self.geometry_name in YCUKEN_GEOMETRIES
 
+    def _is_ycuken(self) -> bool:
+        target = {k.position_id: k.char for k in build_layout(self.geometry).keys}
+        return all(target.get(k.position_id) == k.char for k in self.layout.keys)
+
     def on_ycuken(self):
         """Дошка -> ЙЦУКЕН (`default` позицій), звідки Start оптимізує."""
         if self.processor.is_running:
             self.status_var.set("Спершу зупини оптимізацію (Stop), потім став ЙЦУКЕН.")
             return
-        ycuken = build_layout(self.geometry)
-        target = {k.position_id: k.char for k in ycuken.keys}
-        if all(target.get(k.position_id) == k.char for k in self.layout.keys):
+        if self._is_ycuken():
             self.toasts.show("На дошці вже ЙЦУКЕН.")
             return
+        ycuken = build_layout(self.geometry)
         if not messagebox.askyesno("↺ ЙЦУКЕН", "Поставити на дошку ЙЦУКЕН?\n"
                                    "Поточна розкладка зникне з екрана — збережи її, якщо потрібна."):
             return
@@ -757,6 +760,81 @@ class LayoutBuilderApp():
     def _save_knob_state(self, state) -> None:
         all_states = settings.load().get("knobs") or {}
         settings.save(knobs={**all_states, self.geometry_name: state})
+        self._update_preset_button()
+
+    # --- пресети: меню «Пресет: … ▾» біля «Детальніше» ---------------
+    def _custom_presets(self) -> dict:
+        """Свої пресети режиму {назва: стан} (settings.json → presets)."""
+        return dict((settings.load().get("presets") or {}).get(self.geometry_name) or {})
+
+    def _save_custom_presets(self, presets: dict) -> None:
+        all_presets = settings.load().get("presets") or {}
+        settings.save(presets={**all_presets, self.geometry_name: presets})
+
+    def _current_preset(self):
+        return knobs.matching_preset(self._knob_state(), self.geometry_name, self._custom_presets())
+
+    def _update_preset_button(self):
+        if hasattr(self, "button_preset"):
+            self.button_preset.config(text=f"Пресет: {self._current_preset() or 'свій'} ▾")
+
+    def show_preset_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
+                       activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
+        current = self._current_preset()
+        custom = self._custom_presets()
+
+        def item(title, state):
+            mark = "✓ " if title == current else "    "
+            menu.add_command(label=mark + title, command=lambda: self.apply_preset(title, state))
+        for p in knobs.presets_for(self.geometry_name):
+            item(p.title, p.state())
+        if custom:
+            menu.add_separator()
+            for name, state in custom.items():
+                item(name, state)
+        menu.add_separator()
+        menu.add_command(label="    Зберегти пресет…", command=self.on_preset_save)
+        if current in custom:
+            menu.add_command(label=f"    Видалити «{current}»", command=lambda: self.on_preset_delete(current))
+        b = self.button_preset
+        menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def apply_preset(self, title: str, state: dict):
+        if self.processor.is_running:
+            self.status_var.set("Спершу зупини оптимізацію (Stop), потім міняй пресет.")
+            return
+        old = self._knob_state()
+        new = {"values": dict(state.get("values") or {}), "closeness": bool(state.get("closeness"))}
+        self._save_knob_state(new)
+        self._build_knob_rows()
+        if knobs.state_key(old, self.geometry_name) != knobs.state_key(new, self.geometry_name):
+            self._rebuild_weights(f"пресет «{title}»")
+        if new["closeness"] and self._ycuken_mode() and not self._is_ycuken():
+            self.toasts.show("Щоб стартувати саме від ЙЦУКЕН — «↺ ЙЦУКЕН» вгорі справа.")
+
+    def on_preset_save(self):
+        name = simpledialog.askstring("Зберегти пресет", "Назва пресету:", parent=self.root)
+        name = (name or "").strip()
+        if not name:
+            return
+        if name in {p.title for p in knobs.PRESETS} or name == "свій":
+            self.toasts.show(f"«{name}» — уже вбудований пресет, обери іншу назву.")
+            return
+        custom = self._custom_presets()
+        if name in custom and not messagebox.askyesno("Зберегти пресет", f"Замінити пресет «{name}»?"):
+            return
+        custom[name] = self._knob_state()
+        self._save_custom_presets(custom)
+        self._update_preset_button()
+        self.toasts.show(f"Пресет «{name}» збережено.")
+
+    def on_preset_delete(self, name: str):
+        custom = self._custom_presets()
+        if custom.pop(name, None) is not None:
+            self._save_custom_presets(custom)
+            self._update_preset_button()
+            self.toasts.show(f"Пресет «{name}» видалено (повзунки лишились як були).")
 
     def _effective_moves(self) -> dict:
         state = self._knob_state()
@@ -768,6 +846,8 @@ class LayoutBuilderApp():
         self.knob_bar.pack(fill="x", padx=20, pady=(0, 6), before=self.button_panel.button_frame)
         self.button_knobs = make_button(self.knob_bar, "Детальніше ▸", self.toggle_knobs, small=True)
         self.button_knobs.pack(side="left")
+        self.button_preset = make_button(self.knob_bar, "Пресет: ▾", self.show_preset_menu, small=True)
+        self.button_preset.pack(side="left", padx=(8, 0))
         self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
                                               self.on_knobs_reset, small=True)
         self.knob_frame = tk.Frame(self.root, bg=PANEL)
@@ -816,6 +896,7 @@ class LayoutBuilderApp():
             self._on_knob_move(knob.id)
         self._set_knobs_state("disabled" if self.processor.is_running else "normal")
         self._update_knob_metrics()
+        self._update_preset_button()
 
     def toggle_knobs(self):
         self.knobs_open = not self.knobs_open
