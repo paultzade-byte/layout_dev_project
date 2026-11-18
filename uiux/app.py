@@ -20,6 +20,7 @@ from uiux import layer_view
 from uiux.widgets import RoundButton
 from uiux import render
 from uiux.toast import Toasts
+from uiux import tooltip
 from core import knobs
 from core import export
 from core.metrics import layout_metrics
@@ -101,6 +102,20 @@ def make_score_display(statistic, moves_config, engine=None):
 
 YCUKEN_GEOMETRIES = {"generic_105_alpha"}  # де `default` позицій = ЙЦУКЕН
 TITLE_ALLOWANCE = 70  # заголовок вікна + панель задач, px
+
+
+# Підказки при наведенні (uiux/tooltip.py): «мануал мало хто читає»
+KNOB_TIPS = {
+    "home_row": "Наскільки тримати часті літери в домашньому (середньому) ряду, "
+                "де пальці лежать у спокої.",
+    "vertical": "Штраф, коли один палець набирає дві літери підряд з різних рядів "
+                "(палець «стрибає» вгору-вниз).",
+    "pinky": "Наскільки розвантажувати мізинці — найслабші пальці.",
+    "alternation": "Ліворуч — більше перекатів (кілька літер підряд однією рукою), "
+                   "праворуч — частіше чергувати руки.",
+    "closeness": "Тримати літери ближче до звичних місць ЙЦУКЕН, щоб легше перевчитись. "
+                 "Галочка вмикає, повзунок — наскільки сильно.",
+}
 
 
 class Slot:
@@ -281,7 +296,47 @@ class LayoutBuilderApp():
             self.on_layout_changed = make_score_display(self.statistic, self.moves, engine=self.engine)
         self._notify_layout_changed()
         self._apply_mode_ui()
+        self._add_tooltips()
         self._center_window()
+
+    def _add_tooltips(self):
+        """Підказки до кнопок верхнього ряду, панелі повзунків і нижнього ряду."""
+        p = self.button_panel
+        tips = {
+            self.mode_buttons.get("generic_105_alpha"):
+                "Звичайна клавіатура (рядами сходинками, як на ноутбуці чи ПК).",
+            self.mode_buttons.get("corne_42"): "Розділена клавіатура Corne (42 клавіші).",
+            self.button_ycuken: "Поставити на дошку стандартну ЙЦУКЕН. "
+                                "Спершу спитає, чи зберегти поточну розкладку.",
+            self.button_default: "Повернути розкладку, з якою програма стартує (рекомендовану). "
+                                 "Спершу спитає, чи зберегти поточну.",
+            self.status_label: "Штраф — наскільки незручно друкувати українські тексти "
+                               "цією розкладкою. Менше — краще.\n"
+                               "Клавіші на дошці можна перетягувати мишкою; "
+                               "права кнопка — заморозити клавішу на місці.",
+            self.button_knobs: "Повзунки: що для тебе важливіше — домашній ряд, мізинці, перекати…\n"
+                               "Повзунки лише перераховують штраф; щоб розкладка змінилась — Start.",
+            self.button_preset: "Готові набори повзунків. Свій набір можна зберегти під назвою.",
+            self.button_knobs_reset: "Усі повзунки посередині, близькість до ЙЦУКЕН вимкнена.",
+            p.button_start: "Start — шукати кращу розкладку, починаючи з тієї, що на дошці. "
+                            "Ще раз — зупинити.\nЗаморожені клавіші (права кнопка миші) "
+                            "лишаються на місці.",
+            p.button_reheat: "Під час пошуку: «струснути» оптимізатор, якщо він застряг. "
+                             "Найкраще знайдене не губиться.",
+            p.button_open: "Відкрити збережену розкладку (.json).",
+            p.button_save: "Зберегти розкладку в той самий файл (вперше — спитає куди).",
+            p.button_save_as: "Зберегти розкладку в новий файл.",
+            p.button_screenshot: "Зберегти картинку розкладки (.png).",
+            p.button_export: "Файли, щоб встановити розкладку в систему: Windows (.klc для MSKLC), "
+                             "Linux (xkb), macOS (.keylayout) і README, як встановити.",
+            p.button_kb_write: "Записати літери з дошки на клавіатуру Corne (шар CYR).",
+            p.button_kb_read: "Прочитати розкладку з клавіатури Corne на дошку.",
+            self.button_refresh_layers: "Перечитати шари з клавіатури.",
+            self.button_reset_layer: "Відкинути незаписані зміни цього шару.",
+        }
+        for widget, text in tips.items():
+            if widget is not None:
+                tooltip.add(widget, text)
 
     # ------------------------------------------------------------------
     # Геометрія: спліт / звичайна, перемикається в рантаймі
@@ -896,6 +951,7 @@ class LayoutBuilderApp():
             else:
                 title = tk.Label(cell, text=knob.title, fg=TEXT, **label_opts)
             title.pack(anchor="w")
+            tooltip.add(title, KNOB_TIPS.get(knob.id, ""))
             metric = tk.Label(cell, fg=TEXT_DIM, anchor="w", bg=PANEL, font=(FONT, 9))
             metric.pack(anchor="w")
             tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts).grid(

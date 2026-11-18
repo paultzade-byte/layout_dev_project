@@ -296,3 +296,20 @@ def test_presets_menu_apply_save_delete(monkeypatch):
         root.update()
     finally:
         root.destroy()
+
+
+def test_tooltip_shows_and_hides():
+    from uiux import tooltip
+    root = tk.Tk()
+    try:
+        root.geometry("300x200")
+        b = tk.Button(root, text="x")
+        b.pack()
+        tip = tooltip.add(b, "підказка")
+        root.update()
+        tip._show()
+        assert tip._tip is not None and tip._tip.cget("text") == "підказка"
+        tip._hide()
+        assert tip._tip is None
+    finally:
+        root.destroy()
