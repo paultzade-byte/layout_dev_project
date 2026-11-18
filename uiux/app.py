@@ -99,6 +99,7 @@ def make_score_display(statistic, moves_config, engine=None):
     return on_layout_changed
 
 
+YCUKEN_GEOMETRIES = {"generic_105_alpha"}  # де `default` позицій = ЙЦУКЕН
 TITLE_ALLOWANCE = 70  # заголовок вікна + панель задач, px
 
 
@@ -216,6 +217,8 @@ class LayoutBuilderApp():
             b = make_button(self.mode_bar, GEOMETRY_TITLES.get(name, name), lambda n=name: self.on_mode(n))
             b.pack(side="left", padx=(0, 6))
             self.mode_buttons[name] = b
+        # справа (як «⟳ з клави» на спліті): повернути дошку до ЙЦУКЕН
+        self.button_ycuken = make_button(self.mode_bar, "↺ ЙЦУКЕН", self.on_ycuken, small=True)
 
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
@@ -364,12 +367,38 @@ class LayoutBuilderApp():
             self.tab_bar.pack_forget()
             panel.button_kb_write.pack_forget()
             panel.button_kb_read.pack_forget()
+        if self._ycuken_mode():
+            if not self.button_ycuken.winfo_manager():
+                self.button_ycuken.pack(side="right")
+        else:
+            self.button_ycuken.pack_forget()
         if self._export_mode():
             if not panel.button_export.winfo_manager():
                 panel.button_export.pack(side="left", padx=(8, 0))
         else:
             panel.button_export.pack_forget()
         self._fit_window()
+
+    def _ycuken_mode(self) -> bool:
+        """«↺ ЙЦУКЕН» — лише там, де типова розкладка геометрії і є ЙЦУКЕН
+        (звичайна клавіатура; на спліті default — не ЙЦУКЕН)."""
+        return self.geometry_name in YCUKEN_GEOMETRIES
+
+    def on_ycuken(self):
+        """Дошка -> ЙЦУКЕН (`default` позицій), звідки Start оптимізує."""
+        if self.processor.is_running:
+            self.status_var.set("Спершу зупини оптимізацію (Stop), потім став ЙЦУКЕН.")
+            return
+        ycuken = build_layout(self.geometry)
+        target = {k.position_id: k.char for k in ycuken.keys}
+        if all(target.get(k.position_id) == k.char for k in self.layout.keys):
+            self.toasts.show("На дошці вже ЙЦУКЕН.")
+            return
+        if not messagebox.askyesno("↺ ЙЦУКЕН", "Поставити на дошку ЙЦУКЕН?\n"
+                                   "Поточна розкладка зникне з екрана — збережи її, якщо потрібна."):
+            return
+        self.set_geometry(self.geometry_name, layout=ycuken)
+        self.toasts.show("На дошці ЙЦУКЕН — Start оптимізує від нього.")
 
     def _export_mode(self) -> bool:
         """Експорт в ОС — для геометрій, де клавіші мають фізичні назви (`key`)."""

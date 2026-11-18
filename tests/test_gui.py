@@ -218,3 +218,26 @@ def test_board_fits_after_knobs_then_mode_switch():
         assert ui.board.winfo_height() >= bottom
     finally:
         root.destroy()
+
+
+def test_ycuken_button_resets_board(monkeypatch):
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.MOVES_CONFIG,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
+                                geometry_name="corne_42")
+        root.update()
+        assert not ui.button_ycuken.winfo_manager()          # на спліті кнопки нема
+        ui.on_mode("generic_105_alpha")
+        root.update()
+        assert ui.button_ycuken.winfo_manager()
+        ycuken = {p["id"]: p["default"] for p in ui.geometry["positions"] if p.get("default")}
+        assert any(ycuken.get(k.position_id) != k.char for k in ui.layout.keys)   # старт — A
+        monkeypatch.setattr(A.messagebox, "askyesno", lambda *a, **k: True)
+        ui.on_ycuken()
+        root.update()
+        assert all(ycuken.get(k.position_id, k.char) == k.char for k in ui.layout.keys)
+        assert ui.current_file is None
+    finally:
+        root.destroy()
