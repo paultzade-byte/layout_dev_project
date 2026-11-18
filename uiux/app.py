@@ -404,9 +404,13 @@ class LayoutBuilderApp():
         if self._board_is(layout):
             self.toasts.show(f"На дошці вже {what}.")
             return
-        if not messagebox.askyesno(title, f"Поставити на дошку {what_acc or what}?\n"
-                                   "Поточна розкладка зникне з екрана — збережи її, якщо потрібна."):
+        # Так — зберегти і скинути; Ні — скинути без збереження; Скасувати — нічого
+        answer = messagebox.askyesnocancel(
+            title, f"Зараз на дошку стане {what}.\n\nЗберегти поточну розкладку перед цим?")
+        if answer is None:
             return
+        if answer and not self.on_save():
+            return  # збереження скасоване чи не вдалося — нічого не скидаємо
         self.set_geometry(self.geometry_name, layout=layout)
         self.toasts.show(f"На дошці {what} — Start оптимізує від неї.")
 
@@ -1056,31 +1060,32 @@ class LayoutBuilderApp():
     def on_save(self):
         """Перезаписує відкритий/збережений файл; якщо його ще нема — як «Зберегти як…»."""
         if self.processor.is_running:
-            return
+            return False
         if self.current_file is None:
             return self.on_save_as()
-        self._save_to(self.current_file)
+        return self._save_to(self.current_file)
 
-    def on_save_as(self):
+    def on_save_as(self) -> bool:
+        """True — збережено; False — скасовано діалог або помилка."""
         if self.processor.is_running:
-            return
+            return False
         stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
         path = filedialog.asksaveasfilename(
             parent=self.root, title="Зберегти розкладку",
             initialdir=self._dialog_dir(), initialfile=f"layout_{self.geometry_name}_{stamp}.json",
             defaultextension=".json", filetypes=[("Розкладка (JSON)", "*.json")])
-        if path:
-            self._save_to(path)
+        return bool(path) and self._save_to(path)
 
-    def _save_to(self, path):
+    def _save_to(self, path) -> bool:
         try:
             saved = self.processor.layout_save(self.layout, path)
         except OSError as error:
             messagebox.showerror("Зберегти", f"Не вдалося зберегти:\n{error}")
-            return
+            return False
         self._set_current_file(saved)
         self.status_var.set(f"Збережено: {saved}")
         self.toasts.show(f"Збережено: {saved}")
+        return True
 
     def on_open(self):
         if self.processor.is_running:

@@ -220,7 +220,7 @@ def test_board_fits_after_knobs_then_mode_switch():
         root.destroy()
 
 
-def test_ycuken_button_resets_board(monkeypatch):
+def test_ycuken_button_resets_board(monkeypatch, tmp_path):
     from uiux import app as A
     root = tk.Tk()
     try:
@@ -234,7 +234,27 @@ def test_ycuken_button_resets_board(monkeypatch):
         assert ui.button_ycuken.winfo_manager()
         ycuken = {p["id"]: p["default"] for p in ui.geometry["positions"] if p.get("default")}
         assert any(ycuken.get(k.position_id) != k.char for k in ui.layout.keys)   # старт — A
-        monkeypatch.setattr(A.messagebox, "askyesno", lambda *a, **k: True)
+        # Скасувати — нічого не міняється
+        monkeypatch.setattr(A.messagebox, "askyesnocancel", lambda *a, **k: None)
+        before = [k.char for k in ui.layout.keys]
+        ui.on_ycuken()
+        assert [k.char for k in ui.layout.keys] == before
+        # Так, але діалог збереження скасовано — теж нічого
+        monkeypatch.setattr(A.messagebox, "askyesnocancel", lambda *a, **k: True)
+        monkeypatch.setattr(A.filedialog, "asksaveasfilename", lambda *a, **k: "")
+        ui.on_ycuken()
+        assert [k.char for k in ui.layout.keys] == before
+        # Так і збережено — файл є, дошка скинута
+        saved = tmp_path / "before_reset.json"
+        monkeypatch.setattr(A.filedialog, "asksaveasfilename", lambda *a, **k: str(saved))
+        ui.on_ycuken()
+        root.update()
+        assert saved.exists()
+        assert all(ycuken.get(k.position_id, k.char) == k.char for k in ui.layout.keys)
+        # Ні — скинути без збереження
+        monkeypatch.setattr(A.messagebox, "askyesnocancel", lambda *a, **k: False)
+        ui.on_default_layout()
+        root.update()
         ui.on_ycuken()
         root.update()
         assert all(ycuken.get(k.position_id, k.char) == k.char for k in ui.layout.keys)
