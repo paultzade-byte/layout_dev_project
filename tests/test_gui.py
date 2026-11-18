@@ -239,6 +239,12 @@ def test_ycuken_button_resets_board(monkeypatch):
         root.update()
         assert all(ycuken.get(k.position_id, k.char) == k.char for k in ui.layout.keys)
         assert ui.current_file is None
+        # «↺ За замовчуванням» — назад до стартової (A)
+        assert ui.button_default.winfo_manager()
+        ui.on_default_layout()
+        root.update()
+        start = {k.position_id: k.char for k in A.start_layout("generic_105_alpha").keys}
+        assert all(start[k.position_id] == k.char for k in ui.layout.keys)
     finally:
         root.destroy()
 

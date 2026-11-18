@@ -219,6 +219,9 @@ class LayoutBuilderApp():
             self.mode_buttons[name] = b
         # справа (як «⟳ з клави» на спліті): повернути дошку до ЙЦУКЕН
         self.button_ycuken = make_button(self.mode_bar, "↺ ЙЦУКЕН", self.on_ycuken, small=True)
+        # і до стартової розкладки режиму (start_layout у geometry.json, для ANSI — A)
+        self.button_default = make_button(self.mode_bar, "↺ За замовчуванням", self.on_default_layout,
+                                          small=True)
 
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
@@ -370,8 +373,10 @@ class LayoutBuilderApp():
         if self._ycuken_mode():
             if not self.button_ycuken.winfo_manager():
                 self.button_ycuken.pack(side="right")
+                self.button_default.pack(side="right", padx=(0, 4))
         else:
             self.button_ycuken.pack_forget()
+            self.button_default.pack_forget()
         if self._export_mode():
             if not panel.button_export.winfo_manager():
                 panel.button_export.pack(side="left", padx=(8, 0))
@@ -384,24 +389,35 @@ class LayoutBuilderApp():
         (звичайна клавіатура; на спліті default — не ЙЦУКЕН)."""
         return self.geometry_name in YCUKEN_GEOMETRIES
 
-    def _is_ycuken(self) -> bool:
-        target = {k.position_id: k.char for k in build_layout(self.geometry).keys}
+    def _board_is(self, layout) -> bool:
+        target = {k.position_id: k.char for k in layout.keys}
         return all(target.get(k.position_id) == k.char for k in self.layout.keys)
 
-    def on_ycuken(self):
-        """Дошка -> ЙЦУКЕН (`default` позицій), звідки Start оптимізує."""
+    def _is_ycuken(self) -> bool:
+        return self._board_is(build_layout(self.geometry))
+
+    def _reset_board(self, layout, title: str, what: str, what_acc: str | None = None) -> None:
+        """Дошка -> layout (з підтвердженням), далі Start оптимізує від неї."""
         if self.processor.is_running:
-            self.status_var.set("Спершу зупини оптимізацію (Stop), потім став ЙЦУКЕН.")
+            self.status_var.set(f"Спершу зупини оптимізацію (Stop), потім став {what_acc or what}.")
             return
-        if self._is_ycuken():
-            self.toasts.show("На дошці вже ЙЦУКЕН.")
+        if self._board_is(layout):
+            self.toasts.show(f"На дошці вже {what}.")
             return
-        ycuken = build_layout(self.geometry)
-        if not messagebox.askyesno("↺ ЙЦУКЕН", "Поставити на дошку ЙЦУКЕН?\n"
+        if not messagebox.askyesno(title, f"Поставити на дошку {what_acc or what}?\n"
                                    "Поточна розкладка зникне з екрана — збережи її, якщо потрібна."):
             return
-        self.set_geometry(self.geometry_name, layout=ycuken)
-        self.toasts.show("На дошці ЙЦУКЕН — Start оптимізує від нього.")
+        self.set_geometry(self.geometry_name, layout=layout)
+        self.toasts.show(f"На дошці {what} — Start оптимізує від неї.")
+
+    def on_ycuken(self):
+        """Дошка -> ЙЦУКЕН (`default` позицій)."""
+        self._reset_board(build_layout(self.geometry), "↺ ЙЦУКЕН", "ЙЦУКЕН")
+
+    def on_default_layout(self):
+        """Дошка -> розкладка за замовчуванням (з неї режим стартує)."""
+        self._reset_board(start_layout(self.geometry_name), "↺ За замовчуванням",
+                          "розкладка за замовчуванням", "розкладку за замовчуванням")
 
     def _export_mode(self) -> bool:
         """Експорт в ОС — для геометрій, де клавіші мають фізичні назви (`key`)."""
