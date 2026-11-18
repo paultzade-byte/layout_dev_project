@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 import math
+import re
 import sys
 import threading
 from types import SimpleNamespace
@@ -98,6 +99,9 @@ def make_score_display(statistic, moves_config, engine=None):
     return on_layout_changed
 
 
+TITLE_ALLOWANCE = 70  # заголовок вікна + панель задач, px
+
+
 class Slot:
     def __init__(self, position, x, y, width, height):
         slot_id = position["id"]
@@ -180,7 +184,9 @@ class LayoutBuilderApp():
         self.width = 900
         self.heigh = 470
         self.root.geometry(f"{self.width}x{self.heigh}")
-        self.root.minsize(900, 450)
+        # розмір вікна веде програма (_fit_window) — без «розгорнути» і
+        # без розтягування мишкою; лишаються «згорнути» і «закрити»
+        self.root.resizable(False, False)
         self.root.configure(bg=BG)
         self.toasts = Toasts(self.root)  # неблокувальні жовті сповіщення
         self._weights_gen = 0            # номер перерахунку ваг (старі результати відкидаються)
@@ -269,6 +275,7 @@ class LayoutBuilderApp():
             self.on_layout_changed = make_score_display(self.statistic, self.moves, engine=self.engine)
         self._notify_layout_changed()
         self._apply_mode_ui()
+        self._center_window()
 
     # ------------------------------------------------------------------
     # Геометрія: спліт / звичайна, перемикається в рантаймі
@@ -387,28 +394,37 @@ class LayoutBuilderApp():
         width = self.root.winfo_width()
         height = self.root.winfo_height() if height is None else height
         new_h = needed_h if exact_height else max(height, needed_h)
-        self._resize(max(width, needed_w), new_h, needed_w, needed_h)
+        if width <= 1:  # вікно ще не показане
+            width = needed_w
+        self._resize(max(width, needed_w), new_h)
 
-    def _resize(self, width, height, min_w, min_h):
-        """Розмір вікна без зміни його місця на екрані. root.geometry("ШxВ")
-        на Xfwm кидає вікно в лівий верхній кут (Tk не знає позиції, яку
-        дав WM, і вважає її +0+0), тож розмір задаємо через minsize = maxsize,
-        а потім відпускаємо maxsize і ставимо справжній мінімум."""
-        if getattr(self, "_resize_job", None):
-            self.root.after_cancel(self._resize_job)
-            self._resize_job = None
-        if (width, height) == (self.root.winfo_width(), self.root.winfo_height()):
-            self.root.minsize(min_w, min_h)
+    def _resize(self, width, height):
+        """Розмір вікна; лівий верхній кут лишається на місці (позицію Tk
+        знає, бо на старті її задає _center_window). Якщо вікно після росту
+        вилазить за екран — посуваємо назад у межі екрана."""
+        self._size = (width, height)
+        m = re.match(r"\d+x\d+([+-]-?\d+)([+-]-?\d+)$", self.root.geometry())
+        if not m or not self.root.winfo_ismapped():
+            self.root.geometry(f"{width}x{height}")
             return
-        self.root.minsize(width, height)
-        self.root.maxsize(width, height)
-        self.root.update_idletasks()
+        x, y = int(m.group(1)), int(m.group(2))
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        nx = max(0, min(x, sw - width - 4))
+        ny = max(0, min(y, sh - height - TITLE_ALLOWANCE))
+        if (nx, ny) == (x, y):
+            self.root.geometry(f"{width}x{height}")
+        else:
+            self.root.geometry(f"{width}x{height}+{nx}+{ny}")
 
-        def release():
-            self._resize_job = None
-            self.root.maxsize(self.root.winfo_screenwidth() * 2, self.root.winfo_screenheight() * 2)
-            self.root.minsize(min_w, min_h)
-        self._resize_job = self.root.after(200, release)
+    def _center_window(self):
+        """На старті — по центру екрана (інакше WM ставить куди завгодно,
+        напр. у правий верхній кут з обрізаною правою частиною)."""
+        self.root.update_idletasks()
+        width, height = getattr(self, "_size", (self.width, self.heigh))
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        x = max(0, (sw - width) // 2)
+        y = max(0, min((sh - height) // 2, sh - height - TITLE_ALLOWANCE))
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
 
     # ------------------------------------------------------------------
     # Start / Stop
