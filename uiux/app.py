@@ -368,7 +368,7 @@ class LayoutBuilderApp():
         """Експорт в ОС — для геометрій, де клавіші мають фізичні назви (`key`)."""
         return any(p.get("key") for p in self.geometry["positions"])
 
-    def _fit_window(self, exact_height: bool = False):
+    def _fit_window(self, exact_height: bool = False, height: int | None = None):
         """exact_height — висота рівно під вміст (після зміни режиму, щоб на
         нижчій дошці не лишалось порожнього місця від вищої).
         Вікно не менше за дошку, панель повзунків і ряд кнопок — і за
@@ -384,11 +384,31 @@ class LayoutBuilderApp():
         panel = self.knob_frame.winfo_reqwidth() + 40 if getattr(self, "knobs_open", False) else 0
         needed_w = max(900, board_w + 40, buttons, panel)
         needed_h = max(450, self.root.winfo_reqheight())
-        self.root.minsize(needed_w, needed_h)
-        width, height = self.root.winfo_width(), self.root.winfo_height()
+        width = self.root.winfo_width()
+        height = self.root.winfo_height() if height is None else height
         new_h = needed_h if exact_height else max(height, needed_h)
-        if width < needed_w or height != new_h:
-            self.root.geometry(f"{max(width, needed_w)}x{new_h}")
+        self._resize(max(width, needed_w), new_h, needed_w, needed_h)
+
+    def _resize(self, width, height, min_w, min_h):
+        """Розмір вікна без зміни його місця на екрані. root.geometry("ШxВ")
+        на Xfwm кидає вікно в лівий верхній кут (Tk не знає позиції, яку
+        дав WM, і вважає її +0+0), тож розмір задаємо через minsize = maxsize,
+        а потім відпускаємо maxsize і ставимо справжній мінімум."""
+        if getattr(self, "_resize_job", None):
+            self.root.after_cancel(self._resize_job)
+            self._resize_job = None
+        if (width, height) == (self.root.winfo_width(), self.root.winfo_height()):
+            self.root.minsize(min_w, min_h)
+            return
+        self.root.minsize(width, height)
+        self.root.maxsize(width, height)
+        self.root.update_idletasks()
+
+        def release():
+            self._resize_job = None
+            self.root.maxsize(self.root.winfo_screenwidth() * 2, self.root.winfo_screenheight() * 2)
+            self.root.minsize(min_w, min_h)
+        self._resize_job = self.root.after(200, release)
 
     # ------------------------------------------------------------------
     # Start / Stop
@@ -766,14 +786,12 @@ class LayoutBuilderApp():
         # вікно росте/зменшується на висоту панелі, щоб клавіатуру не стискало
         self.root.update_idletasks()
         extra = self.knob_frame.winfo_reqheight() + 8
-        width, height = self.root.winfo_width(), self.root.winfo_height()
+        height = self.root.winfo_height()
         if self.knobs_open:
             height = max(height, self.heigh) + extra
         else:
             height = max(self.heigh, height - extra)
-        self.root.minsize(1, 1)  # _fit_window нижче поставить справжній мінімум
-        self.root.geometry(f"{width}x{height}")
-        self._fit_window()
+        self._fit_window(height=height)
 
     def _set_knobs_state(self, state):
         for row in getattr(self, "knob_rows", {}).values():
