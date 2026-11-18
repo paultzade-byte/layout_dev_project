@@ -186,3 +186,35 @@ def test_entry_point_smoke():
     вікно будується повністю і закривається без помилки."""
     import ukr_layout
     assert ukr_layout.run(["--smoke"]) == 0
+
+
+def test_board_fits_after_knobs_then_mode_switch():
+    """«Детальніше» на Corne, потім «Звичайна» — нижній ряд ANSI (пробіл)
+    не обрізається: вікно дорощується до повної висоти дошки."""
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.MOVES_CONFIG,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
+                                geometry_name="corne_42")
+        root.update()
+        ui.toggle_knobs()
+        root.update()
+        ui.on_mode("generic_105_alpha")
+        for _ in range(5):
+            root.update()
+        bottom = max(s.y for s in ui.slots) + ui.key_height
+        assert ui.board.winfo_height() >= bottom, (ui.board.winfo_height(), bottom)
+        ansi_h = root.winfo_height()
+        # навпаки: назад на Corne — вікно нижчає, без порожнечі під клавішами
+        ui.on_mode("corne_42")
+        for _ in range(5):
+            root.update()
+        bottom = max(s.y for s in ui.slots) + ui.key_height
+        assert bottom <= ui.board.winfo_height() <= bottom + 2 * A.layer_view.BASE_Y + 4
+        assert root.winfo_height() < ansi_h
+        ui.toggle_knobs()
+        root.update()
+        assert ui.board.winfo_height() >= bottom
+    finally:
+        root.destroy()

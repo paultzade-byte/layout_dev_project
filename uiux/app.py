@@ -320,6 +320,7 @@ class LayoutBuilderApp():
         self._build_knob_rows()
         self._notify_layout_changed()
         self._apply_mode_ui()
+        self._fit_window(exact_height=True)
         return True
 
     def on_mode(self, name: str):
@@ -367,17 +368,27 @@ class LayoutBuilderApp():
         """Експорт в ОС — для геометрій, де клавіші мають фізичні назви (`key`)."""
         return any(p.get("key") for p in self.geometry["positions"])
 
-    def _fit_window(self):
-        """Вікно не вужче за дошку і ряд кнопок (інакше праві кнопки обрізаються)."""
-        self.root.update_idletasks()
+    def _fit_window(self, exact_height: bool = False):
+        """exact_height — висота рівно під вміст (після зміни режиму, щоб на
+        нижчій дошці не лишалось порожнього місця від вищої).
+        Вікно не менше за дошку, панель повзунків і ряд кнопок — і за
+        шириною (інакше праві кнопки обрізаються), і за висотою (інакше
+        обрізається нижній ряд, напр. пробіл ANSI після «Детальніше» на Corne).
+        Клавіші стоять через place(), тож розмір дошки задаємо явно."""
         cells = render.key_cells(self.geometry, self.geometry_name)
-        board = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X + 40
+        board_w = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X
+        board_h = max(y for _, _, y, _ in cells) + self.key_height + 2 * layer_view.BASE_Y
+        self.board.config(width=board_w, height=board_h)
+        self.root.update_idletasks()
         buttons = self.button_panel.button_frame.winfo_reqwidth() + 40 + 24
         panel = self.knob_frame.winfo_reqwidth() + 40 if getattr(self, "knobs_open", False) else 0
-        needed = max(900, board, buttons, panel)
-        self.root.minsize(needed, 450)
-        if self.root.winfo_width() < needed:
-            self.root.geometry(f"{needed}x{max(self.root.winfo_height(), self.heigh)}")
+        needed_w = max(900, board_w + 40, buttons, panel)
+        needed_h = max(450, self.root.winfo_reqheight())
+        self.root.minsize(needed_w, needed_h)
+        width, height = self.root.winfo_width(), self.root.winfo_height()
+        new_h = needed_h if exact_height else max(height, needed_h)
+        if width < needed_w or height != new_h:
+            self.root.geometry(f"{max(width, needed_w)}x{new_h}")
 
     # ------------------------------------------------------------------
     # Start / Stop
@@ -748,7 +759,6 @@ class LayoutBuilderApp():
             self.button_knobs_reset.pack(side="right")
             self.button_knobs.config(text="Детальніше ▾")
             self._update_knob_metrics()
-            self._fit_window()
         else:
             self.knob_frame.pack_forget()
             self.button_knobs_reset.pack_forget()
@@ -757,14 +767,13 @@ class LayoutBuilderApp():
         self.root.update_idletasks()
         extra = self.knob_frame.winfo_reqheight() + 8
         width, height = self.root.winfo_width(), self.root.winfo_height()
-        min_width = self.root.minsize()[0]
         if self.knobs_open:
-            self.root.minsize(min_width, 450 + extra)
             height = max(height, self.heigh) + extra
         else:
-            self.root.minsize(min_width, 450)
             height = max(self.heigh, height - extra)
-        self.root.geometry(f"{max(width, min_width)}x{height}")
+        self.root.minsize(1, 1)  # _fit_window нижче поставить справжній мінімум
+        self.root.geometry(f"{width}x{height}")
+        self._fit_window()
 
     def _set_knobs_state(self, state):
         for row in getattr(self, "knob_rows", {}).values():
