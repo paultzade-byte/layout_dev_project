@@ -20,15 +20,21 @@
 
 - `core/scorer.py` — `MovementScoringEngine`: `prepare_statistics()` (дорого,
   раз на запуск) → `update_layout()` (дешево, після мутації) → `score()`
-  (NumPy). Менше = краще.
+  (NumPy, розбивка по компонентах). Менше = краще. Для SA — delta-оцінка:
+  `load()` → `try_layout()` (лише n-грами з переміщеними літерами) →
+  `accept()`. Штрафи бі/три/скіп-грам — з таблиць за кортежами позицій,
+  побудованих у `__init__` тими ж `_*_terms`; `moves` після створення
+  engine не змінювати. Після зміни моделі — `scripts/check_delta.py`.
 - `core/mutator.py` — `LayoutOptimizerSA`: simulated annealing + tabu +
   драбина мутацій (swap → 3-цикл → подвійний swap) + рестарт з best/reheat.
+  Мутації — на місці з undo-списком (без клонування розкладки).
   Температура калібрується за реальними delta на першому прогоні
   (`_calibrate`); параметри — імовірності прийняття в `mutator_config.json`.
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
-  Rec>>/Rec<<, слайдери. `uiux/processors.py` — оптимізація в окремому потоці.
+  Rec>>/Rec<<. Слайдерів ваг немає (прибрані за рішенням автора) — ваги
+  лише в `moves.yaml`. `uiux/processors.py` — оптимізація в окремому потоці.
 - `config/moves.yaml` — усі ваги штрафів (з коментарями).
 - `config/geometry.json` — фізичні позиції (`active_layout`).
 - `config/statistic.json` — уні/бі/три/скіп-грами корпусу UberText.
@@ -37,7 +43,10 @@
 - `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`.
 - `scripts/compare_reference.py` — оптимізатор vs еталон автора
   (`config/reference_layout.json`); `scripts/sa_bench.py` — параметри SA на
-  кількох seed (дивись середнє: розкид між seed 3–4 пункти).
+  кількох seed (дивись середнє: розкид між seed 3–4 пункти);
+  `scripts/multistart.py` — N стартів, найкраща розкладка (`--out` у
+  форматі Rec>>, `--from` — старт із замороженими клавішами);
+  `scripts/check_delta.py` — delta-оцінка == повний `score()`.
 - `.ignore*` — локальні файли автора (корпус ~16 ГБ у `.ignore_storage/`,
   нотатки, старі тести). У git не потрапляють.
 
