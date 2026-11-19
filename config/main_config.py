@@ -16,6 +16,14 @@ GEOMETRY_CONFIG = data["layouts"][ACTIVE]
 statistic_path = f"{PROJ_DIR}/config/statistic.json"
 with open(statistic_path, "r", encoding="utf-8") as file:
     STATISTIC = json.load(file)
+# Частоти слів для hand_runs (scripts/word_counter.py). Рахуються по вибірці
+# корпусу, тому масштабуються до повного корпусу, як і n-грами в statistic.json.
+word_stats_path = PROJ_DIR / "config" / "word_stats.json"
+if word_stats_path.exists():
+    with open(word_stats_path, "r", encoding="utf-8") as file:
+        _word_stats = json.load(file)
+    _scale = 1.0 / _word_stats["meta"]["sample_fraction"]
+    STATISTIC["words"] = {w: n * _scale for w, n in _word_stats["words"].items()}
 moves_config_path = f"{PROJ_DIR}/config/moves.yaml"
 with open(moves_config_path, "r", encoding="utf-8") as file:
     MOVES_CONFIG = yaml.safe_load(file)

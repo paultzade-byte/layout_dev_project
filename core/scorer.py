@@ -50,18 +50,47 @@ _REQUIRED_MOVES_SCHEMA = {
         "finger_multiplier": ("pinky", "ring", "middle", "index", "thumb"),
         "column_multiplier": ("home_col", "col"),
     },
-    "same_finger": ("double_tap", "adjacent_row", "skip_row"),
-    "shape_multiplier": ("vertical", "diagonal", "horizontal"),
+    # None = числовий лист; tuple = вкладена секція з числовими листами
+    "same_finger": {
+        "same_key": None,
+        "lateral": None,
+        "diagonal_down": None,
+        "diagonal_up": None,
+        "vertical": None,
+        "skip_row": {
+            "max": None,
+            "ratio": ("pinky", "ring", "middle", "index"),
+        },
+    },
     "roll": ("inward", "outward", "awkward"),
-    "hand": ("alternation", "strict_alternation", "left_mult", "right_mult"),
+    "roll_rows": ("natural_arc", "bottom_step", "row_skip", "drop_jump"),
+    "hand": ("left_mult", "right_mult"),
+    "hand_runs": ("single", "balanced", "overload", "overload_step"),
+    "finger_alternation": (
+            "brother_finger", "nextdoor_finger", "foreign_finger",
+            "ring_pinky_crash", "thumb_mult",
+        ),
 }
 
+_FINGER_PAIR_CATEGORY = {
+    frozenset({Finger.RING.value, Finger.MIDDLE.value }): "brother_finger",
+    frozenset({Finger.MIDDLE.value, Finger.INDEX.value }): "brother_finger",
+    frozenset({Finger.PINKY.value, Finger.MIDDLE.value }): "nextdoor_finger",
+    frozenset({Finger.RING.value, Finger.INDEX.value }): "nextdoor_finger",
+    frozenset({Finger.PINKY.value, Finger.INDEX.value }): "foreign_finger",
+    frozenset({Finger.PINKY.value, Finger.RING.value }): "ring_pinky_crash",
 
-def load_moves_config(path: str | Path) -> Dict[str, Any]:
-    """Load and validate the numeric movement-policy YAML file."""
+}
+def load_moves_config(path: str | Path, adjusted: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Load and validate the numeric movement-policy YAML file.
+       Merge overrides and validate again."""
     with Path(path).open(encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
-    return validate_moves_config(config)
+    config = validate_moves_config(config)
+    if adjusted:
+        config = merge_config(config, adjusted)
+        config = validate_moves_config(config)
+    return config
 
 
 def validate_moves_config(config: Any) -> Dict[str, Any]:
@@ -69,24 +98,34 @@ def validate_moves_config(config: Any) -> Dict[str, Any]:
     if not isinstance(config, dict) or config.get("version") != 1:
         raise ValueError("moves config must be a mapping with version: 1")
 
-    for section, required in _REQUIRED_MOVES_SCHEMA.items():
-        value = config.get(section)
-        if not isinstance(value, dict):
-            raise ValueError(f"moves config section '{section}' must be a mapping")
-
-        if isinstance(required, dict):
-            for subsection, names in required.items():
-                nested = value.get(subsection)
-                if not isinstance(nested, dict):
-                    raise ValueError(
-                        f"moves config section '{section}.{subsection}' must be a mapping"
-                    )
-                _validate_numeric_values(nested, names, f"{section}.{subsection}")
-        else:
-            _validate_numeric_values(value, required, section)
-
+    _validate_section(config, _REQUIRED_MOVES_SCHEMA, "")
     return config
 
+
+def _validate_section(value: Any, spec: Any, path: str) -> None:
+    """spec: dict -> секція з іменованими полями, tuple -> секція з числовими
+    листами, None -> одне числове значення."""
+    if spec is None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"moves config value '{path}' must be numeric")
+        return
+    if not isinstance(value, dict):
+        raise ValueError(f"moves config section '{path}' must be a mapping")
+    if isinstance(spec, tuple):
+        _validate_numeric_values(value, spec, path)
+        return
+    for name, sub_spec in spec.items():
+        _validate_section(value.get(name), sub_spec, f"{path}.{name}" if path else name)
+
+# recursive merge
+def merge_config(config: Dict[str, Any], adjusted: Dict[str, Any]) -> Dict[str, Any]:
+    updated_config = config.copy()
+    for key, value in adjusted.items():
+        if isinstance(value,dict) and isinstance(updated_config.get(key), dict):
+            updated_config[key] = merge_config(updated_config[key], value)
+        else:
+            updated_config[key] = value
+    return updated_config
 
 def _validate_numeric_values(values: Dict[str, Any], names: Tuple[str, ...], path: str) -> None:
     for name in names:
@@ -94,11 +133,11 @@ def _validate_numeric_values(values: Dict[str, Any], names: Tuple[str, ...], pat
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"moves config value '{path}.{name}' must be numeric")
 
-
 def calculate_total_penalty(
     layout: Layout,
     statistics: Dict[str, Any],
-    moves_config: Dict[str, Any] | None = None,
+    moves_config: Optional[Dict[str, Any]] = None,
+    adjusted: Optional[Dict] = None,
 ) -> float:
     """Slow, self-contained one-off scorer. Rebuilds everything from scratch.
 
@@ -108,7 +147,8 @@ def calculate_total_penalty(
     """
     if moves_config is None:
         moves_config = load_moves_config(
-            Path(__file__).resolve().parents[1] / "config" / "moves.yaml"
+            Path(__file__).resolve().parents[1] / "config" / "moves.yaml",
+            adjusted
         )
     engine = MovementScoringEngine(layout.keys, moves_config)
     engine.prepare_statistics(statistics)
@@ -125,6 +165,9 @@ class MovementScoringEngine:
         self.chars = [key.char for key in layout_keys if key.char]
         self.char_to_idx = {c: i for i, c in enumerate(self.chars)}
         n = len(self.chars)
+        print("n(layout_keys with char):", len(self.chars))
+        print("n(unique chars):", len(self.char_to_idx))
+        print("dup chars:", [c for c in self.chars if self.chars.count(c) > 1])
 
         # Per-char geometry arrays. These DO depend on current positions,
         # so they get refreshed by update_layout() — cheaply (O(n) here).
@@ -150,6 +193,27 @@ class MovementScoringEngine:
                 self._get_finger_name(finger.value)
             ]
 
+        # SFS ratio по Finger.value; thumb перескоків не має -> 0
+        skip_ratio = self.moves["same_finger"]["skip_row"]["ratio"]
+        self._skip_ratio_by_value = np.zeros(6, dtype=np.float64)
+        for finger in (Finger.PINKY, Finger.RING, Finger.MIDDLE, Finger.INDEX):
+            self._skip_ratio_by_value[finger.value] = skip_ratio[self._get_finger_name(finger.value)]
+
+        # finger alternation
+        finger_alt_cfg = self.moves["finger_alternation"]
+        self._finger_alt_mult = np.ones((6, 6), dtype=np.float64)
+        for a in range (1, 6):
+            for b in range(1, 6):
+                if a == b:
+                    continue
+                if a == Finger.THUMB.value or b == Finger.THUMB.value:
+                    self._finger_alt_mult[a, b] = finger_alt_cfg["thumb_mult"]
+                else:
+                    category = _FINGER_PAIR_CATEGORY.get(frozenset({a, b}))
+                    if category is None:
+                        raise ValueError(f"finger_alternation: no category for pair ({a}, {b}")
+                    self._finger_alt_mult[a, b] = finger_alt_cfg[category]
+
         self.update_layout(layout_keys)
 
         # Statistics-derived index arrays — expensive to build, so they are
@@ -159,6 +223,9 @@ class MovementScoringEngine:
         self._skipgram_idx: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
         self._unigram_idx: Optional[np.ndarray] = None
         self._unigram_weight: Optional[np.ndarray] = None
+        # hand runs: n-грами всередині слів -> (index array, weights)
+        self._word_ngrams: Optional[Dict[str, Tuple[np.ndarray, np.ndarray]]] = None
+        self._word_total = 0.0
         self._statistics_prepared = False
 
     # -----------------------------------------------------------
@@ -188,8 +255,47 @@ class MovementScoringEngine:
         self._unigram_idx = np.array(uni_idx, dtype=np.int64)
         self._unigram_weight = np.array(uni_w, dtype=np.float64)
 
+        self._prepare_word_ngrams(statistics.get("words", {}))
+
         self._statistics_prepared = True
         return self
+
+    def _prepare_word_ngrams(self, words: Dict[str, float]) -> None:
+        """Розкладає слова на n-грами, з яких точно відновлюються серії рук
+        (див. _evaluate_hand_runs_vectorized). Агрегація по унікальних
+        n-грамах замість матриці слів у ~10 разів дешевша на кожен score():
+          inner2 — усі пари всередині слова (зміни руки)
+          first2 / last2 — перша / остання пара слова (одиночні серії на краю)
+          inner3 / inner4 / inner5 — вікна з 3 / 4 / 5 літер
+        Слова з символами, яких немає на розкладці, пропускаються.
+        """
+        counters: Dict[str, Dict[Tuple[int, ...], float]] = {
+            name: {} for name in ("inner2", "first2", "last2", "inner3", "inner4", "inner5")
+        }
+
+        def add(name, ids, freq):
+            bucket = counters[name]
+            bucket[ids] = bucket.get(ids, 0.0) + freq
+
+        self._word_total = 0.0
+        for word, freq in words.items():
+            if len(word) < 2:
+                continue
+            ids = [self.char_to_idx.get(ch) for ch in word]
+            if None in ids:
+                continue
+            self._word_total += freq
+            add("first2", tuple(ids[:2]), freq)
+            add("last2", tuple(ids[-2:]), freq)
+            for n in (2, 3, 4, 5):
+                for i in range(len(ids) - n + 1):
+                    add(f"inner{n}", tuple(ids[i:i + n]), freq)
+
+        self._word_ngrams = {}
+        for name, bucket in counters.items():
+            n = int(name[-1])
+            idx = np.array(list(bucket.keys()), dtype=np.int64).reshape(-1, n)
+            self._word_ngrams[name] = (idx, np.array(list(bucket.values()), dtype=np.float64))
 
     def _prepare_pair_arrays(self, pairs: Dict[str, float]):
         idx1, idx2, w = [], [], []
@@ -274,12 +380,16 @@ class MovementScoringEngine:
         if len(s1) > 0:
             self._evaluate_skipgrams_vectorized(s1, s2, sw, metrics)
 
+        if self._word_total > 0:
+            self._evaluate_hand_runs_vectorized(metrics)
+
         metrics.total_penalty = sum((
             metrics.base_effort, metrics.sfb_penalty, metrics.sfs_penalty,
             metrics.double_tap_penalty, metrics.oht_inward_penalty,
             metrics.oht_outward_penalty, metrics.oht_awkward_penalty,
-            metrics.strict_alternation_penalty, metrics.alternation_bonus,
+            metrics.hand_run_penalty,
             metrics.skipgram_same_finger_penalty, metrics.skipgram_same_hand_penalty,
+            metrics.finger_alternation_penalty, metrics.roll_row_penalty,
         ))
         return metrics
 
@@ -293,9 +403,10 @@ class MovementScoringEngine:
 
     def _evaluate_unigrams_vectorized(self, metrics: ScoreMetrics) -> None:
         idx = self._unigram_idx
-        column_weight = self._column_mult_by_flag[self.home_col[idx]]
         if idx is None or len(idx) == 0:
             return
+        # home_col: 0 = дотична колонка, 1 = домашня, інше (напр. 3 у thumb) -> "other"
+        column_weight = self._column_mult_by_flag[np.minimum(self.home_col[idx], 2)]
         left_mult = self.moves["hand"]["left_mult"]
         right_mult = self.moves["hand"]["right_mult"]
         hand = self.hand[idx]
@@ -326,51 +437,77 @@ class MovementScoringEngine:
         same_hand = hand1 == hand2
         same_finger = same_hand & (finger1 == finger2)
 
-        # alternation bonus (різні руки)
-        alternation_mask = ~same_hand
-        metrics.alternation_bonus += np.sum(
-            weight[alternation_mask] * self.moves["hand"]["alternation"]
-        )
+        # Чергування рук тут не оцінюється — його баланс рахує
+        # _evaluate_hand_runs_vectorized по цілих словах.
 
-        # серед same_finger - рахуємо row_difference і shape
-        row_diff = np.abs(row1[same_finger] - row2[same_finger])
-        same_row = row1[same_finger] == row2[same_finger]
-        same_col = col1[same_finger] == col2[same_finger]
-        shape_mult = np.where(
-            same_row, self.moves["shape_multiplier"]["horizontal"],
-            np.where(same_col, self.moves["shape_multiplier"]["vertical"],
-                self.moves["shape_multiplier"]["diagonal"])
-        )
-        finger_mult = self._finger_mult_by_value[finger1[same_finger]]
+        # --- same finger: класифікація руху пальця між двома клавішами ---
+        # row: 0 = верхній, 1 = домашній, 2 = нижній (більше = нижче)
+        sf_finger = finger1[same_finger]
+        sf_row1, sf_row2 = row1[same_finger], row2[same_finger]
+        sf_col1, sf_col2 = col1[same_finger], col2[same_finger]
         w_sf = weight[same_finger]
-        mult = shape_mult * finger_mult
+        row_diff = np.abs(sf_row1 - sf_row2)
+        same_col = sf_col1 == sf_col2
 
-        double_tap_mask = row_diff == 0
-        adjacent_mask = row_diff == 1
+        sf_cfg = self.moves["same_finger"]
+        # Одна клавіша двічі ("нн") — палець не переміщується, це не SFB.
+        same_key_mask = (row_diff == 0) & same_col
+        # SFB на сусідній ряд або в сусідню колонку. Шкала від легкого до важкого:
+        #   lateral (горизонталь, напр. вказівний 4<->5)  <  diagonal_down  <  diagonal_up
+        #   vertical — той самий стовпчик, сусідній ряд.
+        lateral_mask = (row_diff == 0) & ~same_col
+        vertical_mask = (row_diff == 1) & same_col
+        diagonal_down_mask = (row_diff == 1) & ~same_col & (sf_row2 > sf_row1)
+        diagonal_up_mask = (row_diff == 1) & ~same_col & (sf_row2 < sf_row1)
+        sfb_weight = np.select(
+            [lateral_mask, vertical_mask, diagonal_down_mask, diagonal_up_mask],
+            [sf_cfg["lateral"], sf_cfg["vertical"], sf_cfg["diagonal_down"], sf_cfg["diagonal_up"]],
+            default=0.0,
+        )
+        # для одно-рядних рухів зберігається множник сили пальця
+        finger_mult = self._finger_mult_by_value[sf_finger]
+
+        # SFS — перескок через домашній ряд (нижній <-> верхній).
+        # Абсолютна шкала, без множника пальця: max — мізинець з дотичної
+        # (розтягнутої, home_col == 0) колонки на домашню; решта перескоків =
+        # ratio[палець] * max (за замовчуванням 90%).
         skip_mask = row_diff >= 2
+        skip_cfg = sf_cfg["skip_row"]
+        skip_weight = skip_cfg["max"] * self._skip_ratio_by_value[sf_finger]
+        pinky_stretch_to_home = (
+            (sf_finger == Finger.PINKY.value)
+            & (self.home_col[idx1[same_finger]] == 0)
+            & (self.home_col[idx2[same_finger]] == 1)
+        )
+        skip_weight = np.where(pinky_stretch_to_home, skip_cfg["max"], skip_weight)
+
+        # same hand, different finger — finger_alternation
+        same_hand_diff_finger = same_hand & (finger1 != finger2)
+        f1 = finger1[same_hand_diff_finger]
+        f2 = finger2[same_hand_diff_finger]
+        h = hand1[same_hand_diff_finger]
+        w = weight[same_hand_diff_finger]
+
+        alt_mult = self._finger_alt_mult[f1, f2]
+        hand_mult = np.where(
+            h == "left", self.moves["hand"]["left_mult"], self.moves["hand"]["right_mult"]
+        )
 
         metrics.double_tap_penalty += np.sum(
-            w_sf[double_tap_mask] * mult[double_tap_mask] * self.moves["same_finger"]["double_tap"]
+            w_sf[same_key_mask] * finger_mult[same_key_mask] * sf_cfg["same_key"]
         )
-        metrics.sfb_penalty += np.sum(
-            w_sf[adjacent_mask] * mult[adjacent_mask] * self.moves["same_finger"]["adjacent_row"]
-        )
-        metrics.sfs_penalty += np.sum(
-            w_sf[skip_mask] * mult[skip_mask] * self.moves["same_finger"]["skip_row"]
-        )
+        metrics.sfb_penalty += np.sum(w_sf * sfb_weight * finger_mult)
+        metrics.sfs_penalty += np.sum(w_sf[skip_mask] * skip_weight[skip_mask])
+        metrics.finger_alternation_penalty += np.sum(w * alt_mult * hand_mult)
 
     def _evaluate_trigrams_vectorized(self, idx1, idx2, idx3, weight, metrics):
         hand1, hand2, hand3 = self.hand[idx1], self.hand[idx2], self.hand[idx3]
         finger1, finger2, finger3 = self.finger[idx1], self.finger[idx2], self.finger[idx3]
 
-        # strict alternation: hand1==hand3, hand1 != hand2  (ABA pattern)
-        strict_alt_mask = (hand1 == hand3) & (hand1 != hand2)
-        metrics.strict_alternation_penalty += np.sum(
-            weight[strict_alt_mask] * self.moves["hand"]["strict_alternation"]
-        )
+        # Пінбол (L-R-L) тепер частина hand_runs (серія довжиною 1).
 
         # same-hand triples only (усі три на одній руці)
-        same_hand_mask = (hand1 == hand2) & (hand2 == hand3) & ~strict_alt_mask
+        same_hand_mask = (hand1 == hand2) & (hand2 == hand3)
         f1, f2, f3 = finger1[same_hand_mask], finger2[same_hand_mask], finger3[same_hand_mask]
         w = weight[same_hand_mask]
 
@@ -381,6 +518,41 @@ class MovementScoringEngine:
         metrics.oht_inward_penalty += np.sum(w[inward_mask] * self.moves["roll"]["inward"])
         metrics.oht_outward_penalty += np.sum(w[outward_mask] * self.moves["roll"]["outward"])
         metrics.oht_awkward_penalty += np.sum(w[awkward_mask] * self.moves["roll"]["awkward"])
+
+        # --- форма перекату по рядах (додається до штрафу напрямку вище) ---
+        # Лише справжні перекати: сусідні натискання різними пальцями.
+        roll_mask = (f1 != f2) & (f2 != f3)
+        r1 = self.row[idx1[same_hand_mask]][roll_mask]
+        r2 = self.row[idx2[same_hand_mask]][roll_mask]
+        r3 = self.row[idx3[same_hand_mask]][roll_mask]
+        rf = np.stack([f1[roll_mask], f2[roll_mask], f3[roll_mask]])
+        rr = np.stack([r1, r2, r3])
+        rw = w[roll_mask]
+
+        has_top = np.any(rr == 0, axis=0)
+        has_bottom = np.any(rr == 2, axis=0)
+        # Довгі пальці (середній, безіменний) природно дістають верхній ряд.
+        top_by_short_finger = np.any(
+            (rr == 0) & ((rf == Finger.INDEX.value) | (rf == Finger.PINKY.value)), axis=0
+        )
+        # 1) Провал і перескок: проміжна літера скидає палець на нижній ряд,
+        #    а наступна змушує стрибнути з нижнього на верхній. Найгірше.
+        drop_jump = (r1 != 2) & (r2 == 2) & (r3 == 0)
+        # 2) Перекат через ряд: є і верхній, і нижній (напр. третя літера внизу
+        #    після верхнього ряду). Трохи гірше.
+        row_skip = has_top & has_bottom & ~drop_jump
+        # 3) Природна дуга: домашній ряд + верхній лише довгими пальцями
+        #    (мізинець home, середній top, вказівний home). Зручно -> бонус.
+        natural_arc = has_top & ~has_bottom & ~top_by_short_finger
+        # 4) Домашній + нижній без верхнього (дві на home, третя внизу). Нормально.
+        bottom_step = has_bottom & ~has_top
+
+        rows_cfg = self.moves["roll_rows"]
+        metrics.roll_row_penalty += float(np.sum(rw * np.select(
+            [drop_jump, row_skip, natural_arc, bottom_step],
+            [rows_cfg["drop_jump"], rows_cfg["row_skip"], rows_cfg["natural_arc"], rows_cfg["bottom_step"]],
+            default=0.0,
+        )))
 
     def _evaluate_skipgrams_vectorized(self, idx1, idx2, weight, metrics):
         hand1, hand2 = self.hand[idx1], self.hand[idx2]
@@ -396,13 +568,57 @@ class MovementScoringEngine:
             weight[same_hand & ~same_finger] * self.moves.get("skip_bigram", {}).get("same_hand", 0.1)
         )
 
-    # @staticmethod
-    # def get_row_name(row_index: int) -> str:
-    #     return {0: "top", 1: "home_row", 2: "bottom"}.get(row_index, "other")
+    def _evaluate_hand_runs_vectorized(self, metrics):
+        """Баланс альтернації рук по словах.
 
-    # @staticmethod
-    # def get_col_name(col_index: int) -> str:
-    #     return {1: "home_col", 0: "col"}.get(col_index, "other")
+        Слово розбивається на серії — підряд натискання однією рукою
+        ("берилій" цілком однією рукою = одна серія з 7). Ідеал — серії по
+        2-3 (2-2, 3-3, 2-3...): лишають місце для перекатів і не
+        перевантажують руку. Штраф за серію:
+          1     -> single (пінбол L-R-L), лише всередині слова: одиночна
+                   літера на краю слова не є пінболом
+          2..3  -> balanced
+          4+    -> overload + (довжина - 4) * overload_step
+
+        Без циклу по серіях — через вікна. Серія довжини n містить n-3 вікон
+        "4 підряд однією рукою" і n-4 вікон "5 підряд", тому:
+          кількість серій 4+   = C4 - C5
+          сума (n - 4) по ним  = C5
+        Пінбол = вікно з 3, де середня літера іншою рукою, ніж обидві сусідні
+        (вони тоді гарантовано існують, тобто серія всередині слова).
+        Усього серій = кількість слів + змін руки всередині слів.
+        Серії 2-3 = усі - (4+) - пінбол - одиночні на краях слова.
+        """
+        cfg = self.moves["hand_runs"]
+        hand = (self.hand == "right").astype(np.int8)  # 0 = ліва, 1 = права
+        ng = self._word_ngrams
+
+        def weight_where(name, predicate):
+            idx, w = ng[name]
+            if len(idx) == 0:
+                return 0.0
+            h = hand[idx]
+            return float(w[predicate(h)].sum())
+
+        switch = lambda h: h[:, 0] != h[:, 1]
+        all_same = lambda h: np.all(h == h[:, :1], axis=1)
+
+        switches = weight_where("inner2", switch)
+        edge_single = weight_where("first2", switch) + weight_where("last2", switch)
+        single = weight_where("inner3", lambda h: (h[:, 0] != h[:, 1]) & (h[:, 1] != h[:, 2]))
+        c4 = weight_where("inner4", all_same)
+        c5 = weight_where("inner5", all_same)
+
+        long_runs = c4 - c5
+        runs = self._word_total + switches
+        short_runs = runs - long_runs - single - edge_single  # серії з 2-3
+
+        metrics.hand_run_penalty += (
+            cfg["single"] * single
+            + cfg["balanced"] * short_runs
+            + cfg["overload"] * long_runs
+            + cfg["overload_step"] * c5
+        )
 
     @staticmethod
     def _get_finger_name(finger_value) -> str:
