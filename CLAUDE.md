@@ -30,8 +30,11 @@
   `accept()`. Штрафи бі/три/скіп-грам — з таблиць за кортежами позицій,
   побудованих у `__init__` тими ж `_*_terms`; `moves` після створення
   engine не змінювати. Після зміни моделі — `scripts/check_delta.py`.
-- `core/mutator.py` — `LayoutOptimizerSA`: simulated annealing + tabu +
-  драбина мутацій (swap → 3-цикл → подвійний swap) + рестарт з best/reheat.
+- `core/mutator.py` — `LayoutOptimizerSA`: simulated annealing із сумішшю
+  мутацій (`mutation_mix`: 85% swap / 15% 3-цикл; `null` — стара драбина
+  swap → 3-цикл → подвійний swap) + рестарт з best/reheat + фінальне
+  дотюнювання `_polish` (усі swap, потім 3-цикли, до локального оптимуму).
+  Tabu за станом вимкнено (`tabu_size: 0`, див. WORKLOG 2026-11-19).
   Мутації — на місці з undo-списком (без клонування розкладки).
   Температура калібрується за реальними delta на першому прогоні
   (`_calibrate`); параметри — імовірності прийняття в `mutator_config.json`.
