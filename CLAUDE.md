@@ -99,26 +99,24 @@ python ukr_layout.py          # GUI через точку входу exe (--smok
 systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m PyInstaller \
   --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
 ```
-PyInstaller — **не** під cpulimit: він запускає дочірні процеси, і cpulimit
-2026-11-15 лишив збірку зупиненою (SIGSTOP) на 6 годин. `systemd-run … CPUQuota`
-обмежує через cgroup і покриває дочірні.
-
-Тести (`tests/`, разом ~30 с; GUI-тест потребує дисплея):
+Тести (`tests/`, разом ~70 с; GUI-тест потребує дисплея):
 ```bash
-xvfb-run -a env OPENBLAS_NUM_THREADS=1 nice -n 10 cpulimit -l 60 -f -m -q -- .venv/bin/python -m pytest -q -p no:cacheprovider
+systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 \
+  xvfb-run -a env OPENBLAS_NUM_THREADS=1 .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
-cpulimit — лише на `python` (xvfb-run — shell-скрипт, див. правила нижче).
 
 ## Правила роботи
 
 - Один коміт на один пункт/виправлення. Не пушити без дозволу.
-- Важкі обчислення (корпус, довгі прогони оптимізатора) — під обмеженням CPU:
-  `cpulimit -l 60 -f -m -q -- python script.py` (60% — побажання автора; ця версія cpulimit не має `-i`).
-  Воркери multiprocessing — з `os.nice()`.
-  **Будь-які** обчислення, крім миттєвих перевірок, — через cpulimit, по одному
-  процесу, без паралельних прогонів. cpulimit ставити на кожен `python`
-  окремо, **ніколи** на bash-скрипт/цикл: `cpulimit -m bash ...` 2026-11-02
-  наплодив тисячі копій (load ~3800, кулери на максимум).
+- Обмеження CPU (60% — побажання автора) — **через cgroup, не cpulimit** (з 2026-11-19):
+  `systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 env OPENBLAS_NUM_THREADS=1 .venv/bin/python ...`
+  Квоту тримає ядро для всієї групи (дочірні процеси й потоки теж), процес
+  ніхто не зупиняє. cpulimit шле SIGSTOP/SIGCONT і тричі підвів: 2026-11-02
+  `cpulimit -m bash ...` — fork bomb (load ~3800); 2026-11-15 збірка exe і
+  2026-11-19 pytest лишились зупиненими (стан `T`). Ніколи не вертатись до нього.
+  **Будь-які** обчислення, крім миттєвих перевірок, — під квотою, по одному
+  процесу, без паралельних прогонів (одна квота на один запуск). Воркери
+  multiprocessing — з `os.nice()`.
 - Згенеровані текстові файли (статистика, звіти) — не більше 50 МБ.
 - Нові ваги — у `moves.yaml` з коментарем, що вони означають; схема
   обов'язкових ключів — `_REQUIRED_MOVES_SCHEMA` у `core/scorer.py`.

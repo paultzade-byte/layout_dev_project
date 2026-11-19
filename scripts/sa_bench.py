@@ -4,9 +4,9 @@
 параметрами SA, тому дивимось середнє по seed, а не один прогін.
 
 Запуск з кореня проєкту (під обмеженням CPU):
-    cpulimit -l 60 -f -m -q -- python scripts/sa_bench.py ІТЕРАЦІЙ SEED[,SEED...] ['{json-перевизначення mutator_config}']
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 python scripts/sa_bench.py ІТЕРАЦІЙ SEED[,SEED...] ['{json-перевизначення mutator_config}']
 напр.:
-    cpulimit -l 60 -f -m -q -- python scripts/sa_bench.py 60000 1,2,3 '{"accept_start": 0.2}'
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 python scripts/sa_bench.py 60000 1,2,3 '{"accept_start": 0.2}'
 """
 
 import json

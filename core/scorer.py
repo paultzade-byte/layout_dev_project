@@ -566,7 +566,7 @@ class MovementScoringEngine:
         for fam in self._families.values():
             code = fam.code(fam.keys)
             for field, table in fam.tables.items():
-                # не np.dot: багатопотоковий BLAS під cpulimit у рази повільніший
+                # не np.dot: багатопотоковий BLAS під обмеженням CPU у рази повільніший
                 setattr(metrics, field, getattr(metrics, field) + float((table[code] * fam.weight).sum()))
 
         metrics.total_penalty = sum((
