@@ -62,6 +62,13 @@ class LayoutOptimizerSA:
         # потім 3-цикли (polish_cycles), якщо swap уже нічого не дають
         self.polish = self.config.get("polish", True)
         self.polish_cycles = self.config.get("polish_cycles", True)
+        # фіксована суміш мутацій [swap, 3-цикл, подвійний swap] замість
+        # драбини (escalate після застою); None — драбина
+        self.mutation_mix = self.config.get("mutation_mix")
+        if self.mutation_mix is not None:
+            if len(self.mutation_mix) != 3 or min(self.mutation_mix) < 0 or sum(self.mutation_mix) <= 0:
+                raise ValueError("mutation_mix must be 3 non-negative weights [swap, cycle, double]")
+        self.tabu_hits = 0
         if not 0 < self.accept_end < 1 or not 0 < self.accept_reheat <= self.accept_start < 1:
             raise ValueError("need 0 < accept_end < 1 and 0 < accept_reheat <= accept_start < 1")
         if not 0 <= self.end_quantile <= 0.5:
@@ -260,8 +267,6 @@ class LayoutOptimizerSA:
 
         # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {self.current_score}")
 
-        tabu_hits = 0
-
         if iterations < 1:
             raise ValueError("iterations must be at least 1")
         self._require_mutable_keys(self._unfrozen(self.current_layout), 2)
@@ -297,14 +302,16 @@ class LayoutOptimizerSA:
 
             # кандидат — current_layout після мутації на місці; якщо його не
             # прийнято, _undo повертає current_layout назад
+            if self.mutation_mix is not None:
+                ladder_index = self.rng.choices((0, 1, 2), weights=self.mutation_mix)[0]
             undo = self._apply_mutation(self.current_layout, ladder_index)
-            sig = self._signature(self.current_layout)
+            sig = self._signature(self.current_layout) if self.tabu_size else None
 
-            if sig in self.tabu:
+            if sig is not None and sig in self.tabu:
                 # цей стан вже недавно відвідували — пропускаємо ітерацію,
                 # без витрати на переоцінку
                 self._undo(undo)
-                tabu_hits += 1
+                self.tabu_hits += 1
                 continue
 
             candidate_score = self.engine.try_layout(self.current_layout.keys)
@@ -323,9 +330,10 @@ class LayoutOptimizerSA:
                 accepted_count += 1
                 self.engine.accept()
                 self.current_score = candidate_score
-                self.tabu.append(sig)
-                if len(self.tabu) > self.tabu_size:
-                    self.tabu.pop(0)
+                if sig is not None:
+                    self.tabu.append(sig)
+                    if len(self.tabu) > self.tabu_size:
+                        self.tabu.pop(0)
 
             if candidate_score < self.best_score:
                 improved_count += 1
@@ -338,14 +346,15 @@ class LayoutOptimizerSA:
                     "event": f"improve via {self.MUTATION_LADDER_NAMES[ladder_index]}"
                 })
                 stall_counter = 0
-                ladder_index = 0
+                if self.mutation_mix is None:
+                    ladder_index = 0
             else:
                 stall_counter += 1
 
             if not accepted:
                 self._undo(undo)
 
-            if stall_counter > 0 and stall_counter % self.stall_window == 0:
+            if self.mutation_mix is None and stall_counter > 0 and stall_counter % self.stall_window == 0:
                 mutable_count = len(self._unfrozen(self.current_layout))
                 max_ladder_index = 2 if mutable_count >= 4 else 1 if mutable_count >= 3 else 0
                 if ladder_index < max_ladder_index:

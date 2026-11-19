@@ -39,7 +39,7 @@ def main():
             if h["event"].startswith("polish"):
                 print(f"seed={seed}: {h['event']}")
         print(f"seed={seed}: best {scores[-1]:.2f}  last improve @{improves[-1] if improves else 0}  "
-              f"accepted {optimizer.accepted_count}  restarts {sum(e.startswith('restart') for e in events)}  "
+              f"accepted {optimizer.accepted_count}  tabu hits {optimizer.tabu_hits}  restarts {sum(e.startswith('restart') for e in events)}  "
               f"{time.time() - started:.0f}s")
         print(grid(best) + "\n" + summary(best))
     print(f"{json.dumps(overrides, ensure_ascii=False)}: mean {sum(scores) / len(scores):.2f}  "
