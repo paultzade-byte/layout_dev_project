@@ -87,6 +87,7 @@ _REQUIRED_MOVES_SCHEMA = {
     "row_shape": (
         "ring_over_middle", "pinky_over_ring", "pinky_over_middle",
         "pinky_over_index", "index_over_middle", "index_over_ring", "curl_ratio",
+        "ring_curl_ratio", "curl_keeps_bonus",
     ),
     "stretch": ("per_column",),
     "hand": ("left_mult", "right_mult"),
@@ -765,7 +766,12 @@ class MovementScoringEngine:
         lower = np.where(first_up, f2, f1)
         upper_row = np.minimum(r1, r2)
         mult = self._scissor_mult[upper, lower] * np.abs(r1 - r2)
-        mult = np.where(upper_row <= 0, mult, mult * self.moves["row_shape"]["curl_ratio"])
+        shape = self.moves["row_shape"]
+        # безіменний над середнім — власний коефіцієнт (автор 2026-11-19:
+        # «ма»/«ам» так само незручні, як «об»/«бо»)
+        ring_middle = (upper == Finger.RING.value) & (lower == Finger.MIDDLE.value)
+        curl = np.where(ring_middle, shape["ring_curl_ratio"], shape["curl_ratio"])
+        mult = np.where(upper_row <= 0, mult, mult * curl)
         valid = (g.hand[idx1] == g.hand[idx2]) & (f1 != f2) & (r1 != r2) & (r1 <= 2) & (r2 <= 2)
         return np.where(valid, mult, 0.0)
 
@@ -854,8 +860,11 @@ class MovementScoringEngine:
         # "ам" (вказівний вище або довший провалюється вниз) бонус зберігають.
         scissor = self._scissor_weight(g, idx1, idx2)
         upper_finger = np.where(row1 < row2, finger1, finger2)
+        # curl_keeps_bonus = 0: бонус знімається і тоді, коли довший палець
+        # провалюється вниз ("ма", "ам"), не лише при тягненні на верх
         reach_up = (
-            (scissor > 0) & (np.minimum(row1, row2) <= 0)
+            (scissor > 0)
+            & ((np.minimum(row1, row2) <= 0) | (self.moves["row_shape"]["curl_keeps_bonus"] == 0))
             & ((upper_finger == Finger.RING.value) | (upper_finger == Finger.PINKY.value))
         )
         alt_weight = self._finger_alt_mult[finger1, finger2]
