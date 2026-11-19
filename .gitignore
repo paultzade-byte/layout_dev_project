@@ -45,3 +45,7 @@ pstruct.txt
 
 logs/
 vis_mon_system/logs/
+
+# 8. Збірка exe (PyInstaller)
+/build/
+/dist/
