@@ -7,5 +7,7 @@
   "stall_window": 300,
   "restart_window": 2000,
   "tabu_size": 50,
+  "polish": true,
+  "polish_cycles": true,
   "seed": 42
 }

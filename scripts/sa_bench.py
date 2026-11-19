@@ -35,6 +35,9 @@ def main():
         events = [h["event"] for h in optimizer.history]
         improves = [h["iter"] for h in optimizer.history if h["event"].startswith("improve")]
         scores.append(optimizer.best_score / 1e8)
+        for h in optimizer.history:
+            if h["event"].startswith("polish"):
+                print(f"seed={seed}: {h['event']}")
         print(f"seed={seed}: best {scores[-1]:.2f}  last improve @{improves[-1] if improves else 0}  "
               f"accepted {optimizer.accepted_count}  restarts {sum(e.startswith('restart') for e in events)}  "
               f"{time.time() - started:.0f}s")

@@ -7,6 +7,7 @@ import random
 import uuid
 import json
 import threading
+import time
 
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, List
@@ -57,6 +58,10 @@ class LayoutOptimizerSA:
         self.stall_window = self.config.get("stall_window", 300)
         self.restart_window = self.config.get("restart_window", 2000)
         self.tabu_size = self.config.get("tabu_size", 50)
+        # фінальне дотюнювання (_polish): найкращий swap, поки покращує;
+        # потім 3-цикли (polish_cycles), якщо swap уже нічого не дають
+        self.polish = self.config.get("polish", True)
+        self.polish_cycles = self.config.get("polish_cycles", True)
         if not 0 < self.accept_end < 1 or not 0 < self.accept_reheat <= self.accept_start < 1:
             raise ValueError("need 0 < accept_end < 1 and 0 < accept_reheat <= accept_start < 1")
         if not 0 <= self.end_quantile <= 0.5:
@@ -380,6 +385,90 @@ class LayoutOptimizerSA:
             #if i < 10:
             #    print(f"i={i} ... candidate_score={candidate_score} ... self.current_score={self.current_score} ... self.best_score={self.best_score} ... delta={delta}")
 
+        if self.polish and not (self.stop_event is not None and self.stop_event.is_set()):
+            self._polish(self.best_layout, iteration=i, ui_callback=ui_callback)
+
         self.engine.update_layout(self.best_layout.keys)
         self.best_layout.score = self.engine.score()
         return copy.deepcopy(self.best_layout)
+
+    def _polish(self, layout: Layout, iteration: int = 0,
+                ui_callback: Optional[Callable[..., None]] = None) -> None:
+        """Спуск до локального оптимуму: перебрати всі swap рухомих клавіш,
+        застосувати найкращий покращувальний, повторювати, поки є. Коли swap
+        не дають нічого — те саме для 3-циклів (обидва напрямки), і назад до
+        swap. Детермінований (без rng). Міняє layout на місці; якщо це
+        best_layout — оновлює best_score (і GUI через ui_callback після
+        кожного ходу) і пише подію "polish" в history."""
+        stop = self.stop_event
+        keys = list(self._unfrozen(layout))
+        n = len(keys)
+        score = self._load(layout)
+        start = score
+        swaps = cycles = 0
+        started = time.perf_counter()
+
+        def evaluate(group, chars):
+            old = [k.char for k in group]
+            for k, c in zip(group, chars):
+                k.char = c
+            value = self.engine.try_layout(layout.keys)
+            for k, c in zip(group, old):
+                k.char = c
+            return value
+
+        def apply(group, chars):
+            for k, c in zip(group, chars):
+                k.char = c
+            value = self.engine.try_layout(layout.keys)
+            self.engine.accept()
+            if layout is self.best_layout:
+                self.best_score = value
+                if ui_callback:
+                    ui_callback(layout, value, current_iteration=iteration)
+            return value
+
+        while True:
+            if stop is not None and stop.is_set():
+                break
+            best = (score, None, None)
+            for a in range(n):
+                for b in range(a + 1, n):
+                    group = (keys[a], keys[b])
+                    chars = (keys[b].char, keys[a].char)
+                    value = evaluate(group, chars)
+                    if value < best[0]:
+                        best = (value, group, chars)
+            if best[1] is not None:
+                score = apply(best[1], best[2])
+                swaps += 1
+                continue
+            if not self.polish_cycles or n < 3:
+                break
+            # 3-циклів у ~25 разів більше, ніж swap, тож тут — перше
+            # покращення: застосувати одразу і перебирати далі; після проходу
+            # з покращеннями — знову swap
+            found = 0
+            for a in range(n):
+                if stop is not None and stop.is_set():
+                    break
+                for b in range(a + 1, n):
+                    for c in range(b + 1, n):
+                        ka, kb, kc = keys[a], keys[b], keys[c]
+                        group = (ka, kb, kc)
+                        for chars in ((kc.char, ka.char, kb.char), (kb.char, kc.char, ka.char)):
+                            if evaluate(group, chars) < score:
+                                score = apply(group, chars)
+                                found += 1
+                                break
+            if not found:
+                break
+            cycles += found
+
+        if layout is self.best_layout:
+            if score < start:
+                self.best_id = str(uuid.uuid4())[:8]
+            self.history.append({
+                "iter": iteration, "id": self.best_id, "score": score,
+                "event": f"polish: {swaps} swap, {cycles} cycle, {start / 1e8:.2f} -> {score / 1e8:.2f}, {time.perf_counter() - started:.1f}s",
+            })
