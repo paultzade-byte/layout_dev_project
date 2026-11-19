@@ -34,6 +34,7 @@ jobs:
       # 2026-11-15) — впалі тести проганяються ще раз.
       - name: Тести
         shell: pwsh
+        timeout-minutes: 10   # модальне вікно в тесті не повинно вішати збірку на добу
         run: |
           python -m pytest -q
           if ($LASTEXITCODE -ne 0) { python -m pytest -q --lf }

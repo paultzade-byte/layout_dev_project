@@ -292,7 +292,12 @@ def test_presets_menu_apply_save_delete(monkeypatch):
         assert "мій" in settings.load()["presets"]["generic_105_alpha"]
         ui.on_preset_delete("мій")
         assert "свій" in ui.button_preset.cget("text")
+        # tk_popup на Windows — модальний цикл меню: у CI ніхто його не закриє
+        # і тест висить вічно (2026-11-19). Перевіряємо лише, що меню будується.
+        popups = []
+        monkeypatch.setattr(A.tk.Menu, "tk_popup", lambda self, *a, **k: popups.append(self))
         ui.show_preset_menu()   # меню будується без помилок
+        assert popups
         root.update()
     finally:
         root.destroy()
