@@ -41,6 +41,7 @@ scripts) — they rebuild everything from scratch every call, same as before.
 Do NOT use them inside a hot loop.
 """
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
@@ -48,7 +49,12 @@ import numpy as np
 
 import yaml
 
+from core import kernels
 from core.models import Finger, Key, Layout, ScoreMetrics
+
+# Скомпільовані ядра delta-оцінки (core/kernels.py), якщо є numba.
+# LAYOUT_NO_NUMBA=1 — примусово NumPy-шлях (порівняння, діагностика).
+USE_KERNELS = kernels.AVAILABLE and os.environ.get("LAYOUT_NO_NUMBA") != "1"
 
 
 # Символи, які не оцінюються ніколи, навіть якщо стоять на розкладці.
@@ -171,6 +177,11 @@ class _Family(NamedTuple):
     by_hand: bool              # залежить лише від рук літер (hand_runs)
     by_char: Tuple[np.ndarray, ...]  # [c] -> відсортовані індекси n-грам з літерою c
     scratch: np.ndarray        # (N,) bool, завжди False між викликами — для об'єднання by_char
+    kind: str                  # "position" / "hand" / "same_hand" — яке ядро (core/kernels.py)
+    indptr: np.ndarray         # by_char у форматі CSR для ядер
+    indices: np.ndarray
+    sub_buf: np.ndarray        # (N,) int64 — буфер ядра для індексів n-грам
+    new_buf: np.ndarray        # (N,) float64 — буфер ядра для нових внесків
 
 
 class MovementScoringEngine:
@@ -366,6 +377,10 @@ class MovementScoringEngine:
         self._families[name] = _Family(
             keys, weight, code, tables, sum(tables.values()), masks, by_hand, by_char,
             np.zeros(len(weight), dtype=bool),
+            {"_position_code": "position", "_hand_code": "hand",
+             "_same_hand_code": "same_hand"}[code.__name__],
+            *kernels.csr(by_char),
+            np.empty(len(weight), dtype=np.int64), np.empty(len(weight), dtype=np.float64),
         )
 
     def _char_masks(self, idx: np.ndarray) -> np.ndarray:
@@ -603,6 +618,13 @@ class MovementScoringEngine:
         moved = self.position != self._loaded_position
         moved_chars = np.flatnonzero(moved)
         moved_hand_chars = np.flatnonzero(moved & (self.hand != self._loaded_hand))
+        global USE_KERNELS
+        if USE_KERNELS:
+            try:
+                return self._try_kernels(moved_chars, moved_hand_chars)
+            except Exception as error:  # компіляція не вдалась — далі NumPy
+                USE_KERNELS = False
+                print(f"numba kernels disabled: {type(error).__name__}: {error}")
         ngram_total = self._ngram_total
         changes = []
         for name, fam in self._families.items():
@@ -620,6 +642,30 @@ class MovementScoringEngine:
             new = fam.total[fam.code(fam.keys[..., sub])] * fam.weight[sub]
             ngram_total += float(new.sum()) - float(self._cost[name][sub].sum())
             changes.append((name, sub, new))
+        self._pending = (self.position.copy(), self.hand.copy(), changes, ngram_total)
+        return sum(self._unigram_terms()) + self._hand_run_constant() + ngram_total
+
+    def _try_kernels(self, moved_chars: np.ndarray, moved_hand_chars: np.ndarray) -> float:
+        """try_layout через скомпільовані ядра (core/kernels.py)."""
+        ngram_total = self._ngram_total
+        changes = []
+        n_pos = len(self._pos.row)
+        for name, fam in self._families.items():
+            chars = moved_hand_chars if fam.by_hand else moved_chars
+            if len(chars) == 0:
+                continue
+            args = (fam.indptr, fam.indices, chars, fam.scratch, fam.sub_buf, fam.new_buf,
+                    fam.keys, fam.weight, fam.total, self._cost[name])
+            if fam.kind == "position":
+                m, delta = kernels.delta_position(*args, self.position, n_pos)
+            elif fam.kind == "hand":
+                m, delta = kernels.delta_hand(*args, self._hand64)
+            else:
+                m, delta = kernels.delta_same_hand(*args, self._right_mask)
+            ngram_total += delta
+            # без копій: буфери перепише лише наступний try_layout, а accept()
+            # застосовує саме останній
+            changes.append((name, fam.sub_buf[:m], fam.new_buf[:m]))
         self._pending = (self.position.copy(), self.hand.copy(), changes, ngram_total)
         return sum(self._unigram_terms()) + self._hand_run_constant() + ngram_total
 
