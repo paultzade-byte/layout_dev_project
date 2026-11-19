@@ -31,6 +31,7 @@ class LayoutOptimizerSA:
         stop_event: Optional[threading.Event] = None,
     ):
         self.stop_event = stop_event
+        self._unfrozen_cache = None  # (layout, [рухомі Key]) — див. _unfrozen
         self.moves_config = moves_config
         self.best_layout = copy.deepcopy(initial_layout)
         self.statistics = statistics
@@ -105,6 +106,7 @@ class LayoutOptimizerSA:
             копії оптимізатора, за position_id. Потрібно тому що drag/freeze на
             паузі міняють self.layout в App, а не внутрішні current_layout/
             best_layout оптимізатора."""
+        self._unfrozen_cache = None
         state_by_position = {
             key.position_id: (key.char, key.is_frozen)
             for key in reference_layout.keys
@@ -127,12 +129,23 @@ class LayoutOptimizerSA:
     # -----------------------------------------------------------
 
     def _unfrozen(self, layout: Layout):
-        """Return only characters the optimizer is allowed to relocate."""
-        return [
+        """Return only characters the optimizer is allowed to relocate.
+
+        Кешується для об'єкта layout: під час прогону freeze не змінюється
+        (GUI блокує його, поки йде оптимізація), а мутації лише міняють
+        місцями однолітерні char. Нова розкладка (deepcopy при старті /
+        рестарті) — інший об'єкт, тож кеш перебудовується сам; правки з GUI
+        приходять через sync_full_state, який кеш скидає."""
+        cached = self._unfrozen_cache
+        if cached is not None and cached[0] is layout:
+            return cached[1]
+        keys = [
             key
             for key in layout.keys
             if key.is_frozen == False and key.char and len(key.char) == 1
         ]
+        self._unfrozen_cache = (layout, keys)
+        return keys
 
     @staticmethod
     def _require_mutable_keys(keys, required):
