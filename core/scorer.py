@@ -169,6 +169,8 @@ class _Family(NamedTuple):
     total: np.ndarray          # сума tables
     masks: np.ndarray          # (N,) uint64: біт c — літера c є в n-грамі
     by_hand: bool              # залежить лише від рук літер (hand_runs)
+    by_char: Tuple[np.ndarray, ...]  # [c] -> відсортовані індекси n-грам з літерою c
+    scratch: np.ndarray        # (N,) bool, завжди False між викликами — для об'єднання by_char
 
 
 class MovementScoringEngine:
@@ -358,8 +360,12 @@ class MovementScoringEngine:
     def _add_family(self, name, keys, masks, weight, code, tables, by_hand) -> None:
         if len(weight) == 0:
             return
+        # Інвертований індекс «літера -> n-грами»: try_layout бере n-грами
+        # переміщених літер без сканування масок усіх ~59k n-грам.
+        by_char = tuple(np.flatnonzero((masks & bit) != 0) for bit in self._char_bits)
         self._families[name] = _Family(
-            keys, weight, code, tables, sum(tables.values()), masks, by_hand,
+            keys, weight, code, tables, sum(tables.values()), masks, by_hand, by_char,
+            np.zeros(len(weight), dtype=bool),
         )
 
     def _char_masks(self, idx: np.ndarray) -> np.ndarray:
@@ -595,15 +601,22 @@ class MovementScoringEngine:
             raise RuntimeError("load() must be called before try_layout()")
         self.update_layout(layout_keys)
         moved = self.position != self._loaded_position
-        moved_bits = np.bitwise_or.reduce(self._char_bits[moved])
-        moved_hand_bits = np.bitwise_or.reduce(self._char_bits[moved & (self.hand != self._loaded_hand)])
+        moved_chars = np.flatnonzero(moved)
+        moved_hand_chars = np.flatnonzero(moved & (self.hand != self._loaded_hand))
         ngram_total = self._ngram_total
         changes = []
         for name, fam in self._families.items():
-            bits = moved_hand_bits if fam.by_hand else moved_bits
-            if bits == 0:
+            chars = moved_hand_chars if fam.by_hand else moved_chars
+            if len(chars) == 0:
                 continue
-            sub = np.flatnonzero((fam.masks & bits) != 0)
+            if len(chars) == 1:
+                sub = fam.by_char[chars[0]]
+            else:   # об'єднання без сортування; порядок той самий, що й flatnonzero по масках
+                mark = fam.scratch
+                for c in chars:
+                    mark[fam.by_char[c]] = True
+                sub = np.flatnonzero(mark)
+                mark[sub] = False
             new = fam.total[fam.code(fam.keys[..., sub])] * fam.weight[sub]
             ngram_total += float(new.sum()) - float(self._cost[name][sub].sum())
             changes.append((name, sub, new))
