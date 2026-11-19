@@ -1,0 +1,5 @@
+### CYR (id 6)
+верх   | &lt FN ESC | &kp ч | &kp ь | &kp и | &kp ц | &kp ш  ||  &kp ї | &kp й | &kp р | &kp х | &kp є | &lt FN RET
+дім    | &lt CYR_S з | &kp с | &kp т | &hml LSHFT і | &kp в | &kp м  ||  &kp е | &kp а | &hmr RSHFT н | &kp о | &kp к | &kp п
+низ    | &lt SYMBOL ф | &lt DIGITS г | &kp д | &hml LC(C) у | &hml LC(V) б | &kp ж  ||  &kp щ | &kp ю | &kp л | &kp я | &lt_cd DIGITS 0 | &lt SYMBOL LS(GRAVE)
+тхамби | &mt LCTRL LA(LS(LEFT)) | &mt LALT BSPC | &mt LGUI TAB  ||  &sl CYR_S | &lt DIGITS SPACE | &mt LA(RSHFT) LA(LS(RIGHT))

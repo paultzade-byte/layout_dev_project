@@ -1,0 +1,29 @@
+n(layout_keys with char): 36
+n(unique chars): 36
+dup chars: []
+seed 1: 162.16  last improve @0  48s
+n(layout_keys with char): 36
+n(unique chars): 36
+dup chars: []
+seed 2: 162.16  last improve @0  46s
+n(layout_keys with char): 36
+n(unique chars): 36
+dup chars: []
+seed 3: 162.16  last improve @0  47s
+n(layout_keys with char): 36
+n(unique chars): 36
+dup chars: []
+seed 4: 162.16  last improve @0  48s
+
+4 стартів x 30000 ітерацій: best 162.16  median 162.16  worst 162.16
+до тієї ж розкладки, що й best, дійшли 4 з 4
+
+НАЙКРАЩА (seed 1)
+  верх     ж б у д ш    щ г л я ї
+  дім    з с н о т к    и і р а в й
+  низ    ф , п ь ч ц    є х м е ю '
+  чергування рук у біграмах: 52%   голосні ліва/права: 31/69%
+
+записано: /home/paul/Documents/Portfolio/layout_dev_project/logs/overnight_2026-11-03/A_cur_polish_f_best.json
+
+189s
