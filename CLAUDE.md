@@ -95,7 +95,8 @@ python main.py --geometry generic_105_alpha --iterations 20000   # без GUI
 python ukr_layout.py          # GUI через точку входу exe (--smoke — закрити через 3 с)
 ```
 
-Збірка exe (фаза 6): Windows — GitHub Actions `Build Windows` (вручну або тег `v*`).
+Збірка exe (фаза 6): Windows — GitHub Actions `Build Windows` (вручну або тег `v*`;
+з гілки: `gh workflow run build-windows.yml --ref ГІЛКА`).
 Локально (Linux, перевірка spec):
 ```bash
 systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m PyInstaller \
