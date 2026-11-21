@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, Optional, List
 
 import core.scorer as scoring
 from core.models import Layout, Key, clone_layout
+from core.throttle import Throttle
 from config.main_config import MUTATOR_CONFIG as mutator_config
 
 
@@ -30,8 +31,11 @@ class LayoutOptimizerSA:
         moves_config: Dict[str, Any],
         config: Optional[Dict[str, Any]] = None,
         stop_event: Optional[threading.Event] = None,
+        cpu_share: float = 1.0,
     ):
         self.stop_event = stop_event
+        # частка ядра для пошуку (GUI: меню «CPU»); 1.0 — без пауз (скрипти)
+        self.throttle = Throttle(cpu_share, stop_event)
         self._unfrozen_cache = None  # (layout, [рухомі Key]) — див. _unfrozen
         self.moves_config = moves_config
         self.best_layout = copy.deepcopy(initial_layout)
@@ -286,8 +290,10 @@ class LayoutOptimizerSA:
         accepted_count = self.accepted_count
         improved_count = self.improved_count
 
+        self.throttle.reset()
         for i in range(1, iterations + 1):
 
+            self.throttle.tick()
             if self.stop_event is not None and self.stop_event.is_set():
                 break
 
@@ -418,6 +424,7 @@ class LayoutOptimizerSA:
         started = time.perf_counter()
 
         def evaluate(group, chars):
+            self.throttle.tick()
             old = [k.char for k in group]
             for k, c in zip(group, chars):
                 k.char = c

@@ -38,6 +38,8 @@
   Мутації — на місці з undo-списком (без клонування розкладки).
   Температура калібрується за реальними delta на першому прогоні
   (`_calibrate`); параметри — імовірності прийняття в `mutator_config.json`.
+  Частка CPU — `core/throttle.py` (`cpu_share`, паузи між шматками роботи;
+  GUI-меню «CPU: 25% ▾», запам'ятовується в settings.json, типово 25%).
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,

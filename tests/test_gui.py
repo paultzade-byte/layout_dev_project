@@ -318,3 +318,48 @@ def test_tooltip_shows_and_hides():
         assert tip._tip is None
     finally:
         root.destroy()
+
+
+def test_cpu_menu_default_and_remembered(monkeypatch):
+    from config import settings
+    from uiux import app as A
+    settings.save(cpu_percent=None)
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        assert ui.button_cpu.cget("text") == "CPU: 25% ▾"      # скромно на чужому комп'ютері
+        popups = []
+        monkeypatch.setattr(A.tk.Menu, "tk_popup", lambda self, *a, **k: popups.append(self))
+        ui.show_cpu_menu()
+        assert popups and popups[0].index("end") == len(A.throttle.CHOICES) - 1
+        ui.set_cpu(75)
+        assert ui.button_cpu.cget("text") == "CPU: 75% ▾"
+        assert settings.load()["cpu_percent"] == 75
+        assert ui.processor.cpu_percent == 75
+        ui.set_geometry("corne_42")                            # новий процесор — та сама частка
+        assert ui.processor.cpu_percent == 75
+    finally:
+        settings.save(cpu_percent=None)
+        root.destroy()
+
+
+def test_tooltip_text_can_be_a_function():
+    from uiux import tooltip
+    root = tk.Tk()
+    try:
+        root.geometry("300x200")
+        b = tk.Button(root, text="x")
+        b.pack()
+        state = {"text": "раз"}
+        tip = tooltip.add(b, lambda: state["text"])
+        root.update()
+        tip._show()
+        assert tip._tip.cget("text") == "раз"
+        tip._hide()
+        state["text"] = ""
+        tip._show()
+        assert tip._tip is None                                # порожня — не показуємо
+    finally:
+        root.destroy()

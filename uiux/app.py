@@ -22,6 +22,7 @@ from uiux import render
 from uiux.toast import Toasts
 from uiux import tooltip
 from core import knobs
+from core import throttle
 from core import export
 from core.metrics import layout_metrics
 from config.paths import layouts_dir
@@ -317,6 +318,9 @@ class LayoutBuilderApp():
             self.button_knobs: "Повзунки: що для тебе важливіше — домашній ряд, мізинці, перекати…\n"
                                "Повзунки лише перераховують штраф; щоб розкладка змінилась — Start.",
             self.button_preset: "Готові набори повзунків. Свій набір можна зберегти під назвою.",
+            self.button_cpu: "Скільки процесора бере пошук (Start): частка одного ядра. "
+                             "Менше — комп'ютер тихіший і не гріється, але пошук повільніший.\n"
+                             "Можна міняти й під час пошуку. Запам'ятовується.",
             self.button_knobs_reset: "Усі повзунки посередині, близькість до ЙЦУКЕН вимкнена.",
             p.button_start: "Start — шукати кращу розкладку, починаючи з тієї, що на дошці. "
                             "Ще раз — зупинити.\nЗаморожені клавіші (права кнопка миші) "
@@ -902,6 +906,25 @@ class LayoutBuilderApp():
         if hasattr(self, "button_preset"):
             self.button_preset.config(text=f"Пресет: {self._current_preset() or 'свій'} ▾")
 
+    def _update_cpu_button(self):
+        self.button_cpu.config(text=f"CPU: {self.processor.cpu_percent}% ▾")
+
+    def show_cpu_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
+                       activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
+        for percent in throttle.CHOICES:
+            mark = "✓ " if percent == self.processor.cpu_percent else "    "
+            note = "  (одне ядро повністю)" if percent == 100 else ""
+            menu.add_command(label=f"{mark}{percent}%{note}", command=lambda p=percent: self.set_cpu(p))
+        b = self.button_cpu
+        menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def set_cpu(self, percent: int):
+        """Діє одразу — і на пошук, що вже йде; запам'ятовується між запусками."""
+        self.processor.set_cpu_percent(percent)
+        settings.save(cpu_percent=percent)
+        self._update_cpu_button()
+
     def show_preset_menu(self):
         menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
                        activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
@@ -972,6 +995,9 @@ class LayoutBuilderApp():
         self.button_knobs.pack(side="left")
         self.button_preset = make_button(self.knob_bar, "Пресет: ▾", self.show_preset_menu, small=True)
         self.button_preset.pack(side="left", padx=(8, 0))
+        self.button_cpu = make_button(self.knob_bar, "", self.show_cpu_menu, small=True)
+        self.button_cpu.pack(side="left", padx=(8, 0))
+        self._update_cpu_button()
         self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
                                               self.on_knobs_reset, small=True)
         self.knob_frame = tk.Frame(self.root, bg=PANEL)

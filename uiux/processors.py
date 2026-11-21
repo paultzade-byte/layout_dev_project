@@ -5,6 +5,7 @@ from core.mutator import LayoutOptimizerSA
 from core.models import Layout
 from pathlib import Path
 from config.main_config import MUTATOR_CONFIG as config
+from config import settings
 
 class OptimizationProcessor:
     """Driver for the optimization life cycle in the individual thread."""
@@ -15,6 +16,13 @@ class OptimizationProcessor:
         self._thread: Optional[threading.Thread] = None
         self.is_running = False
         self.optimizer = None
+        self.cpu_percent = settings.cpu_percent()
+
+    def set_cpu_percent(self, percent: int) -> None:
+        """Діє одразу, і на пошук, що вже йде."""
+        self.cpu_percent = percent
+        if self.optimizer is not None:
+            self.optimizer.throttle.share = percent / 100
 
     def start(
         self,
@@ -37,6 +45,7 @@ class OptimizationProcessor:
                     moves_config=self.moves_config,
                     config=config,
                     stop_event=self.stop_event,
+                    cpu_share=self.cpu_percent / 100,
                 )
             else:
                 # Resuming an existing optimizer: don't silently ignore
