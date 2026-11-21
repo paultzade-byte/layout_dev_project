@@ -1,6 +1,6 @@
 """Налаштування юзера між запусками (user_data_dir()/settings.json).
 
-Зараз — лише режим («Спліт» / «Звичайна»). Зіпсований чи відсутній файл —
+Зараз — режим («Спліт» / «Звичайна») і частка CPU для пошуку. Зіпсований чи відсутній файл —
 не помилка: беруться типові значення.
 """
 
@@ -31,6 +31,13 @@ def save(**changes) -> None:
         _path().write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         pass  # не змогли запам'ятати — не привід падати
+
+
+def cpu_percent() -> int:
+    """Скільки відсотків ядра бере пошук (меню «CPU» в GUI)."""
+    from core import throttle
+    value = load().get("cpu_percent")
+    return value if value in throttle.CHOICES else throttle.DEFAULT
 
 
 def initial_mode(geometries) -> str:

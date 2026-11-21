@@ -1,5 +1,5 @@
-"""Спільне для тестів. Запуск — під cpulimit (CLAUDE.md):
-    cpulimit -l 60 -f -m -q -- .venv/bin/python -m pytest
+"""Спільне для тестів. Запуск — під квотою CPU (CLAUDE.md):
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m pytest
 """
 import os
 import sys

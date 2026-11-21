@@ -7,6 +7,7 @@ import random
 import uuid
 import json
 import threading
+import time
 
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, List
@@ -15,6 +16,7 @@ from typing import Any, Callable, Dict, Optional, List
 
 import core.scorer as scoring
 from core.models import Layout, Key, clone_layout
+from core.throttle import Throttle
 from config.main_config import MUTATOR_CONFIG as mutator_config
 
 
@@ -29,8 +31,12 @@ class LayoutOptimizerSA:
         moves_config: Dict[str, Any],
         config: Optional[Dict[str, Any]] = None,
         stop_event: Optional[threading.Event] = None,
+        cpu_share: float = 1.0,
     ):
         self.stop_event = stop_event
+        # частка ядра для пошуку (GUI: меню «CPU»); 1.0 — без пауз (скрипти)
+        self.throttle = Throttle(cpu_share, stop_event)
+        self._unfrozen_cache = None  # (layout, [рухомі Key]) — див. _unfrozen
         self.moves_config = moves_config
         self.best_layout = copy.deepcopy(initial_layout)
         self.statistics = statistics
@@ -56,6 +62,17 @@ class LayoutOptimizerSA:
         self.stall_window = self.config.get("stall_window", 300)
         self.restart_window = self.config.get("restart_window", 2000)
         self.tabu_size = self.config.get("tabu_size", 50)
+        # фінальне дотюнювання (_polish): найкращий swap, поки покращує;
+        # потім 3-цикли (polish_cycles), якщо swap уже нічого не дають
+        self.polish = self.config.get("polish", True)
+        self.polish_cycles = self.config.get("polish_cycles", True)
+        # фіксована суміш мутацій [swap, 3-цикл, подвійний swap] замість
+        # драбини (escalate після застою); None — драбина
+        self.mutation_mix = self.config.get("mutation_mix")
+        if self.mutation_mix is not None:
+            if len(self.mutation_mix) != 3 or min(self.mutation_mix) < 0 or sum(self.mutation_mix) <= 0:
+                raise ValueError("mutation_mix must be 3 non-negative weights [swap, cycle, double]")
+        self.tabu_hits = 0
         if not 0 < self.accept_end < 1 or not 0 < self.accept_reheat <= self.accept_start < 1:
             raise ValueError("need 0 < accept_end < 1 and 0 < accept_reheat <= accept_start < 1")
         if not 0 <= self.end_quantile <= 0.5:
@@ -105,6 +122,7 @@ class LayoutOptimizerSA:
             копії оптимізатора, за position_id. Потрібно тому що drag/freeze на
             паузі міняють self.layout в App, а не внутрішні current_layout/
             best_layout оптимізатора."""
+        self._unfrozen_cache = None
         state_by_position = {
             key.position_id: (key.char, key.is_frozen)
             for key in reference_layout.keys
@@ -127,12 +145,23 @@ class LayoutOptimizerSA:
     # -----------------------------------------------------------
 
     def _unfrozen(self, layout: Layout):
-        """Return only characters the optimizer is allowed to relocate."""
-        return [
+        """Return only characters the optimizer is allowed to relocate.
+
+        Кешується для об'єкта layout: під час прогону freeze не змінюється
+        (GUI блокує його, поки йде оптимізація), а мутації лише міняють
+        місцями однолітерні char. Нова розкладка (deepcopy при старті /
+        рестарті) — інший об'єкт, тож кеш перебудовується сам; правки з GUI
+        приходять через sync_full_state, який кеш скидає."""
+        cached = self._unfrozen_cache
+        if cached is not None and cached[0] is layout:
+            return cached[1]
+        keys = [
             key
             for key in layout.keys
             if key.is_frozen == False and key.char and len(key.char) == 1
         ]
+        self._unfrozen_cache = (layout, keys)
+        return keys
 
     @staticmethod
     def _require_mutable_keys(keys, required):
@@ -242,8 +271,6 @@ class LayoutOptimizerSA:
 
         # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {self.current_score}")
 
-        tabu_hits = 0
-
         if iterations < 1:
             raise ValueError("iterations must be at least 1")
         self._require_mutable_keys(self._unfrozen(self.current_layout), 2)
@@ -263,8 +290,10 @@ class LayoutOptimizerSA:
         accepted_count = self.accepted_count
         improved_count = self.improved_count
 
+        self.throttle.reset()
         for i in range(1, iterations + 1):
 
+            self.throttle.tick()
             if self.stop_event is not None and self.stop_event.is_set():
                 break
 
@@ -279,14 +308,16 @@ class LayoutOptimizerSA:
 
             # кандидат — current_layout після мутації на місці; якщо його не
             # прийнято, _undo повертає current_layout назад
+            if self.mutation_mix is not None:
+                ladder_index = self.rng.choices((0, 1, 2), weights=self.mutation_mix)[0]
             undo = self._apply_mutation(self.current_layout, ladder_index)
-            sig = self._signature(self.current_layout)
+            sig = self._signature(self.current_layout) if self.tabu_size else None
 
-            if sig in self.tabu:
+            if sig is not None and sig in self.tabu:
                 # цей стан вже недавно відвідували — пропускаємо ітерацію,
                 # без витрати на переоцінку
                 self._undo(undo)
-                tabu_hits += 1
+                self.tabu_hits += 1
                 continue
 
             candidate_score = self.engine.try_layout(self.current_layout.keys)
@@ -305,9 +336,10 @@ class LayoutOptimizerSA:
                 accepted_count += 1
                 self.engine.accept()
                 self.current_score = candidate_score
-                self.tabu.append(sig)
-                if len(self.tabu) > self.tabu_size:
-                    self.tabu.pop(0)
+                if sig is not None:
+                    self.tabu.append(sig)
+                    if len(self.tabu) > self.tabu_size:
+                        self.tabu.pop(0)
 
             if candidate_score < self.best_score:
                 improved_count += 1
@@ -320,14 +352,15 @@ class LayoutOptimizerSA:
                     "event": f"improve via {self.MUTATION_LADDER_NAMES[ladder_index]}"
                 })
                 stall_counter = 0
-                ladder_index = 0
+                if self.mutation_mix is None:
+                    ladder_index = 0
             else:
                 stall_counter += 1
 
             if not accepted:
                 self._undo(undo)
 
-            if stall_counter > 0 and stall_counter % self.stall_window == 0:
+            if self.mutation_mix is None and stall_counter > 0 and stall_counter % self.stall_window == 0:
                 mutable_count = len(self._unfrozen(self.current_layout))
                 max_ladder_index = 2 if mutable_count >= 4 else 1 if mutable_count >= 3 else 0
                 if ladder_index < max_ladder_index:
@@ -367,6 +400,91 @@ class LayoutOptimizerSA:
             #if i < 10:
             #    print(f"i={i} ... candidate_score={candidate_score} ... self.current_score={self.current_score} ... self.best_score={self.best_score} ... delta={delta}")
 
+        if self.polish and not (self.stop_event is not None and self.stop_event.is_set()):
+            self._polish(self.best_layout, iteration=i, ui_callback=ui_callback)
+
         self.engine.update_layout(self.best_layout.keys)
         self.best_layout.score = self.engine.score()
         return copy.deepcopy(self.best_layout)
+
+    def _polish(self, layout: Layout, iteration: int = 0,
+                ui_callback: Optional[Callable[..., None]] = None) -> None:
+        """Спуск до локального оптимуму: перебрати всі swap рухомих клавіш,
+        застосувати найкращий покращувальний, повторювати, поки є. Коли swap
+        не дають нічого — те саме для 3-циклів (обидва напрямки), і назад до
+        swap. Детермінований (без rng). Міняє layout на місці; якщо це
+        best_layout — оновлює best_score (і GUI через ui_callback після
+        кожного ходу) і пише подію "polish" в history."""
+        stop = self.stop_event
+        keys = list(self._unfrozen(layout))
+        n = len(keys)
+        score = self._load(layout)
+        start = score
+        swaps = cycles = 0
+        started = time.perf_counter()
+
+        def evaluate(group, chars):
+            self.throttle.tick()
+            old = [k.char for k in group]
+            for k, c in zip(group, chars):
+                k.char = c
+            value = self.engine.try_layout(layout.keys)
+            for k, c in zip(group, old):
+                k.char = c
+            return value
+
+        def apply(group, chars):
+            for k, c in zip(group, chars):
+                k.char = c
+            value = self.engine.try_layout(layout.keys)
+            self.engine.accept()
+            if layout is self.best_layout:
+                self.best_score = value
+                if ui_callback:
+                    ui_callback(layout, value, current_iteration=iteration)
+            return value
+
+        while True:
+            if stop is not None and stop.is_set():
+                break
+            best = (score, None, None)
+            for a in range(n):
+                for b in range(a + 1, n):
+                    group = (keys[a], keys[b])
+                    chars = (keys[b].char, keys[a].char)
+                    value = evaluate(group, chars)
+                    if value < best[0]:
+                        best = (value, group, chars)
+            if best[1] is not None:
+                score = apply(best[1], best[2])
+                swaps += 1
+                continue
+            if not self.polish_cycles or n < 3:
+                break
+            # 3-циклів у ~25 разів більше, ніж swap, тож тут — перше
+            # покращення: застосувати одразу і перебирати далі; після проходу
+            # з покращеннями — знову swap
+            found = 0
+            for a in range(n):
+                if stop is not None and stop.is_set():
+                    break
+                for b in range(a + 1, n):
+                    for c in range(b + 1, n):
+                        ka, kb, kc = keys[a], keys[b], keys[c]
+                        group = (ka, kb, kc)
+                        for chars in ((kc.char, ka.char, kb.char), (kb.char, kc.char, ka.char)):
+                            if evaluate(group, chars) < score:
+                                score = apply(group, chars)
+                                found += 1
+                                break
+            if not found:
+                break
+            cycles += found
+
+        if layout is self.best_layout:
+            if score < start:
+                self.best_id = str(uuid.uuid4())[:8]
+            self.history.append({
+                "iter": iteration, "id": self.best_id, "score": score,
+                "event": f"polish: {swaps} swap, {cycles} cycle, {start / 1e8:.2f} -> {score / 1e8:.2f}, {time.perf_counter() - started:.1f}s",
+            })

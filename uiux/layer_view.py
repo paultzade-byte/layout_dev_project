@@ -32,6 +32,7 @@ KEY = 50
 GAP = 6
 # дошка 860 px (вікно 900 − відступи 2×20), блок клавіш 786 px — по центру
 BASE_X, BASE_Y = 37, 22
+CAPTION_Y = BASE_Y + 4 * (KEY + GAP) + 2  # підпис шару — під клавішами
 RIGHT_SHIFT = 400  # як у LayoutBuilderApp.build_grid для corne_42
 
 
@@ -69,8 +70,8 @@ def xy(row, col, hand):
 
 
 def latest_dump():
-    """Найсвіжіший дамп у config/zmk (за часом зміни) або None."""
-    files = sorted(DUMPS.glob("studio_keymap_*.json"), key=lambda p: p.stat().st_mtime)
+    """Найсвіжіший дамп у config/zmk або config/zmk/snapshots (за часом зміни) або None."""
+    files = sorted(DUMPS.glob("**/studio_keymap_*.json"), key=lambda p: p.stat().st_mtime)
     return files[-1] if files else None
 
 
@@ -118,7 +119,7 @@ class LayerView(tk.Frame):
         # підпис — під клавішами (над ними місця на 1 рядок, а активаторів буває 5–7)
         self.caption = tk.Label(self, bg=colors["PANEL"], fg=colors["TEXT_DIM"], anchor="nw",
                                 justify="left", font=(colors["FONT"], 9), wraplength=780)
-        self.caption.place(x=BASE_X, y=BASE_Y + 4 * (KEY + GAP) + 2, relwidth=1.0, width=-2 * BASE_X)
+        self.caption.place(x=BASE_X, y=CAPTION_Y, relwidth=1.0, width=-2 * BASE_X)
         self.items = {pos: self._make_key(pos, *xy(*cell)) for pos, cell in CELLS.items()}
         self.ghost = None
         self.canvas.bind("<ButtonPress-1>", self._drag_start)
@@ -236,10 +237,7 @@ class LayerView(tk.Frame):
         if layer is None:
             self.caption.config(text=f"У дампі немає шару {layer_name}.")
             return
-        how = ("перетягни — обмін тапами (утримання лишаються), Shift+перетягни — клавішами цілком, "
-               "ПКМ — скасувати обмін" if self.editable(layer_name) else "лише перегляд — кирилиця редагується в «Редакторі»")
-        self.about = (f"{lh.ABOUT.get(layer_name, '')}  ({how})\n"
-                      f"Як увімкнути: {merged_activators(layer_name, self.dump)}")
+        self.about = self._about(layer_name)
         self.caption_hint(None)
         changed = set(self.pending().get(layer_name, []))
         self.canvas.config(cursor="hand2" if self.editable(layer_name) else "")
@@ -314,6 +312,30 @@ class LayerView(tk.Frame):
         pos = self._pos_at(event.x, event.y)
         if pos is not None and self.editable():
             self.revert(pos)
+
+    def _about(self, layer_name):
+        how = ("перетягни — обмін тапами (утримання лишаються), Shift+перетягни — клавішами цілком, "
+               "ПКМ — скасувати обмін" if self.editable(layer_name) else "лише перегляд — кирилиця редагується в «Редакторі»")
+        return (f"{lh.ABOUT.get(layer_name, '')}  ({how})\n"
+                f"Як увімкнути: {merged_activators(layer_name, self.dump)}")
+
+    def fit(self, width):
+        """Ширина панелі -> потрібна висота: клавіші + найдовший підпис з усіх
+        шарів (з рядком підказки), щоб текст не обрізався і вікно не стрибало
+        при перемиканні вкладок. Підпис переноситься за шириною панелі."""
+        wrap = max(200, width - 2 * BASE_X)
+        self.caption.config(wraplength=wrap)
+        texts = ["Немає дампу клавіатури — натисни «З клави» або ⟳.\n"]
+        if self.dump is not None:
+            hint = max([f"джерело: {self.source}"] + [lh.pos_name(p) for p in CELLS], key=len)
+            texts = [f"{self._about(n)}\n{hint}" for n in lh.ORDER if self._layer(n, self.dump)]
+        probe = tk.Label(self, font=self.caption.cget("font"), justify="left", wraplength=wrap)
+        height = 0
+        for text in texts:
+            probe.config(text=text)
+            height = max(height, probe.winfo_reqheight())
+        probe.destroy()
+        return CAPTION_Y + height + BASE_Y // 2
 
     def caption_hint(self, text):
         self.caption.config(text=f"{self.about}\n{text or f'джерело: {self.source}'}")

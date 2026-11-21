@@ -7,9 +7,11 @@
 
 `apply` пише лише змінені клавіші (studio.write_layer: перечитати шар і тільки
 тоді зберегти у флеш, інакше discard) і зберігає:
-- config/zmk/studio_keymap_<час>-before.json — точка відкату (стан до запису);
-- config/zmk/studio_keymap_<час>-written.json — записаний дамп;
-- config/layout_paul_<час>.json — розкладка у форматі Rec>>;
+- config/zmk/snapshots/studio_keymap_<час>-before.json — точка відкату (стан до запису);
+- config/zmk/snapshots/studio_keymap_<час>-written.json — записаний дамп;
+- config/zmk/snapshots/layout_paul_<час>.json — розкладка у форматі Rec>>;
+  (snapshots/ — у .gitignore: автознімків багато; віхи в config/zmk кладуться руками,
+  старі знімки — в архіві ~/Documents/layout/zmk_snapshots/)
 - ~/Documents/layout/algoritmical_layouts/layout_<час>.{svg,png} (uiux/render.py,
   той самий код, що й кнопка «Скрін») і layers_current.html — схема шарів (для артефакту).
 Відкат: `studio.py write auto <before.json> --layer CYR --yes`.
@@ -30,8 +32,8 @@ import layers_html  # noqa: E402
 import studio as st  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-DUMPS = ROOT / "config" / "zmk"
-LAYOUTS = ROOT / "config"
+DUMPS = ROOT / "config" / "zmk" / "snapshots"
+LAYOUTS = DUMPS
 IMAGES = Path.home() / "Documents" / "layout" / "algoritmical_layouts"
 
 
@@ -72,6 +74,7 @@ def prepare(layout_items, port=None):
 
 
 def _save_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return path
 

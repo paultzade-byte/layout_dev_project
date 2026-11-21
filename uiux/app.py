@@ -6,6 +6,7 @@ import math
 import re
 import sys
 import threading
+import time
 from types import SimpleNamespace
 import copy
 
@@ -13,7 +14,7 @@ from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEO
                                 load_moves, start_layout)
 from config import settings
 from core.layout_factory import build_layout, build_key_from_position
-from core.models import Finger, Layout, Key
+from core.models import Finger, Hand, Layout, Key
 from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
 from uiux import layer_view
@@ -22,6 +23,8 @@ from uiux import render
 from uiux.toast import Toasts
 from uiux import tooltip
 from core import knobs
+from core import heat
+from core import throttle
 from core import export
 from core.metrics import layout_metrics
 from config.paths import layouts_dir
@@ -48,7 +51,14 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     border — рамка (DROP_OK / DROP_BLOCKED), finger — зона пальця, в яку
     клавіша потрапить (попередній перегляд кольору)."""
     key = widget.key
-    if widget.is_frozen:
+    # теплова мапа (core/heat.py): {position_id: {fill, ink, text}} — спільна для всіх клавіш
+    heat_map = getattr(widget, "heat_map", None)
+    cell = heat_map.get(key.position_id) if heat_map is not None else None
+    if cell is not None:
+        bg, fg = cell["fill"], cell["ink"]
+    elif heat_map is not None and len(key.char) == 1 and key.char.strip():
+        bg, fg = SLOT, TEXT_DIM            # літера без даних — сіра
+    elif widget.is_frozen:
         bg, fg = FROZEN_BG, FROZEN_FG
     else:
         bg, fg = FINGER_COLORS.get(finger or key.finger, TEXT_DIM), KEY_TEXT
@@ -59,6 +69,8 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     widget.config(
         text=text, bg=bg, fg=fg, font=font,
         highlightthickness=2, highlightbackground=border, highlightcolor=border,
+        # з тепловою мапою внизу відсоток — літеру вгору, щоб він не накривав хвостики (р, у, д)
+        anchor="n" if cell is not None else "center", pady=4 if cell is not None else 1,
     )
     # AltGr-символ клавіші (geometry["altgr"]: літера -> символ) — дрібно в
     # правому верхньому куті, як на картинці; іде за літерою при перетягуванні
@@ -70,6 +82,13 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
             mark.place(relx=1.0, x=-5, y=2, anchor="ne")
         else:
             mark.place_forget()
+    note = getattr(widget, "note_label", None)
+    if note is not None:
+        if cell is not None:
+            note.config(text=cell["text"], bg=bg, fg=fg)
+            note.place(relx=0.5, rely=1.0, y=-2, anchor="s")
+        else:
+            note.place_forget()
 
 
 def make_button(parent, text, command, small=False):
@@ -100,6 +119,7 @@ def make_score_display(statistic, moves_config, engine=None):
     return on_layout_changed
 
 
+HEAT_TITLES = {"freq": "частота натискань, %", "pain": "незручність, % штрафу"}
 YCUKEN_GEOMETRIES = {"generic_105_alpha"}  # де `default` позицій = ЙЦУКЕН
 TITLE_ALLOWANCE = 70  # заголовок вікна + панель задач, px
 
@@ -240,15 +260,28 @@ class LayoutBuilderApp():
 
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
+        self.status_row = tk.Frame(self.root, bg=BG)
+        self.status_row.pack(fill="x", padx=(22, 20), pady=(10, 0))
+        # теплові мапи: затиснути — показати, поки тримаєш; клік — лишити увімкненою
+        self.heat_shown = None     # що зараз на дошці: None / "freq" / "pain"
+        self.heat_latched = None   # що лишається після відпускання
+        self.heat_buttons = {}
+        for kind, title in (("pain", "Незручність"), ("freq", "Частота")):
+            b = make_button(self.status_row, title, None, small=True)
+            b.pack(side="right", padx=(6, 0))
+            for n in (1, 3):
+                b.bind(f"<ButtonPress-{n}>", lambda e, k=kind: self._heat_press(k), add="+")
+                b.bind(f"<ButtonRelease-{n}>", lambda e, k=kind: self._heat_release(k), add="+")
+            self.heat_buttons[kind] = b
         self.status_label = tk.Label(
-            self.root,
+            self.status_row,
             textvariable=self.status_var,
             bg=BG,
             fg=TEXT,
             font=(FONT, 13, "bold"),
             anchor="w"
         )
-        self.status_label.pack(fill="x", padx=22, pady=(10, 0))
+        self.status_label.pack(side="left", fill="x", expand=True)
 
         # вкладки: редактор розкладки (CYR з оптимізатора) або перегляд шару клавіатури
         self.tab_bar = tk.Frame(self.root, bg=BG)
@@ -317,12 +350,21 @@ class LayoutBuilderApp():
             self.button_knobs: "Повзунки: що для тебе важливіше — домашній ряд, мізинці, перекати…\n"
                                "Повзунки лише перераховують штраф; щоб розкладка змінилась — Start.",
             self.button_preset: "Готові набори повзунків. Свій набір можна зберегти під назвою.",
+            self.button_cpu: "Скільки процесора бере пошук (Start): частка одного ядра. "
+                             "Менше — комп'ютер тихіший і не гріється, але пошук повільніший.\n"
+                             "Можна міняти й під час пошуку. Запам'ятовується.",
             self.button_knobs_reset: "Усі повзунки посередині, близькість до ЙЦУКЕН вимкнена.",
             p.button_start: "Start — шукати кращу розкладку, починаючи з тієї, що на дошці. "
                             "Ще раз — зупинити.\nЗаморожені клавіші (права кнопка миші) "
                             "лишаються на місці.",
             p.button_reheat: "Під час пошуку: «струснути» оптимізатор, якщо він застряг. "
                              "Найкраще знайдене не губиться.",
+            self.heat_buttons["freq"]: lambda: self._heat_tip(
+                "freq", "Теплова мапа частоти: що світліша клавіша, то частіше її натискають; "
+                        "на клавіші — % натискань."),
+            self.heat_buttons["pain"]: lambda: self._heat_tip(
+                "pain", "Теплова мапа незручності: що світліша клавіша, то більше штрафу набігає "
+                        "через неї (стрибки одним пальцем, ножиці, мізинці…); на клавіші — % штрафу."),
             p.button_open: "Відкрити збережену розкладку (.json).",
             p.button_save: "Зберегти розкладку в той самий файл (вперше — спитає куди).",
             p.button_save_as: "Зберегти розкладку в новий файл.",
@@ -334,9 +376,103 @@ class LayoutBuilderApp():
             self.button_refresh_layers: "Перечитати шари з клавіатури.",
             self.button_reset_layer: "Відкинути незаписані зміни цього шару.",
         }
+        for name, b in self.tabs.items():
+            if name == "Редактор":
+                tips[b] = ("Редактор розкладки: тут літери переставляються (мишкою або Start), "
+                           "тут рахується штраф.")
+            else:
+                how = ("лише перегляд — кирилиця редагується в «Редакторі»" if name in layer_view.READ_ONLY
+                       else "клавіші можна переставляти мишкою, Shift — разом з утриманням, "
+                            "права кнопка — скасувати; «На клаву» — записати")
+                tips[b] = f"Шар {name} клавіатури Corne: {layer_view.lh.ABOUT.get(name, '')}\n({how})"
         for widget, text in tips.items():
-            if widget is not None:
+            if isinstance(widget, RoundButton):
+                tooltip.add(widget, lambda w=widget, t=text: self._button_tip(w, t() if callable(t) else t))
+            elif widget is not None:
                 tooltip.add(widget, text)
+
+    # ------------------------------------------------------------------
+    # Теплові мапи (core/heat.py): затиснути — поки тримаєш; клік — лишити
+    # ------------------------------------------------------------------
+    HEAT_CLICK_S = 0.35  # коротше — клік (перемикач), довше — «подивитись і відпустити»
+
+    def _heat_values(self, kind: str) -> dict:
+        if kind == "freq":
+            return heat.frequency(self.layout.keys, self.statistic)
+        return heat.discomfort(self.engine, self.layout.keys)
+
+    def _show_heat(self, kind):
+        """Дошка в кольорах мапи kind (None — кольори пальців)."""
+        self.heat_shown = kind
+        cells = heat.cells(self._heat_values(kind), kind) if kind else None
+        for slot in self.slots:
+            widget = slot.current_key
+            if widget is not None:
+                widget.heat_map = cells
+                style_key(widget)
+        for k, b in self.heat_buttons.items():
+            on = k == self.heat_latched
+            b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
+                     activebackground=ACCENT if on else BUTTON_HOVER)
+
+    def _heat_press(self, kind):
+        if self.heat_buttons[kind].cget("state") == "disabled":
+            return
+        self._heat_pressed = (kind, time.monotonic())
+        self._show_heat(kind)
+
+    def _heat_release(self, kind):
+        pressed = getattr(self, "_heat_pressed", None)
+        self._heat_pressed = None
+        if pressed is None or pressed[0] != kind:
+            return
+        if time.monotonic() - pressed[1] < self.HEAT_CLICK_S:   # клік — перемикач
+            self.heat_latched = None if self.heat_latched == kind else kind
+        self._show_heat(self.heat_latched)
+
+    def _heat_tip(self, kind: str, text: str) -> str:
+        text += ("\nЗатисни — мапа, поки тримаєш (ліва чи права кнопка миші); "
+                 "клік — лишити увімкненою, ще клік — вимкнути. «Скрін» збереже те, що на дошці.")
+        if self.heat_buttons[kind].cget("state") != "disabled":
+            values = self._heat_values(kind)
+            text += "\n\n" + heat.loads_text(self.layout.keys, values)
+        return text
+
+    def _button_tip(self, button, text: str) -> str:
+        """Підказка кнопки; недоступна — ще й чому."""
+        if button.cget("state") != "disabled":
+            return text
+        if self.processor.is_running:
+            why = "іде пошук — спершу Stop"
+        elif self.current_tab != "Редактор" and button not in self.tabs.values():
+            why = "лише у вкладці «Редактор»"
+        elif button is self.button_reset_layer:
+            why = "у цьому шарі нема незаписаних змін (або шар лише для перегляду)"
+        else:
+            why = "не в цьому стані"
+        return f"{text}\nЗараз недоступно: {why}."
+
+    def _key_tip(self, widget) -> str:
+        """Підказка клавіші на дошці: що це за клавіша і що з нею можна зробити."""
+        key = widget.key
+        label = widget.labels.get(key.char)
+        if label is not None:
+            return f"{label or 'Пробіл'} — службова клавіша, стоїть на своєму місці."
+        if not key.char.strip():
+            return "Порожня клавіша — літер тут нема."
+        finger = {Finger.PINKY: "мізинець", Finger.RING: "безіменний", Finger.MIDDLE: "середній",
+                  Finger.INDEX: "вказівний", Finger.THUMB: "великий"}[key.finger]
+        hand = "лівий" if key.hand == Hand.LEFT else "правий"
+        text = f"«{key.char}» — {hand} {finger}."
+        extra = widget.altgr.get(key.char)
+        if extra:
+            text += f" З AltGr — «{extra}»."
+        if self.processor.is_running:
+            return text + "\nІде пошук — дошка заблокована, спершу Stop."
+        if widget.is_frozen:
+            return text + "\nЗаморожена: оптимізатор її не рухає. Права кнопка — розморозити."
+        return text + ("\nПеретягни на іншу клавішу — поміняються місцями. "
+                       "Права кнопка — заморозити на місці.")
 
     # ------------------------------------------------------------------
     # Геометрія: спліт / звичайна, перемикається в рантаймі
@@ -492,6 +628,11 @@ class LayoutBuilderApp():
         cells = render.key_cells(self.geometry, self.geometry_name)
         board_w = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X
         board_h = max(y for _, _, y, _ in cells) + self.key_height + 2 * layer_view.BASE_Y
+        if self._zmk_mode():
+            # вкладки шарів — на місці дошки, але вищі: під клавішами ще підпис
+            # шару (не має обрізатись). Дошка редактора лишається без порожнечі,
+            # вікно підлаштовується при зміні вкладки (show_tab)
+            self.layer_view.config(width=board_w, height=self.layer_view.fit(max(board_w, 860)))
         self.board.config(width=board_w, height=board_h)
         self.root.update_idletasks()
         buttons = self.button_panel.button_frame.winfo_reqwidth() + 40 + 24
@@ -621,11 +762,15 @@ class LayoutBuilderApp():
             widget.altgr = self.geometry.get("altgr", {})
             widget.altgr_label = tk.Label(widget, font=(FONT, 10, "bold"), bd=0, padx=0, pady=0,
                                           cursor="hand2")
+            widget.note_label = tk.Label(widget, font=(FONT, 8, "bold"), bd=0, padx=0, pady=0,
+                                         cursor="hand2")
             widget.key = key
             widget.is_frozen = key.is_frozen
             style_key(widget)
             widget.current_slot = slot
             slot.current_key = widget
+            # довша пауза, ніж у кнопок: дошку часто просто розглядають
+            tooltip.add(widget, lambda w=widget: self._key_tip(w), delay=1200)
 
             # Бінди подій / Binds
             widget.bind("<Button-1>", self.on_drag_start)
@@ -636,6 +781,8 @@ class LayoutBuilderApp():
             for sequence, handler in (("<Button-1>", self.on_drag_start), ("<B1-Motion>", self.on_drag_motion),
                                       ("<ButtonRelease-1>", self.on_drag_release),
                                       ("<Button-3>", self.toggle_freeze)):
+                widget.note_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
+                    widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
                 widget.altgr_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
                     widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
 
@@ -821,6 +968,8 @@ class LayoutBuilderApp():
             self.status_var.set(self.on_layout_changed(self.layout))
         if tab == "Редактор":
             self._update_knob_metrics()
+            if getattr(self, "heat_shown", None):
+                self._show_heat(self.heat_shown)   # розкладка змінилась — перерахувати
 
 
     # ------------------------------------------------------------------
@@ -852,6 +1001,25 @@ class LayoutBuilderApp():
     def _update_preset_button(self):
         if hasattr(self, "button_preset"):
             self.button_preset.config(text=f"Пресет: {self._current_preset() or 'свій'} ▾")
+
+    def _update_cpu_button(self):
+        self.button_cpu.config(text=f"CPU: {self.processor.cpu_percent}% ▾")
+
+    def show_cpu_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
+                       activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
+        for percent in throttle.CHOICES:
+            mark = "✓ " if percent == self.processor.cpu_percent else "    "
+            note = "  (одне ядро повністю)" if percent == 100 else ""
+            menu.add_command(label=f"{mark}{percent}%{note}", command=lambda p=percent: self.set_cpu(p))
+        b = self.button_cpu
+        menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def set_cpu(self, percent: int):
+        """Діє одразу — і на пошук, що вже йде; запам'ятовується між запусками."""
+        self.processor.set_cpu_percent(percent)
+        settings.save(cpu_percent=percent)
+        self._update_cpu_button()
 
     def show_preset_menu(self):
         menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
@@ -923,6 +1091,9 @@ class LayoutBuilderApp():
         self.button_knobs.pack(side="left")
         self.button_preset = make_button(self.knob_bar, "Пресет: ▾", self.show_preset_menu, small=True)
         self.button_preset.pack(side="left", padx=(8, 0))
+        self.button_cpu = make_button(self.knob_bar, "", self.show_cpu_menu, small=True)
+        self.button_cpu.pack(side="left", padx=(8, 0))
+        self._update_cpu_button()
         self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
                                               self.on_knobs_reset, small=True)
         self.knob_frame = tk.Frame(self.root, bg=PANEL)
@@ -951,11 +1122,13 @@ class LayoutBuilderApp():
             else:
                 title = tk.Label(cell, text=knob.title, fg=TEXT, **label_opts)
             title.pack(anchor="w")
-            tooltip.add(title, KNOB_TIPS.get(knob.id, ""))
+            tip = KNOB_TIPS.get(knob.id, "")
+            tooltip.add(title, tip)
             metric = tk.Label(cell, fg=TEXT_DIM, anchor="w", bg=PANEL, font=(FONT, 9))
             metric.pack(anchor="w")
-            tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts).grid(
-                row=row, column=1, sticky="e")
+            tooltip.add(metric, "Як зараз у розкладці на дошці (за текстами корпусу).")
+            left = tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts)
+            left.grid(row=row, column=1, sticky="e")
             scale = tk.Scale(self.knob_frame, from_=-knobs.LIMIT, to=knobs.LIMIT, resolution=0.05,
                              orient="horizontal", showvalue=0, length=220, sliderlength=18, width=12,
                              bg=PANEL, fg=TEXT, troughcolor=SLOT, activebackground=ACCENT,
@@ -964,15 +1137,27 @@ class LayoutBuilderApp():
             scale.set(state["values"].get(knob.id, 0.0))
             scale.grid(row=row, column=2, padx=6)
             scale.bind("<ButtonRelease-1>", lambda _e, k=knob.id: self.on_knob_release(k))
-            tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts).grid(
-                row=row, column=3, sticky="w")
+            right = tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts)
+            right.grid(row=row, column=3, sticky="w")
             step_label = tk.Label(self.knob_frame, fg=ACCENT, width=14, anchor="w", **label_opts)
             step_label.grid(row=row, column=4, sticky="w", padx=(10, 12))
+            for widget in (left, right):
+                tooltip.add(widget, tip)
+            tooltip.add(scale, lambda t=tip, k=knob.id: self._knob_scale_tip(t, k))
+            tooltip.add(step_label, "Наскільки змінено вагу проти рекомендованої (посередині — як є).")
             self.knob_rows[knob.id] = SimpleNamespace(scale=scale, step=step_label, metric=metric)
             self._on_knob_move(knob.id)
         self._set_knobs_state("disabled" if self.processor.is_running else "normal")
         self._update_knob_metrics()
         self._update_preset_button()
+
+    def _knob_scale_tip(self, tip: str, knob_id: str) -> str:
+        text = tip + "\nТягни мишкою; штраф перерахується, коли відпустиш."
+        if self.processor.is_running:
+            return text + "\nЗараз недоступно: іде пошук — спершу Stop."
+        if knob_id == "closeness" and not self.closeness_var.get():
+            return text + "\nЗараз недоступно: спершу постав галочку ліворуч."
+        return text
 
     def toggle_knobs(self):
         self.knobs_open = not self.knobs_open
@@ -1101,8 +1286,11 @@ class LayoutBuilderApp():
     def _set_file_buttons(self, state):
         panel = self.button_panel
         for b in (panel.button_open, panel.button_save, panel.button_save_as, panel.button_screenshot,
-                  panel.button_export):
+                  panel.button_export, *getattr(self, "heat_buttons", {}).values()):
             b.config(state=state)
+        if state == "disabled" and getattr(self, "heat_shown", None):
+            self.heat_latched = None   # пошук / вкладка шару — мапу знімаємо
+            self._show_heat(None)
 
     def _dialog_dir(self):
         return str(self._last_dir or layouts_dir())
@@ -1255,15 +1443,18 @@ class LayoutBuilderApp():
             self.layer_view.pack(fill="both", expand=True, padx=20, pady=10,
                                  before=self.knob_bar)
             self.layer_view.show(name)
-        self.current_tab = name
+        previous, self.current_tab = self.current_tab, name
         self._style_tabs()
         self._set_editor_buttons()
         self._notify_layout_changed()
+        if (previous == "Редактор") != (name == "Редактор"):
+            self._fit_window(exact_height=True)  # дошка і шари — різної висоти
 
     def _set_layers_dump(self, dump, source):
         self.layer_view.set_dump(dump, source)
         if self.current_tab != "Редактор":
             self.layer_view.show(self.current_tab)
+        self._fit_window()  # інше джерело / шари — підпис може стати довшим
 
     def on_layers_refresh(self):
         if not self._confirm_discard():
@@ -1433,7 +1624,13 @@ class LayoutBuilderApp():
     def save_screenshot(self, path):
         """Картинка поточної розкладки «Редактора» (PNG або SVG за розширенням)."""
         title, subtitle = render.default_title(self.geometry_name, self._current_score())
-        return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle)
+        cells, footer = None, ""
+        if self.heat_shown:
+            values = self._heat_values(self.heat_shown)
+            cells, footer = heat.cells(values, self.heat_shown), heat.loads_text(self.layout.keys, values)
+            title += " · " + HEAT_TITLES[self.heat_shown]
+        return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle,
+                           heat=cells, footer=footer)
 
     def on_screenshot(self):
         initial_dir = self._dialog_dir()

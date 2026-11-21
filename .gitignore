@@ -46,6 +46,9 @@ pstruct.txt
 logs/
 vis_mon_system/logs/
 
+# 9. Автознімки клавіатури («На клаву» / «З клави»); віхи — у config/zmk
+config/zmk/snapshots/
+
 # 8. Збірка exe (PyInstaller)
 /build/
 /dist/
