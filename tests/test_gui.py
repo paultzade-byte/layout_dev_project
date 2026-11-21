@@ -363,3 +363,23 @@ def test_tooltip_text_can_be_a_function():
         assert tip._tip is None                                # порожня — не показуємо
     finally:
         root.destroy()
+
+
+def test_layer_caption_fits_inside_panel():
+    """Підпис шару (опис + як увімкнути + підказка) не обрізається знизу панелі."""
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("corne_42"), geometry_name="corne_42")
+        root.update()
+        if not ui._zmk_mode() or ui.layer_view.dump is None:
+            pytest.skip("нема ZMK-скриптів або дампу")
+        longest = max(A.layer_view.CELLS, key=lambda p: len(A.layer_view.lh.pos_name(p)))
+        for name in A.layer_view.lh.ORDER:
+            ui.show_tab(name)
+            ui.layer_view.caption_hint(A.layer_view.lh.pos_name(longest))
+            root.update()
+            lv = ui.layer_view
+            assert lv.caption.winfo_y() + lv.caption.winfo_reqheight() <= lv.winfo_height(), name
+    finally:
+        root.destroy()

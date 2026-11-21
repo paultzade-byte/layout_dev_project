@@ -543,6 +543,11 @@ class LayoutBuilderApp():
         cells = render.key_cells(self.geometry, self.geometry_name)
         board_w = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X
         board_h = max(y for _, _, y, _ in cells) + self.key_height + 2 * layer_view.BASE_Y
+        if self._zmk_mode():
+            # вкладки шарів — на місці дошки, але вищі: під клавішами ще підпис
+            # шару (не має обрізатись). Дошка редактора лишається без порожнечі,
+            # вікно підлаштовується при зміні вкладки (show_tab)
+            self.layer_view.config(width=board_w, height=self.layer_view.fit(max(board_w, 860)))
         self.board.config(width=board_w, height=board_h)
         self.root.update_idletasks()
         buttons = self.button_panel.button_frame.winfo_reqwidth() + 40 + 24
@@ -1344,15 +1349,18 @@ class LayoutBuilderApp():
             self.layer_view.pack(fill="both", expand=True, padx=20, pady=10,
                                  before=self.knob_bar)
             self.layer_view.show(name)
-        self.current_tab = name
+        previous, self.current_tab = self.current_tab, name
         self._style_tabs()
         self._set_editor_buttons()
         self._notify_layout_changed()
+        if (previous == "Редактор") != (name == "Редактор"):
+            self._fit_window(exact_height=True)  # дошка і шари — різної висоти
 
     def _set_layers_dump(self, dump, source):
         self.layer_view.set_dump(dump, source)
         if self.current_tab != "Редактор":
             self.layer_view.show(self.current_tab)
+        self._fit_window()  # інше джерело / шари — підпис може стати довшим
 
     def on_layers_refresh(self):
         if not self._confirm_discard():
