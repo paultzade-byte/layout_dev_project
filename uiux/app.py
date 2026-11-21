@@ -13,7 +13,7 @@ from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEO
                                 load_moves, start_layout)
 from config import settings
 from core.layout_factory import build_layout, build_key_from_position
-from core.models import Finger, Layout, Key
+from core.models import Finger, Hand, Layout, Key
 from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
 from uiux import layer_view
@@ -334,9 +334,56 @@ class LayoutBuilderApp():
             self.button_refresh_layers: "Перечитати шари з клавіатури.",
             self.button_reset_layer: "Відкинути незаписані зміни цього шару.",
         }
+        for name, b in self.tabs.items():
+            if name == "Редактор":
+                tips[b] = ("Редактор розкладки: тут літери переставляються (мишкою або Start), "
+                           "тут рахується штраф.")
+            else:
+                how = ("лише перегляд — кирилиця редагується в «Редакторі»" if name in layer_view.READ_ONLY
+                       else "клавіші можна переставляти мишкою, Shift — разом з утриманням, "
+                            "права кнопка — скасувати; «На клаву» — записати")
+                tips[b] = f"Шар {name} клавіатури Corne: {layer_view.lh.ABOUT.get(name, '')}\n({how})"
         for widget, text in tips.items():
-            if widget is not None:
+            if isinstance(widget, RoundButton):
+                tooltip.add(widget, lambda w=widget, t=text: self._button_tip(w, t))
+            elif widget is not None:
                 tooltip.add(widget, text)
+
+    def _button_tip(self, button, text: str) -> str:
+        """Підказка кнопки; недоступна — ще й чому."""
+        if button.cget("state") != "disabled":
+            return text
+        if self.processor.is_running:
+            why = "іде пошук — спершу Stop"
+        elif self.current_tab != "Редактор" and button not in self.tabs.values():
+            why = "лише у вкладці «Редактор»"
+        elif button is self.button_reset_layer:
+            why = "у цьому шарі нема незаписаних змін (або шар лише для перегляду)"
+        else:
+            why = "не в цьому стані"
+        return f"{text}\nЗараз недоступно: {why}."
+
+    def _key_tip(self, widget) -> str:
+        """Підказка клавіші на дошці: що це за клавіша і що з нею можна зробити."""
+        key = widget.key
+        label = widget.labels.get(key.char)
+        if label is not None:
+            return f"{label or 'Пробіл'} — службова клавіша, стоїть на своєму місці."
+        if not key.char.strip():
+            return "Порожня клавіша — літер тут нема."
+        finger = {Finger.PINKY: "мізинець", Finger.RING: "безіменний", Finger.MIDDLE: "середній",
+                  Finger.INDEX: "вказівний", Finger.THUMB: "великий"}[key.finger]
+        hand = "лівий" if key.hand == Hand.LEFT else "правий"
+        text = f"«{key.char}» — {hand} {finger}."
+        extra = widget.altgr.get(key.char)
+        if extra:
+            text += f" З AltGr — «{extra}»."
+        if self.processor.is_running:
+            return text + "\nІде пошук — дошка заблокована, спершу Stop."
+        if widget.is_frozen:
+            return text + "\nЗаморожена: оптимізатор її не рухає. Права кнопка — розморозити."
+        return text + ("\nПеретягни на іншу клавішу — поміняються місцями. "
+                       "Права кнопка — заморозити на місці.")
 
     # ------------------------------------------------------------------
     # Геометрія: спліт / звичайна, перемикається в рантаймі
@@ -626,6 +673,8 @@ class LayoutBuilderApp():
             style_key(widget)
             widget.current_slot = slot
             slot.current_key = widget
+            # довша пауза, ніж у кнопок: дошку часто просто розглядають
+            tooltip.add(widget, lambda w=widget: self._key_tip(w), delay=1200)
 
             # Бінди подій / Binds
             widget.bind("<Button-1>", self.on_drag_start)
@@ -951,11 +1000,13 @@ class LayoutBuilderApp():
             else:
                 title = tk.Label(cell, text=knob.title, fg=TEXT, **label_opts)
             title.pack(anchor="w")
-            tooltip.add(title, KNOB_TIPS.get(knob.id, ""))
+            tip = KNOB_TIPS.get(knob.id, "")
+            tooltip.add(title, tip)
             metric = tk.Label(cell, fg=TEXT_DIM, anchor="w", bg=PANEL, font=(FONT, 9))
             metric.pack(anchor="w")
-            tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts).grid(
-                row=row, column=1, sticky="e")
+            tooltip.add(metric, "Як зараз у розкладці на дошці (за текстами корпусу).")
+            left = tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts)
+            left.grid(row=row, column=1, sticky="e")
             scale = tk.Scale(self.knob_frame, from_=-knobs.LIMIT, to=knobs.LIMIT, resolution=0.05,
                              orient="horizontal", showvalue=0, length=220, sliderlength=18, width=12,
                              bg=PANEL, fg=TEXT, troughcolor=SLOT, activebackground=ACCENT,
@@ -964,15 +1015,27 @@ class LayoutBuilderApp():
             scale.set(state["values"].get(knob.id, 0.0))
             scale.grid(row=row, column=2, padx=6)
             scale.bind("<ButtonRelease-1>", lambda _e, k=knob.id: self.on_knob_release(k))
-            tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts).grid(
-                row=row, column=3, sticky="w")
+            right = tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts)
+            right.grid(row=row, column=3, sticky="w")
             step_label = tk.Label(self.knob_frame, fg=ACCENT, width=14, anchor="w", **label_opts)
             step_label.grid(row=row, column=4, sticky="w", padx=(10, 12))
+            for widget in (left, right):
+                tooltip.add(widget, tip)
+            tooltip.add(scale, lambda t=tip, k=knob.id: self._knob_scale_tip(t, k))
+            tooltip.add(step_label, "Наскільки змінено вагу проти рекомендованої (посередині — як є).")
             self.knob_rows[knob.id] = SimpleNamespace(scale=scale, step=step_label, metric=metric)
             self._on_knob_move(knob.id)
         self._set_knobs_state("disabled" if self.processor.is_running else "normal")
         self._update_knob_metrics()
         self._update_preset_button()
+
+    def _knob_scale_tip(self, tip: str, knob_id: str) -> str:
+        text = tip + "\nТягни мишкою; штраф перерахується, коли відпустиш."
+        if self.processor.is_running:
+            return text + "\nЗараз недоступно: іде пошук — спершу Stop."
+        if knob_id == "closeness" and not self.closeness_var.get():
+            return text + "\nЗараз недоступно: спершу постав галочку ліворуч."
+        return text
 
     def toggle_knobs(self):
         self.knobs_open = not self.knobs_open
