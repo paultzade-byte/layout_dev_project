@@ -245,8 +245,8 @@ CI — `.github/workflows/build-windows.yml`.
 
 - [ ] Особисті розкладки `config/layout_paul_*` / `recorded_layout.before-*` —
       спитати автора, що лишити і куди.
-- [ ] Одна тека логів замість `log/` + `logs/`; прибрати `__pycache__` з кореня.
-- [ ] Лічильник корпусу (`.ignore_counter_worksteal.py`) — у `scripts/` (для фази 8).
+- [x] Лічильник корпусу — `scripts/ngram_counter.py` (2026-11-21).
+- [x] Логи — `logs/`; `log/` лишилась лише з `loggers/state_hasher.py`; `__pycache__` не чіпаємо (у .gitignore).
 
 ## Фаза 8 — міні-апка статистики, крок до інших мов — НЕ ПОЧАТО
 

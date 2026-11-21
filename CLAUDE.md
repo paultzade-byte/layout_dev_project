@@ -78,6 +78,8 @@
   `scripts/multistart.py` — N стартів, найкраща розкладка (`--out` у
   форматі Rec>>, `--from` — старт із замороженими клавішами);
   `scripts/check_delta.py` — delta-оцінка == повний `score()`.
+- `scripts/ngram_counter.py` — n-грами корпусу -> `statistic.json` (work-stealing пул);
+  шлях до корпусу поки зашитий, має стати вибором юзера (WORKLOG -6).
 - `scripts/zmk/` — клавіатура (Eyelash Corne, ZMK Studio по USB): `studio.py`
   (протокол; порт `auto`), `cyr_from_layout.py` (розкладка <-> шар CYR),
   `keyboard_sync.py` (запис/читання одним викликом — кнопки «На клаву» /
