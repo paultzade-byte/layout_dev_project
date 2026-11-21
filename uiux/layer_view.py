@@ -69,8 +69,8 @@ def xy(row, col, hand):
 
 
 def latest_dump():
-    """Найсвіжіший дамп у config/zmk (за часом зміни) або None."""
-    files = sorted(DUMPS.glob("studio_keymap_*.json"), key=lambda p: p.stat().st_mtime)
+    """Найсвіжіший дамп у config/zmk або config/zmk/snapshots (за часом зміни) або None."""
+    files = sorted(DUMPS.glob("**/studio_keymap_*.json"), key=lambda p: p.stat().st_mtime)
     return files[-1] if files else None
 
 

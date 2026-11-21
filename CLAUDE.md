@@ -81,7 +81,8 @@
 - `scripts/zmk/` — клавіатура (Eyelash Corne, ZMK Studio по USB): `studio.py`
   (протокол; порт `auto`), `cyr_from_layout.py` (розкладка <-> шар CYR),
   `keyboard_sync.py` (запис/читання одним викликом — кнопки «На клаву» /
-  «З клави» в GUI), `layers_html.py` (схема шарів для артефакту). Після
+  «З клави» в GUI; автознімки — `config/zmk/snapshots/`, у .gitignore; у `config/zmk`
+  лише віхи, архів — `~/Documents/layout/zmk_snapshots/`), `layers_html.py` (схема шарів для артефакту). Після
   кожної зміни розкладки на клавіатурі — оновити артефакт шарів (див. WORKLOG).
 - `.ignore*` — локальні файли автора (корпус ~16 ГБ у `.ignore_storage/`,
   нотатки, старі тести). У git не потрапляють.
