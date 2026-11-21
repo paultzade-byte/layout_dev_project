@@ -40,6 +40,10 @@
   (`_calibrate`); параметри — імовірності прийняття в `mutator_config.json`.
   Частка CPU — `core/throttle.py` (`cpu_share`, паузи між шматками роботи;
   GUI-меню «CPU: 25% ▾», запам'ятовується в settings.json, типово 25%).
+- `core/heat.py` — теплові мапи: частота натискань і «незручність» (частка штрафу
+  на клавішу — `MovementScoringEngine.per_char_penalty()`), кольори шкал. GUI: кнопки
+  «Частота» / «Незручність» біля штрафу (затиснути — поки тримаєш, клік — лишити);
+  «Скрін» зберігає те, що на дошці (`render.save(..., heat=, footer=)`).
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,

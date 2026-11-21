@@ -383,3 +383,30 @@ def test_layer_caption_fits_inside_panel():
             assert lv.caption.winfo_y() + lv.caption.winfo_reqheight() <= lv.winfo_height(), name
     finally:
         root.destroy()
+
+
+def test_heat_buttons_hold_click_and_tabs():
+    import time
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("corne_42"), geometry_name="corne_42")
+        root.update()
+        widget = ui.slots[0].current_key
+        finger_bg = widget.cget("bg")
+        ui._heat_press("freq"); ui._heat_release("freq")            # клік — лишити
+        assert ui.heat_shown == ui.heat_latched == "freq" and widget.cget("bg") != finger_bg
+        ui._heat_press("pain")
+        ui._heat_pressed = ("pain", time.monotonic() - 1)           # затиснули й тримали
+        assert ui.heat_shown == "pain"
+        ui._heat_release("pain")
+        assert ui.heat_shown == "freq"                              # назад до лишеної
+        if ui._zmk_mode():
+            ui.show_tab("GRAPH")                                    # на шарах мапи нема
+            assert ui.heat_shown is None and ui.heat_buttons["freq"].cget("state") == "disabled"
+            ui.show_tab("Редактор")
+        ui._heat_press("freq"); ui._heat_release("freq")
+        ui._heat_press("freq"); ui._heat_release("freq")            # ще клік — вимкнути
+        assert ui.heat_shown is None and widget.cget("bg") == finger_bg
+    finally:
+        root.destroy()

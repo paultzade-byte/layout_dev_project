@@ -581,6 +581,34 @@ class MovementScoringEngine:
         ))
         return metrics
 
+    def per_char_penalty(self) -> Dict[str, float]:
+        """Штраф поточної розкладки, розкладений по літерах (теплова мапа
+        «Незручність», core/heat.py). Внесок n-грами ділиться порівну між її
+        різними літерами; навантаження пальця понад ліміт — між літерами цього
+        пальця пропорційно частоті. Сталу частину hand_runs (не залежить від
+        розкладки) не розкладаємо: сума = total_penalty - стала."""
+        self._require_statistics()
+        out = np.zeros(len(self.chars), dtype=np.float64)
+        idx = self._unigram_idx
+        if idx is not None and len(idx):
+            pos = self.position[idx]
+            weight = self._unigram_weight
+            np.add.at(out, idx, self._pos_effort[pos] * weight)
+            slot = self._pos_slot[pos]
+            load = np.bincount(slot, weights=weight, minlength=12)
+            over = self.moves["finger_load"]["over_cap"] * np.maximum(load - self._load_cap, 0.0)
+            share = np.divide(over, load, out=np.zeros_like(over), where=load > 0)
+            np.add.at(out, idx, share[slot] * weight)
+            if self._closeness_cost is not None:
+                np.add.at(out, idx, self._closeness_weight * self._closeness_cost[idx, pos] * weight)
+        for fam in self._families.values():
+            contrib = fam.total[fam.code(fam.keys)] * fam.weight
+            per_letter = contrib / np.maximum(np.bitwise_count(fam.masks), 1)
+            for c, ngrams in enumerate(fam.by_char):
+                if len(ngrams):
+                    out[c] += per_letter[ngrams].sum()
+        return {char: float(out[i]) for i, char in enumerate(self.chars)}
+
     def score_from_statistics(self, statistics: Dict[str, Any]) -> ScoreMetrics:
         """Slow, self-contained convenience path for one-off calls (tests,
         scripts). Re-does the expensive statistics prep every call — do not

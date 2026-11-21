@@ -20,12 +20,13 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from core.models import Finger
-from uiux.theme import FINGER_COLORS, FROZEN_BG, FROZEN_FG, KEY_TEXT, PANEL, TEXT, TEXT_DIM
+from uiux.theme import FINGER_COLORS, FROZEN_BG, FROZEN_FG, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM
 
 GAP = 6               # відстань між клавішами (як у GUI)
 SPLIT_GAP = 400       # зсув правої половини спліта (як у GUI)
 MARGIN = 10
 TITLE_H = 34          # смуга заголовка над клавішами
+FOOTER_H = 46         # рядок під дошкою (навантаження пальців на тепловій мапі)
 
 # Підписи службових клавіш (role: mod). У corne_42 мітки в geometry.json
 # переплутані (WORKLOG «Наступні кроки» 4): 33 — Backspace, 36 — пробіл.
@@ -67,8 +68,10 @@ def key_cells(geometry: dict, geometry_name: str) -> list[tuple[dict, int, int, 
     return [(pos, x - min_x, y - min_y, width) for pos, x, y, width in raw]
 
 
-def _cells(keys, geometry: dict, geometry_name: str) -> list[dict]:
-    """Клавіші з координатами (від 0), підписом і кольором."""
+def _cells(keys, geometry: dict, geometry_name: str, heat: dict | None = None) -> list[dict]:
+    """Клавіші з координатами (від 0), підписом і кольором.
+    heat — {position_id: {fill, ink, text}} (core.heat.cells): теплова мапа
+    замість кольорів пальців; літера без даних — сіра."""
     by_position = {k.position_id: k for k in keys}
     labels = MOD_LABELS.get(geometry_name, {})
     altgr = geometry.get("altgr", {})  # другий символ на клавіші (AltGr+літера)
@@ -78,12 +81,16 @@ def _cells(keys, geometry: dict, geometry_name: str) -> list[dict]:
         char = key.char if key is not None else pos.get("default", "")
         is_mod = pos.get("role") == "mod" or not char
         finger = key.finger if key is not None else None
+        color, ink, note = FINGER_COLORS.get(finger, TEXT_DIM) if finger is not None else TEXT_DIM, KEY_TEXT, ""
+        if heat is not None and not is_mod:
+            cell = heat.get(pos["id"])
+            color, ink, note = (cell["fill"], cell["ink"], cell["text"]) if cell else (SLOT, TEXT_DIM, "")
         out.append({
             "x": x, "y": y, "w": width, "h": geometry["key_height"],
             "label": labels.get(char, char) if is_mod else char,
             "mod": is_mod,
             "altgr": "" if is_mod else altgr.get(char, ""),
-            "color": FINGER_COLORS.get(finger, TEXT_DIM) if finger is not None else TEXT_DIM,
+            "color": color, "ink": ink, "note": note,
         })
     return out
 
@@ -106,10 +113,11 @@ def default_title(geometry_name: str, score: float | None) -> tuple[str, str]:
 
 
 def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", subtitle: str = "",
-               scale: int = 2) -> Path:
-    cells = _cells(keys, geometry, geometry_name)
+               scale: int = 2, heat: dict | None = None, footer: str = "") -> Path:
+    cells = _cells(keys, geometry, geometry_name, heat)
     width = max(c["x"] + c["w"] for c in cells) + 2 * MARGIN
-    height = max(c["y"] + c["h"] for c in cells) + TITLE_H + 2 * MARGIN
+    board_bottom = max(c["y"] + c["h"] for c in cells) + TITLE_H + MARGIN
+    height = board_bottom + MARGIN + (FOOTER_H if footer else 0)
     s = scale
     image = Image.new("RGB", (width * s, height * s), PANEL)
     draw = ImageDraw.Draw(image)
@@ -120,6 +128,7 @@ def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", 
     small_font = _font(TEXT_FONTS, 12 * s)
     small_symbol_font = _font(SYMBOL_FONTS, 12 * s)
     altgr_font = _font(TEXT_FONTS, 13 * s)
+    note_font = _font(TEXT_FONTS, 10 * s)
 
     if title:
         draw.text((MARGIN * s, (MARGIN + 18) * s), title, font=title_font, fill=TEXT, anchor="ls")
@@ -140,20 +149,29 @@ def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", 
             draw.text(center, label, font=font, fill=FROZEN_FG, anchor="mm")
         else:
             draw.rounded_rectangle(box, radius=3 * s, fill=c["color"])
-            draw.text(center, c["label"], font=key_font, fill=KEY_TEXT, anchor="mm")
+            draw.text(center, c["label"], font=key_font, fill=c["ink"], anchor="mm")
             if c["altgr"]:  # AltGr-символ — дрібно в правому верхньому куті
                 draw.text((x0 + (c["w"] - 5) * s, y0 + 3 * s), c["altgr"], font=altgr_font,
-                          fill=KEY_TEXT, anchor="ra")
+                          fill=c["ink"], anchor="ra")
+            if c["note"]:  # теплова мапа: відсоток — дрібно внизу
+                draw.text((center[0], y0 + (c["h"] - 3) * s), c["note"], font=note_font,
+                          fill=c["ink"], anchor="ms")
+    if footer:
+        for i, line in enumerate(footer.splitlines()[:2]):
+            draw.text((MARGIN * s, (board_bottom + 22 + 20 * i) * s), line, font=sub_font, fill=TEXT_DIM,
+                      anchor="ls")
 
     path = Path(path)
     image.save(path)
     return path
 
 
-def render_svg(keys, geometry: dict, geometry_name: str, title: str = "", subtitle: str = "") -> str:
-    cells = _cells(keys, geometry, geometry_name)
+def render_svg(keys, geometry: dict, geometry_name: str, title: str = "", subtitle: str = "",
+               heat: dict | None = None, footer: str = "") -> str:
+    cells = _cells(keys, geometry, geometry_name, heat)
     width = max(c["x"] + c["w"] for c in cells) + 2 * MARGIN
-    height = max(c["y"] + c["h"] for c in cells) + TITLE_H + 2 * MARGIN
+    board_bottom = max(c["y"] + c["h"] for c in cells) + TITLE_H + MARGIN
+    height = board_bottom + MARGIN + (FOOTER_H if footer else 0)
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
              f'viewBox="0 0 {width} {height}">',
              f'<rect width="100%" height="100%" fill="{PANEL}"/>']
@@ -173,24 +191,33 @@ def render_svg(keys, geometry: dict, geometry_name: str, title: str = "", subtit
             fill = FROZEN_FG
         else:
             parts.append(f'<rect x="{x}" y="{y}" width="{c["w"]}" height="{c["h"]}" rx="3" fill="{c["color"]}"/>')
-            size, fill = 22, KEY_TEXT
+            size, fill = 22, c["ink"]
         parts.append(f'<text x="{cx}" y="{cy}" font-family="{SVG_FONT}" font-weight="bold" font-size="{size}" '
                      f'text-anchor="middle" dominant-baseline="central" fill="{fill}">{escape(c["label"])}</text>')
         if c["altgr"]:
             parts.append(f'<text x="{x + c["w"] - 5}" y="{y + 3}" font-family="{SVG_FONT}" font-weight="bold" '
-                         f'font-size="13" text-anchor="end" dominant-baseline="hanging" fill="{KEY_TEXT}">'
+                         f'font-size="13" text-anchor="end" dominant-baseline="hanging" fill="{c["ink"]}">'
                          f'{escape(c["altgr"])}</text>')
+        if c["note"]:
+            parts.append(f'<text x="{cx}" y="{y + c["h"] - 3}" font-family="{SVG_FONT}" font-size="10" '
+                         f'text-anchor="middle" fill="{c["ink"]}">{escape(c["note"])}</text>')
+    if footer:
+        for i, line in enumerate(footer.splitlines()[:2]):
+            parts.append(f'<text x="{MARGIN}" y="{board_bottom + 22 + 20 * i}" font-family="{SVG_FONT}" '
+                         f'font-size="13" fill="{TEXT_DIM}">{escape(line)}</text>')
     parts.append("</svg>")
     return "\n".join(parts)
 
 
-def save(keys, geometry: dict, geometry_name: str, path, title: str = "", subtitle: str = "") -> Path:
-    """PNG або SVG — за розширенням."""
+def save(keys, geometry: dict, geometry_name: str, path, title: str = "", subtitle: str = "",
+         heat: dict | None = None, footer: str = "") -> Path:
+    """PNG або SVG — за розширенням. heat/footer — теплова мапа і рядок під дошкою."""
     path = Path(path)
     if path.suffix.lower() == ".svg":
-        path.write_text(render_svg(keys, geometry, geometry_name, title, subtitle), encoding="utf-8")
+        path.write_text(render_svg(keys, geometry, geometry_name, title, subtitle, heat, footer),
+                        encoding="utf-8")
         return path
-    return render_png(keys, geometry, geometry_name, path, title, subtitle)
+    return render_png(keys, geometry, geometry_name, path, title, subtitle, heat=heat, footer=footer)
 
 
 def main(argv=None):

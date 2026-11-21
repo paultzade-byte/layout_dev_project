@@ -6,6 +6,7 @@ import math
 import re
 import sys
 import threading
+import time
 from types import SimpleNamespace
 import copy
 
@@ -22,6 +23,7 @@ from uiux import render
 from uiux.toast import Toasts
 from uiux import tooltip
 from core import knobs
+from core import heat
 from core import throttle
 from core import export
 from core.metrics import layout_metrics
@@ -49,7 +51,14 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     border — рамка (DROP_OK / DROP_BLOCKED), finger — зона пальця, в яку
     клавіша потрапить (попередній перегляд кольору)."""
     key = widget.key
-    if widget.is_frozen:
+    # теплова мапа (core/heat.py): {position_id: {fill, ink, text}} — спільна для всіх клавіш
+    heat_map = getattr(widget, "heat_map", None)
+    cell = heat_map.get(key.position_id) if heat_map is not None else None
+    if cell is not None:
+        bg, fg = cell["fill"], cell["ink"]
+    elif heat_map is not None and len(key.char) == 1 and key.char.strip():
+        bg, fg = SLOT, TEXT_DIM            # літера без даних — сіра
+    elif widget.is_frozen:
         bg, fg = FROZEN_BG, FROZEN_FG
     else:
         bg, fg = FINGER_COLORS.get(finger or key.finger, TEXT_DIM), KEY_TEXT
@@ -60,6 +69,8 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     widget.config(
         text=text, bg=bg, fg=fg, font=font,
         highlightthickness=2, highlightbackground=border, highlightcolor=border,
+        # з тепловою мапою внизу відсоток — літеру вгору, щоб він не накривав хвостики (р, у, д)
+        anchor="n" if cell is not None else "center", pady=4 if cell is not None else 1,
     )
     # AltGr-символ клавіші (geometry["altgr"]: літера -> символ) — дрібно в
     # правому верхньому куті, як на картинці; іде за літерою при перетягуванні
@@ -71,6 +82,13 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
             mark.place(relx=1.0, x=-5, y=2, anchor="ne")
         else:
             mark.place_forget()
+    note = getattr(widget, "note_label", None)
+    if note is not None:
+        if cell is not None:
+            note.config(text=cell["text"], bg=bg, fg=fg)
+            note.place(relx=0.5, rely=1.0, y=-2, anchor="s")
+        else:
+            note.place_forget()
 
 
 def make_button(parent, text, command, small=False):
@@ -101,6 +119,7 @@ def make_score_display(statistic, moves_config, engine=None):
     return on_layout_changed
 
 
+HEAT_TITLES = {"freq": "частота натискань, %", "pain": "незручність, % штрафу"}
 YCUKEN_GEOMETRIES = {"generic_105_alpha"}  # де `default` позицій = ЙЦУКЕН
 TITLE_ALLOWANCE = 70  # заголовок вікна + панель задач, px
 
@@ -241,15 +260,28 @@ class LayoutBuilderApp():
 
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
+        self.status_row = tk.Frame(self.root, bg=BG)
+        self.status_row.pack(fill="x", padx=(22, 20), pady=(10, 0))
+        # теплові мапи: затиснути — показати, поки тримаєш; клік — лишити увімкненою
+        self.heat_shown = None     # що зараз на дошці: None / "freq" / "pain"
+        self.heat_latched = None   # що лишається після відпускання
+        self.heat_buttons = {}
+        for kind, title in (("pain", "Незручність"), ("freq", "Частота")):
+            b = make_button(self.status_row, title, None, small=True)
+            b.pack(side="right", padx=(6, 0))
+            for n in (1, 3):
+                b.bind(f"<ButtonPress-{n}>", lambda e, k=kind: self._heat_press(k), add="+")
+                b.bind(f"<ButtonRelease-{n}>", lambda e, k=kind: self._heat_release(k), add="+")
+            self.heat_buttons[kind] = b
         self.status_label = tk.Label(
-            self.root,
+            self.status_row,
             textvariable=self.status_var,
             bg=BG,
             fg=TEXT,
             font=(FONT, 13, "bold"),
             anchor="w"
         )
-        self.status_label.pack(fill="x", padx=22, pady=(10, 0))
+        self.status_label.pack(side="left", fill="x", expand=True)
 
         # вкладки: редактор розкладки (CYR з оптимізатора) або перегляд шару клавіатури
         self.tab_bar = tk.Frame(self.root, bg=BG)
@@ -327,6 +359,12 @@ class LayoutBuilderApp():
                             "лишаються на місці.",
             p.button_reheat: "Під час пошуку: «струснути» оптимізатор, якщо він застряг. "
                              "Найкраще знайдене не губиться.",
+            self.heat_buttons["freq"]: lambda: self._heat_tip(
+                "freq", "Теплова мапа частоти: що світліша клавіша, то частіше її натискають; "
+                        "на клавіші — % натискань."),
+            self.heat_buttons["pain"]: lambda: self._heat_tip(
+                "pain", "Теплова мапа незручності: що світліша клавіша, то більше штрафу набігає "
+                        "через неї (стрибки одним пальцем, ножиці, мізинці…); на клавіші — % штрафу."),
             p.button_open: "Відкрити збережену розкладку (.json).",
             p.button_save: "Зберегти розкладку в той самий файл (вперше — спитає куди).",
             p.button_save_as: "Зберегти розкладку в новий файл.",
@@ -349,9 +387,56 @@ class LayoutBuilderApp():
                 tips[b] = f"Шар {name} клавіатури Corne: {layer_view.lh.ABOUT.get(name, '')}\n({how})"
         for widget, text in tips.items():
             if isinstance(widget, RoundButton):
-                tooltip.add(widget, lambda w=widget, t=text: self._button_tip(w, t))
+                tooltip.add(widget, lambda w=widget, t=text: self._button_tip(w, t() if callable(t) else t))
             elif widget is not None:
                 tooltip.add(widget, text)
+
+    # ------------------------------------------------------------------
+    # Теплові мапи (core/heat.py): затиснути — поки тримаєш; клік — лишити
+    # ------------------------------------------------------------------
+    HEAT_CLICK_S = 0.35  # коротше — клік (перемикач), довше — «подивитись і відпустити»
+
+    def _heat_values(self, kind: str) -> dict:
+        if kind == "freq":
+            return heat.frequency(self.layout.keys, self.statistic)
+        return heat.discomfort(self.engine, self.layout.keys)
+
+    def _show_heat(self, kind):
+        """Дошка в кольорах мапи kind (None — кольори пальців)."""
+        self.heat_shown = kind
+        cells = heat.cells(self._heat_values(kind), kind) if kind else None
+        for slot in self.slots:
+            widget = slot.current_key
+            if widget is not None:
+                widget.heat_map = cells
+                style_key(widget)
+        for k, b in self.heat_buttons.items():
+            on = k == self.heat_latched
+            b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
+                     activebackground=ACCENT if on else BUTTON_HOVER)
+
+    def _heat_press(self, kind):
+        if self.heat_buttons[kind].cget("state") == "disabled":
+            return
+        self._heat_pressed = (kind, time.monotonic())
+        self._show_heat(kind)
+
+    def _heat_release(self, kind):
+        pressed = getattr(self, "_heat_pressed", None)
+        self._heat_pressed = None
+        if pressed is None or pressed[0] != kind:
+            return
+        if time.monotonic() - pressed[1] < self.HEAT_CLICK_S:   # клік — перемикач
+            self.heat_latched = None if self.heat_latched == kind else kind
+        self._show_heat(self.heat_latched)
+
+    def _heat_tip(self, kind: str, text: str) -> str:
+        text += ("\nЗатисни — мапа, поки тримаєш (ліва чи права кнопка миші); "
+                 "клік — лишити увімкненою, ще клік — вимкнути. «Скрін» збереже те, що на дошці.")
+        if self.heat_buttons[kind].cget("state") != "disabled":
+            values = self._heat_values(kind)
+            text += "\n\n" + heat.loads_text(self.layout.keys, values)
+        return text
 
     def _button_tip(self, button, text: str) -> str:
         """Підказка кнопки; недоступна — ще й чому."""
@@ -677,6 +762,8 @@ class LayoutBuilderApp():
             widget.altgr = self.geometry.get("altgr", {})
             widget.altgr_label = tk.Label(widget, font=(FONT, 10, "bold"), bd=0, padx=0, pady=0,
                                           cursor="hand2")
+            widget.note_label = tk.Label(widget, font=(FONT, 8, "bold"), bd=0, padx=0, pady=0,
+                                         cursor="hand2")
             widget.key = key
             widget.is_frozen = key.is_frozen
             style_key(widget)
@@ -694,6 +781,8 @@ class LayoutBuilderApp():
             for sequence, handler in (("<Button-1>", self.on_drag_start), ("<B1-Motion>", self.on_drag_motion),
                                       ("<ButtonRelease-1>", self.on_drag_release),
                                       ("<Button-3>", self.toggle_freeze)):
+                widget.note_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
+                    widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
                 widget.altgr_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
                     widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
 
@@ -879,6 +968,8 @@ class LayoutBuilderApp():
             self.status_var.set(self.on_layout_changed(self.layout))
         if tab == "Редактор":
             self._update_knob_metrics()
+            if getattr(self, "heat_shown", None):
+                self._show_heat(self.heat_shown)   # розкладка змінилась — перерахувати
 
 
     # ------------------------------------------------------------------
@@ -1195,8 +1286,11 @@ class LayoutBuilderApp():
     def _set_file_buttons(self, state):
         panel = self.button_panel
         for b in (panel.button_open, panel.button_save, panel.button_save_as, panel.button_screenshot,
-                  panel.button_export):
+                  panel.button_export, *getattr(self, "heat_buttons", {}).values()):
             b.config(state=state)
+        if state == "disabled" and getattr(self, "heat_shown", None):
+            self.heat_latched = None   # пошук / вкладка шару — мапу знімаємо
+            self._show_heat(None)
 
     def _dialog_dir(self):
         return str(self._last_dir or layouts_dir())
@@ -1530,7 +1624,13 @@ class LayoutBuilderApp():
     def save_screenshot(self, path):
         """Картинка поточної розкладки «Редактора» (PNG або SVG за розширенням)."""
         title, subtitle = render.default_title(self.geometry_name, self._current_score())
-        return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle)
+        cells, footer = None, ""
+        if self.heat_shown:
+            values = self._heat_values(self.heat_shown)
+            cells, footer = heat.cells(values, self.heat_shown), heat.loads_text(self.layout.keys, values)
+            title += " · " + HEAT_TITLES[self.heat_shown]
+        return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle,
+                           heat=cells, footer=footer)
 
     def on_screenshot(self):
         initial_dir = self._dialog_dir()
