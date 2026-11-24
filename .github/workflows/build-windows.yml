@@ -71,9 +71,12 @@ jobs:
           $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'ukr-layout'
           $n = (Get-ChildItem -LiteralPath $lnk -Filter *.lnk).Count
           if ($n -ne 2) { Write-Error "у «Пуск» $n ярликів замість 2"; exit 1 }
-          $t = (New-Object -ComObject WScript.Shell).CreateShortcut((Get-ChildItem -LiteralPath $lnk -Filter *.lnk)[0].FullName).TargetPath
-          if (-not (Test-Path -LiteralPath $t) -or -not $t.StartsWith($copy)) { Write-Error "ярлик веде не туди: $t"; exit 1 }
-          Get-ChildItem -LiteralPath $lnk -Filter *.lnk | ForEach-Object { $_.Name }
+          $ns = (New-Object -ComObject Shell.Application).NameSpace($lnk)   # Unicode, на відміну від WScript.Shell
+          foreach ($f in Get-ChildItem -LiteralPath $lnk -Filter *.lnk) {
+            $t = $ns.ParseName($f.Name).GetLink.Path
+            "$($f.Name) -> $t"
+            if (-not (Test-Path -LiteralPath $t) -or -not $t.StartsWith($copy)) { Write-Error "ярлик веде не туди: $t"; exit 1 }
+          }
           powershell -NoProfile -ExecutionPolicy Bypass -File "$copy\shortcuts.ps1" -Remove
           if (Test-Path -LiteralPath $lnk) { Write-Error "ярлики не прибрано"; exit 1 }
 
