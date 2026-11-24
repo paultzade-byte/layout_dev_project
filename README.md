@@ -50,6 +50,11 @@ python main.py --geometry generic_105_alpha --iterations 20000   # без вік
 Windows: exe збирає GitHub Actions (`Build Windows`; у теці `ukr-layout.exe` і
 `ukr-stats.exe`): архів `ukr-layout-windows`
 у артефактах запуску або в Release для тегу `v*`.
+Ярлики на робочому столі й у меню «Пуск» — «Створити ярлики.bat» у тій самій теці
+(«Видалити ярлики.bat» — прибрати; перенесли теку — створіть ще раз).
+
+Linux: ярлики в меню застосунків і на робочому столі (після кроків вище) —
+`packaging/linux/install-shortcuts.sh` (`--remove` — прибрати).
 
 ## Як це влаштовано
 

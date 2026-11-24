@@ -52,6 +52,16 @@ jobs:
           $p = Start-Process -FilePath dist\ukr-layout\ukr-stats.exe -ArgumentList "--smoke" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "ukr-stats.exe завершився з кодом $($p.ExitCode)"; exit 1 }
 
+      # ярлики без інсталятора: юзер запускає .bat поруч з exe (packaging/windows)
+      - name: Скрипти ярликів
+        shell: pwsh
+        run: |
+          Copy-Item packaging\windows\shortcuts.ps1 dist\ukr-layout\
+          Copy-Item packaging\windows\create-shortcuts.bat "dist\ukr-layout\Створити ярлики.bat"
+          Copy-Item packaging\windows\remove-shortcuts.bat "dist\ukr-layout\Видалити ярлики.bat"
+          $ps = [System.Management.Automation.Language.Parser]::ParseFile("$PWD\dist\ukr-layout\shortcuts.ps1", [ref]$null, [ref]$errs)
+          if ($errs) { $errs; exit 1 }
+
       - name: Zip
         shell: pwsh
         run: Compress-Archive -Path dist\ukr-layout -DestinationPath ukr-layout-windows.zip
