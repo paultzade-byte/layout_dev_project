@@ -183,7 +183,9 @@ def _process(task):
     with open(path, "rb") as f:
         f.seek(start)
         raw = f.read(end - start)
-    text = normalize_apostrophes(raw.decode("utf-8", errors="ignore").lower())
+    text = raw.decode("utf-8", errors="ignore").lower()
+    # переноси Windows (\r\n) і старого Mac (\r) -> \n, інакше \r став би зайвим пробілом
+    text = normalize_apostrophes(text.replace("\r\n", "\n").replace("\r", "\n"))
     alpha: Alphabet = _W["alpha"]
     ids = alpha.to_ids(text)
     chars = np.bincount(ids, minlength=alpha.size)

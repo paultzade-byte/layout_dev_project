@@ -105,3 +105,12 @@ def test_statistic_file_named_by_language_and_listed(tmp_path):
     assert set(stat) == {"unigrams", "bigrams", "trigrams", "skipgrams", "words"}
     assert stat["words"]["п'ять"] == 30
     assert "українська" in stats_files.label(uk)
+
+
+def test_windows_line_endings_same_as_unix(tmp_path):
+    unix, win = tmp_path / "unix.txt", tmp_path / "win.txt"
+    unix.write_bytes((TEXT_UK * 20).encode("utf-8"))
+    win.write_bytes((TEXT_UK * 20).replace("\n", "\r\n").encode("utf-8"))
+    a = corpus.count_corpus([unix], "uk", 1.0)
+    b = corpus.count_corpus([win], "uk", 1.0)
+    assert a["statistic"] == b["statistic"] and a["words"] == b["words"]
