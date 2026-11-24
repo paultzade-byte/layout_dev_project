@@ -88,3 +88,20 @@ def test_stop(tmp_path):
     (tmp_path / "t.txt").write_text(TEXT_UK, encoding="utf-8")
     with pytest.raises(corpus.Stopped):
         corpus.count_corpus([tmp_path / "t.txt"], "uk", 1.0, should_stop=lambda: True)
+
+
+def test_statistic_file_named_by_language_and_listed(tmp_path):
+    from config import stats_files
+    (tmp_path / "pl.txt").write_text("Zażółć gęślą jaźń. " * 30, encoding="utf-8")
+    (tmp_path / "uk.txt").write_text(TEXT_UK * 30, encoding="utf-8")
+    out = tmp_path / "stats"
+    uk = corpus.write_statistic_file(corpus.count_corpus([tmp_path / "uk.txt"], "uk", 1.0), out, "мої тексти")
+    pl = corpus.write_statistic_file(corpus.count_corpus([tmp_path / "pl.txt"], "pl", 1.0), out, "pl")
+    assert uk.name.startswith("ukr_мої_тексти_") and pl.name.startswith("pol_pl_")
+    (out / "other.json").write_text('{"a": 1}', encoding="utf-8")         # не статистика — не в списку
+    listed = {p.name: m["language"] for p, m in stats_files.list_files(out)}
+    assert listed == {uk.name: "uk", pl.name: "pl"}
+    stat = stats_files.load(uk)
+    assert set(stat) == {"unigrams", "bigrams", "trigrams", "skipgrams", "words"}
+    assert stat["words"]["п'ять"] == 30
+    assert "українська" in stats_files.label(uk)

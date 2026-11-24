@@ -32,10 +32,11 @@ def test_pick_detect_run_write(tmp_path):
             time.sleep(0.05)
         root.update()
         assert app.worker is None and app.button_start.cget("text") == "Старт"
-        stat = json.loads((tmp_path / "out" / "statistic.json").read_text(encoding="utf-8"))
-        assert stat["unigrams"]["'"] == 100
-        words = json.loads((tmp_path / "out" / "word_stats.json").read_text(encoding="utf-8"))
-        assert words["meta"]["language"] == "uk" and words["words"]["п'є"] == 50
+        assert app.result_path.parent == tmp_path / "out" and app.result_path.name.startswith("ukr_texts_")
+        data = json.loads(app.result_path.read_text(encoding="utf-8"))
+        assert data["unigrams"]["'"] == 100
+        assert data["meta"]["language"] == "uk" and data["meta"]["corpus"] == "texts"
+        assert data["words"]["п'є"] == 50
     finally:
         root.destroy()
 

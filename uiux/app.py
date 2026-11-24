@@ -13,6 +13,7 @@ import copy
 from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEOMETRY_TITLES, geometry_config,
                                 load_moves, start_layout)
 from config import settings
+from config import stats_files
 from core.layout_factory import build_layout, build_key_from_position
 from core.models import Finger, Hand, Layout, Key
 from core.scorer import MovementScoringEngine
@@ -214,6 +215,7 @@ class LayoutBuilderApp():
         layout: Layout | None = None,
         on_layout_changed=None,
         geometry_name: str | None = None,
+        statistic_file=None,
     ):
         self.root = root
         self.root.title("Аналізатор розкладки")
@@ -230,6 +232,7 @@ class LayoutBuilderApp():
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
         self.statistic = statistic
+        self.statistic_file = Path(statistic_file) if statistic_file else stats_files.BUILTIN
         self._last_dir = None      # остання тека діалогів (у межах сесії)
         self.current_file = None   # файл розкладки для «Зберегти» (None — ще не збережено)
         self._mode_layouts = {}    # розкладка кожного режиму в межах сесії (перемикач не губить її)
@@ -353,6 +356,12 @@ class LayoutBuilderApp():
             self.button_cpu: "Скільки процесора бере пошук (Start): частка одного ядра. "
                              "Менше — комп'ютер тихіший і не гріється, але пошук повільніший.\n"
                              "Можна міняти й під час пошуку. Запам'ятовується.",
+            self.button_stats: lambda: (
+                "Статистика текстів, за якою рахується штраф: які літери й пари літер "
+                "трапляються найчастіше.\nВбудована — великий корпус UberText. Свою можна "
+                "порахувати програмою «Статистика текстів» (ukr-stats) з власних текстів — "
+                "файли з'являються тут у меню.\n"
+                f"Зараз: {self._stats_title(full=True)}"),
             self.button_knobs_reset: "Усі повзунки посередині, близькість до ЙЦУКЕН вимкнена.",
             p.button_start: "Start — шукати кращу розкладку, починаючи з тієї, що на дошці. "
                             "Ще раз — зупинити.\nЗаморожені клавіші (права кнопка миші) "
@@ -1021,6 +1030,71 @@ class LayoutBuilderApp():
         settings.save(cpu_percent=percent)
         self._update_cpu_button()
 
+    # ---------------------------------------------------- статистика
+
+    def _stats_title(self, full: bool = False) -> str:
+        if self.statistic_file is stats_files.BUILTIN:
+            return "вбудована (UberText)" if full else "вбудована"
+        stem = self.statistic_file.stem
+        return str(self.statistic_file) if full else (stem if len(stem) <= 28 else stem[:27] + "…")
+
+    def _update_stats_button(self):
+        self.button_stats.config(text=f"Статистика: {self._stats_title()} ▾")
+
+    def show_stats_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
+                       activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
+        mark = lambda on: "✓ " if on else "    "
+        menu.add_command(label=f"{mark(self.statistic_file is stats_files.BUILTIN)}Вбудована — UberText, українська",
+                         command=lambda: self.set_statistic(stats_files.BUILTIN))
+        files = stats_files.list_files()
+        if files:
+            menu.add_separator()
+        for path, meta in files:
+            ok = meta.get("language") in stats_files.OPTIMIZER_LANGS
+            label = stats_files.label(path, meta) + ("" if ok else "  (поки лише українська)")
+            menu.add_command(label=f"{mark(path == self.statistic_file)}{label}",
+                             state="normal" if ok else "disabled",
+                             command=lambda p=path: self.set_statistic(p))
+        menu.add_separator()
+        menu.add_command(label="    Вибрати файл…", command=self.on_stats_pick)
+        b = self.button_stats
+        menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def on_stats_pick(self):
+        folder = stats_files.stats_dir()
+        path = filedialog.askopenfilename(
+            parent=self.root, title="Файл статистики",
+            initialdir=str(folder if folder.is_dir() else layouts_dir()),
+            filetypes=[("Статистика (JSON)", "*.json"), ("Усі файли", "*")])
+        if path:
+            self.set_statistic(Path(path))
+
+    def set_statistic(self, path) -> bool:
+        """Інша статистика -> новий engine у фоні (як зміна ваг); вибір запам'ятовується."""
+        if self.processor.is_running:
+            self.status_var.set("Спершу зупини оптимізацію (Stop), потім міняй статистику.")
+            return False
+        if path == self.statistic_file:
+            return False
+        try:
+            if path is stats_files.BUILTIN:
+                statistic = STATISTIC
+            else:
+                lang = stats_files.language(path)
+                if lang is not None and lang not in stats_files.OPTIMIZER_LANGS:
+                    raise ValueError(f"мова файлу — {stats_files.LANG_NAMES.get(lang, lang)}; "
+                                     "оптимізатор поки працює лише з українською")
+                statistic = stats_files.load(path)
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Статистика", f"Не вдалося відкрити статистику:\n{error}")
+            return False
+        self.statistic, self.statistic_file = statistic, path
+        settings.save(statistic_file=None if path is stats_files.BUILTIN else str(path))
+        self._update_stats_button()
+        self._rebuild_weights(f"статистика «{self._stats_title()}»", head="Статистику змінено")
+        return True
+
     def show_preset_menu(self):
         menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
                        activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
@@ -1094,6 +1168,9 @@ class LayoutBuilderApp():
         self.button_cpu = make_button(self.knob_bar, "", self.show_cpu_menu, small=True)
         self.button_cpu.pack(side="left", padx=(8, 0))
         self._update_cpu_button()
+        self.button_stats = make_button(self.knob_bar, "", self.show_stats_menu, small=True)
+        self.button_stats.pack(side="left", padx=(8, 0))
+        self._update_stats_button()
         self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
                                               self.on_knobs_reset, small=True)
         self.knob_frame = tk.Frame(self.root, bg=PANEL)
@@ -1224,7 +1301,7 @@ class LayoutBuilderApp():
         if changed:
             self._rebuild_weights("Ваги — рекомендовані")
 
-    def _rebuild_weights(self, what: str):
+    def _rebuild_weights(self, what: str, head: str = "Ваги змінено"):
         """Нові ваги -> новий engine (prepare_statistics ~2 с) у фоні. Розкладка
         не змінюється — лише штраф; юзер сам тисне Start. Нічого не блокує."""
         self._weights_gen += 1
@@ -1256,7 +1333,7 @@ class LayoutBuilderApp():
                 self.on_layout_changed = make_score_display(self.statistic, moves, engine=engine)
             self._set_editor_buttons()
             self._notify_layout_changed()
-            self.toasts.show(f"Ваги змінено — {what}.\n"
+            self.toasts.show(f"{head} — {what}.\n"
                              f"Штраф поточної розкладки: {self._current_score():.2f}. "
                              "Натисни Start, щоб підлаштувати розкладку.")
 
@@ -1693,11 +1770,24 @@ def _windows_setup():
         pass
 
 
+def startup_statistic():
+    """Запам'ятована статистика (settings "statistic_file"), якщо файл є і мова
+    українська; інакше — вбудована. -> (statistic, файл або None)."""
+    chosen = settings.load().get("statistic_file")
+    if chosen:
+        try:
+            if stats_files.language(chosen) in stats_files.OPTIMIZER_LANGS:
+                return stats_files.load(chosen), Path(chosen)
+        except (OSError, ValueError):
+            pass
+    return STATISTIC, stats_files.BUILTIN
+
+
 def main(smoke_ms: int | None = None):
     """Запуск GUI. smoke_ms — закрити вікно через стільки мс (перевірка
     зібраного exe в CI: вікно будується повністю і процес виходить з кодом 0)."""
     _windows_setup()
-    statistic = STATISTIC
+    statistic, statistic_file = startup_statistic()
     mode = settings.initial_mode(GEOMETRIES)  # запам'ятований режим; в exe типово «Звичайна»
     moves_config = load_moves(mode)
     root = tk.Tk()
@@ -1706,7 +1796,8 @@ def main(smoke_ms: int | None = None):
         statistic=statistic,
         moves_config=moves_config,
         on_layout_changed=make_score_display(statistic, moves_config),
-        geometry_name=mode)
+        geometry_name=mode,
+        statistic_file=statistic_file)
     if smoke_ms:
         root.after(smoke_ms, root.destroy)
     root.mainloop()

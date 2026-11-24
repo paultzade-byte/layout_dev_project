@@ -1,10 +1,12 @@
-"""Міні-апка статистики: тека з текстами -> statistic.json + word_stats.json.
+"""Міні-апка статистики: тека з текстами -> файл статистики для оптимізатора.
 
     python -m uiux.stats_app [ТЕКА_З_ТЕКСТАМИ]
 
 Юзер вибирає теку (читаються всі .txt, з підтеками) і куди зберегти; мову
 апка визначає сама (можна змінити), далі — Старт. Підрахунок — core/corpus.py
 у фоновому потоці (воркери — окремі процеси), з обмеженням CPU з меню.
+Результат — один файл ukr_<тека>_<дата>.json (мова в назві) у
+Документи/ukr-layout/статистика; оптимізатор показує його в «Статистика ▾».
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from tkinter import filedialog
 
 from config import settings
 from config.paths import layouts_dir
+from config.stats_files import stats_dir
 from core import corpus
 from uiux.theme import ACCENT, BG, BUTTON, BUTTON_HOVER, FONT, KEY_TEXT, PANEL, TEXT, TEXT_DIM
 from uiux.toast import Toasts
@@ -55,12 +58,13 @@ class StatsApp:
         saved = settings.load()
         self.corpus_dir = Path(corpus_dir) if corpus_dir else (
             Path(saved["stats_corpus"]) if saved.get("stats_corpus") else None)
-        self.out_dir = Path(saved.get("stats_out") or layouts_dir() / "статистика")
+        self.out_dir = Path(saved.get("stats_out") or stats_dir())
         self.cpu = saved.get("stats_cpu", 25)
         self.lang = AUTO
         self.detected: str | None = None
         self.files: list[Path] = []
         self.worker: threading.Thread | None = None
+        self.result_path: Path | None = None
         self.stop_flag = threading.Event()
         self.events: queue.Queue = queue.Queue()   # з фонового потоку — лише сюди
         self.toasts = Toasts(root)
@@ -101,13 +105,15 @@ class StatsApp:
         Tooltip(self.button_lang, "Мова визначається сама за характерними літерами (ї/є/ґ, ў, ą/ł…). "
                                   "Клік — вибрати вручну.")
 
-        f = row("Зберегти в", "Тека, куди буде записано statistic.json і word_stats.json.")
+        f = row("Зберегти в", "Тека для файлу статистики. Звідси оптимізатор бере список у «Статистика ▾».")
         self.label_out = tk.Label(f, bg=PANEL, fg=TEXT, font=(FONT, 10), anchor="w", width=48, padx=8, pady=4)
         self.label_out.pack(side="left")
-        Tooltip(self.label_out, lambda: f"{self.out_dir}\nФайли з такими назвами там буде перезаписано.")
+        Tooltip(self.label_out, lambda: f"{self.out_dir}\nНазва файлу — {self._out_name()}"
+                                       "\n(мова, тека з текстами, дата; той самий день — перезапис).")
         self.button_out = _button(f, "Змінити…", self.pick_out)
         self.button_out.pack(side="left", padx=(8, 0))
-        Tooltip(self.button_out, "Вибрати теку для результату.")
+        Tooltip(self.button_out, "Вибрати іншу теку для результату. Оптимізатор бачить у меню лише "
+                                 "типову теку; файл з іншої відкривається через «Вибрати файл…».")
 
         f = row("Хід", "Скільки вже прочитано і скільки лишилось.")
         self.bar = tk.Canvas(f, width=420, height=16, bg=PANEL, highlightthickness=0)
@@ -136,7 +142,11 @@ class StatsApp:
             return "Спершу виберіть теку з файлами .txt."
         if self._lang_code() is None:
             return "Мову не вдалося визначити — виберіть її вручну."
-        return "Порахувати статистику і записати statistic.json + word_stats.json."
+        return f"Порахувати статистику і записати {self._out_name()}."
+
+    def _out_name(self) -> str:
+        lang = self._lang_code() or "uk"
+        return corpus.statistic_file_name(lang, self.corpus_dir.name if self.corpus_dir else "тексти")
 
     def _lang_code(self) -> str | None:
         return self.detected if self.lang == AUTO else self.lang
@@ -240,7 +250,8 @@ class StatsApp:
             return
         self.stop_flag.clear()
         files, out_dir, share = list(self.files), self.out_dir, self.cpu / 100
-        self.worker = threading.Thread(target=self._run, args=(files, lang, out_dir, share), daemon=True)
+        name = self.corpus_dir.name
+        self.worker = threading.Thread(target=self._run, args=(files, lang, out_dir, share, name), daemon=True)
         self._draw_bar(0)
         self.label_progress.config(text="готую…")
         self.worker.start()
@@ -263,7 +274,7 @@ class StatsApp:
             pass
         self.root.after(100, self._poll)
 
-    def _run(self, files, lang, out_dir, share):
+    def _run(self, files, lang, out_dir, share, corpus_name):
         """Фоновий потік: Tk не чіпає, усе — через self.events."""
         def progress(p: corpus.Progress):
             left = p.elapsed / p.fraction * (1 - p.fraction) if p.fraction > 0 else 0
@@ -271,8 +282,9 @@ class StatsApp:
             self.events.put(("progress", (p.fraction, text)))
         try:
             result = corpus.count_corpus(files, lang, share, progress, self.stop_flag.is_set)
-            stat, words = corpus.write_outputs(result, out_dir)
-            msg, kind = f"Готово: {stat.name} і {words.name} у\n{out_dir}", "info"
+            path = corpus.write_statistic_file(result, out_dir, corpus_name)
+            self.result_path = path
+            msg, kind = (f"Готово: {path.name}\nВ оптимізаторі — «Статистика ▾» → цей файл.", "info")
         except corpus.Stopped:
             msg, kind = "Зупинено — нічого не записано.", "info"
         except Exception as e:      # показати, а не мовчки померти в потоці

@@ -42,6 +42,7 @@ PUNCTUATION = " .,!?;:()-—«»\"'\n\t"
 @dataclass(frozen=True)
 class Language:
     code: str
+    tag: str              # у назві файлу статистики: ukr_…json (ISO 639-2)
     name: str
     letters: str          # малі літери алфавіту (апостроф — окремо, у PUNCTUATION)
     markers: str          # літери, за якими мову видно серед сусідніх
@@ -49,9 +50,9 @@ class Language:
 
 
 LANGUAGES = {
-    "uk": Language("uk", "Українська", "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя", "ґєї", True),
-    "be": Language("be", "Білоруська", "абвгдеёжзійклмнопрстуўфхцчшыьэюя", "ў", True),
-    "pl": Language("pl", "Польська", "aąbcćdeęfghijklłmnńoóprsśtuwyzźżqvx", "ąćęłńśźż", False),
+    "uk": Language("uk", "ukr", "Українська", "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя", "ґєї", True),
+    "be": Language("be", "bel", "Білоруська", "абвгдеёжзійклмнопрстуўфхцчшыьэюя", "ў", True),
+    "pl": Language("pl", "pol", "Польська", "aąbcćdeęfghijklłmnńoóprsśtuwyzźżqvx", "ąćęłńśźż", False),
 }
 
 # Апострофи, які в текстах трапляються замість "'" (вибірка UberText 2026-11-24:
@@ -319,8 +320,30 @@ def _to_statistic(alpha: Alphabet, chars, bi, tri, skip) -> dict:
     }
 
 
+def statistic_file_name(lang_code: str, corpus_name: str, day: str | None = None) -> str:
+    """ukr_<корпус>_2026-11-24.json — мова видна з назви (вибір в оптимізаторі)."""
+    from datetime import date
+    safe = re.sub(r"[^\w.-]+", "_", corpus_name).strip("_.")[:40] or "тексти"
+    return f"{LANGUAGES[lang_code].tag}_{safe}_{day or date.today().isoformat()}.json"
+
+
+def write_statistic_file(result: dict, out_dir, corpus_name: str) -> Path:
+    """Один файл: n-грами + words + meta (мова, корпус, дата). Такі файли
+    оптимізатор показує в меню «Статистика ▾» (config/stats_files.py).
+    Той самий день і корпус — файл перезаписується."""
+    from datetime import datetime
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    meta = {**result["meta"], "corpus": corpus_name, "created": datetime.now().isoformat(timespec="minutes")}
+    path = out_dir / statistic_file_name(meta["language"], corpus_name)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"meta": meta, **result["statistic"], "words": result["words"]}, f, ensure_ascii=False)
+    return path
+
+
 def write_outputs(result: dict, out_dir) -> tuple[Path, Path]:
-    """statistic.json і word_stats.json у out_dir (формат, який читає main_config)."""
+    """statistic.json і word_stats.json у out_dir — вбудована статистика оптимізатора
+    (config/, формат, який читає main_config)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stat_path, words_path = out_dir / "statistic.json", out_dir / "word_stats.json"

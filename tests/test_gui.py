@@ -1,5 +1,6 @@
 """Перемикання геометрії в GUI. Потрібен дисплей: локально — xvfb-run."""
 import os
+import time
 
 import pytest
 
@@ -408,5 +409,37 @@ def test_heat_buttons_hold_click_and_tabs():
         ui._heat_press("freq"); ui._heat_release("freq")
         ui._heat_press("freq"); ui._heat_release("freq")            # ще клік — вимкнути
         assert ui.heat_shown is None and widget.cget("bg") == finger_bg
+    finally:
+        root.destroy()
+
+
+def test_statistic_menu_switch_and_remember(tmp_path, monkeypatch):
+    from config import settings, stats_files
+    from core import corpus
+    from uiux import app as A
+    src = tmp_path / "t.txt"
+    src.write_text("Їжак з'їв ґрунт, єнот пʼє воду. " * 300, encoding="utf-8")
+    monkeypatch.setattr(stats_files, "stats_dir", lambda: tmp_path / "stats")
+    path = corpus.write_statistic_file(corpus.count_corpus([src], "uk", 1.0), tmp_path / "stats", "мої")
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.MOVES_CONFIG,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        assert "вбудована" in ui.button_stats.cget("text")
+        before = ui._current_score()
+        assert ui.set_statistic(path)
+        deadline = time.time() + 60
+        while time.time() < deadline and ui._current_score() == before:
+            root.update()
+            time.sleep(0.05)
+        assert ui._current_score() != before
+        assert "ukr_мої" in ui.button_stats.cget("text")
+        assert settings.load()["statistic_file"] == str(path)
+        stat, chosen = A.startup_statistic()
+        assert chosen == path and stat["unigrams"] == ui.statistic["unigrams"]
+        assert ui.set_statistic(stats_files.BUILTIN)
+        assert settings.load()["statistic_file"] is None
     finally:
         root.destroy()
