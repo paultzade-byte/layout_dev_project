@@ -64,8 +64,8 @@
   і мізинця окремо.
 - `config/geometry.json` — фізичні позиції (`active_layout`).
 - `config/statistic.json` — уні/бі/три/скіп-грами корпусу UberText.
-- `config/word_stats.json` — частоти слів (для `hand_runs`), генерує
-  `scripts/word_counter.py`.
+- `config/word_stats.json` — частоти слів (для `hand_runs`); генерується разом
+  зі `statistic.json` (див. `core/corpus.py`).
 - `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`;
   `geometry_config(name)` / `load_moves(name)`; активна геометрія —
   `active_layout` або змінна `LAYOUT_GEOMETRY` (для скриптів).
@@ -82,8 +82,11 @@
   `scripts/multistart.py` — N стартів, найкраща розкладка (`--out` у
   форматі Rec>>, `--from` — старт із замороженими клавішами);
   `scripts/check_delta.py` — delta-оцінка == повний `score()`.
-- `scripts/ngram_counter.py` — n-грами корпусу -> `statistic.json` (work-stealing пул);
-  шлях до корпусу поки зашитий, має стати вибором юзера (WORKLOG -6).
+- `core/corpus.py` — статистика корпусу одним проходом: n-грами -> `statistic.json`,
+  вибірка слів -> `word_stats.json`; мова/алфавіт — параметр (`LANGUAGES`: uk/be/pl,
+  `detect_language`), апострофи ’ ‘ ʼ ` між літерами зводяться до `'`; CPU — `cpu_share`
+  (воркери + паузи). CLI — `scripts/ngram_counter.py ТЕКА --out config [--lang] [--cpu]`;
+  міні-апка — `python -m uiux.stats_app` (вибір теки з .txt, куди зберегти, CPU).
 - `scripts/zmk/` — клавіатура (Eyelash Corne, ZMK Studio по USB): `studio.py`
   (протокол; порт `auto`), `cyr_from_layout.py` (розкладка <-> шар CYR),
   `keyboard_sync.py` (запис/читання одним викликом — кнопки «На клаву» /
