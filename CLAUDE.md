@@ -86,7 +86,12 @@
   вибірка слів -> `word_stats.json`; мова/алфавіт — параметр (`LANGUAGES`: uk/be/pl,
   `detect_language`), апострофи ’ ‘ ʼ ` між літерами зводяться до `'`; CPU — `cpu_share`
   (воркери + паузи). CLI — `scripts/ngram_counter.py ТЕКА --out config [--lang] [--cpu]`;
-  міні-апка — `python -m uiux.stats_app` (вибір теки з .txt, куди зберегти, CPU).
+  міні-апка — `python -m uiux.stats_app` / `ukr_stats.py` (вибір теки з .txt, CPU) пише один
+  файл `ukr_<тека>_<дата>.json` (мова в назві: ukr/bel/pol; n-грами + words + meta) у
+  Документи/ukr-layout/статистика. CLI з `--out config` — вбудована пара statistic.json + word_stats.json.
+- `config/stats_files.py` — файли статистики для оптимізатора: список у теці статистики,
+  `load()`, підписи. GUI: «Статистика: … ▾» біля CPU (вбудована / файли з теки / «Вибрати
+  файл…»; лише українська), вибір у settings.json `statistic_file`, `startup_statistic()`.
 - `scripts/zmk/` — клавіатура (Eyelash Corne, ZMK Studio по USB): `studio.py`
   (протокол; порт `auto`), `cyr_from_layout.py` (розкладка <-> шар CYR),
   `keyboard_sync.py` (запис/читання одним викликом — кнопки «На клаву» /
@@ -105,7 +110,7 @@ python main.py --geometry generic_105_alpha --iterations 20000   # без GUI
 python ukr_layout.py          # GUI через точку входу exe (--smoke — закрити через 3 с)
 ```
 
-Збірка exe (фаза 6): Windows — GitHub Actions `Build Windows` (вручну або тег `v*`;
+Збірка exe (фаза 6; в одній теці `ukr-layout.exe` + `ukr-stats.exe`): Windows — GitHub Actions `Build Windows` (вручну або тег `v*`;
 з гілки: `gh workflow run build-windows.yml --ref ГІЛКА`).
 Локально (Linux, перевірка spec):
 ```bash

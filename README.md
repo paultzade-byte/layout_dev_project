@@ -29,6 +29,11 @@
   (`.klc` для MSKLC), Linux (xkb) і macOS (`.keylayout`) з інструкцією.
 - **Для Corne з ZMK:** розкладку можна записати на клавіатуру і прочитати з неї
   по USB (кнопки «На клаву» / «З клави»).
+- **Своя статистика текстів:** програма «Статистика текстів» (`ukr-stats.exe`,
+  `python -m uiux.stats_app`) рахує частоти літер і їхніх пар з ваших власних
+  текстів (тека з `.txt`) — і оптимізатор підбирає розкладку саме під них
+  (кнопка «Статистика ▾»). Мова визначається сама (українська, білоруська,
+  польська); оптимізатор поки працює з українською.
 - **Для звичайних людей:** exe для Windows, підказки при наведенні на кожну
   кнопку, перетягування клавіш мишкою, заморожування клавіші правою кнопкою.
 
@@ -38,10 +43,12 @@
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python -m uiux.app            # вікно програми
+python -m uiux.stats_app      # статистика власних текстів
 python main.py --geometry generic_105_alpha --iterations 20000   # без вікна
 ```
 
-Windows: exe збирає GitHub Actions (`Build Windows`): архів `ukr-layout-windows`
+Windows: exe збирає GitHub Actions (`Build Windows`; у теці `ukr-layout.exe` і
+`ukr-stats.exe`): архів `ukr-layout-windows`
 у артефактах запуску або в Release для тегу `v*`.
 
 ## Як це влаштовано
