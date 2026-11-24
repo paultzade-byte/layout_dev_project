@@ -515,6 +515,9 @@
 - exe: `ukr-stats.exe` поруч з `ukr-layout.exe` (spec — два EXE в одному COLLECT; `ukr_stats.py` з
   `freeze_support()`; CI `--smoke` реально запускає spawn-воркерів). Локально Linux-збірка: обидва smoke OK.
   Автор: «люди вже просять» — запушено, Windows-збірку запущено; тест на Windows — автор.
+- Windows CI знайшов баг: `\r\n` у .txt -> `\r` ставав пробілом. Тепер \r\n і \r = \n (тест; в UberText \r нема —
+  статистика не змінюється). Збірка зелена (run 45372381656; 2 тести впали лише на відомому flaky init.tcl
+  і пройшли при повторі), обидва `--smoke` OK; zip — `~/Documents/ukr-layout/build_2026-11-24/`. Чекає тесту автора на Windows.
 
 ## Сесія 2026-11-21 — підказки, CPU в exe, лад у config/zmk (гілка feat/optimizer-speed)
 
