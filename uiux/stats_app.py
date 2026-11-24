@@ -22,7 +22,7 @@ from config import settings
 from config.paths import layouts_dir
 from config.stats_files import stats_dir
 from core import corpus
-from uiux.theme import ACCENT, BG, BUTTON, BUTTON_HOVER, FONT, KEY_TEXT, PANEL, TEXT, TEXT_DIM
+from uiux.theme import ACCENT, BG, BUTTON, BUTTON_HOVER, FONT, KEY_TEXT, PANEL, TEXT, TEXT_DIM, set_window_icon
 from uiux.toast import Toasts
 from uiux.tooltip import Tooltip
 from uiux.widgets import RoundButton
@@ -53,6 +53,7 @@ class StatsApp:
     def __init__(self, root: tk.Tk, corpus_dir: str | None = None):
         self.root = root
         root.title("Статистика текстів — ukr-layout")
+        set_window_icon(root, "ukr-stats")
         root.configure(bg=BG)
         root.resizable(False, False)
         saved = settings.load()

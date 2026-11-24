@@ -29,3 +29,18 @@ FINGER_COLORS = {
 # і Tk підставив би випадковий)
 FONT = {"win32": "Segoe UI", "darwin": "Helvetica Neue"}.get(sys.platform, "Ubuntu")
 KEY_FONT = (FONT, 17, "bold")
+
+
+def set_window_icon(root, name: str) -> None:
+    """Іконка вікна Tk (заголовок, панель задач): packaging/icons/<name>.png;
+    у зібраному exe — <_MEIPASS>/icons. Немає файлу чи Tk не зміг — без іконки."""
+    import tkinter as tk
+    from config.paths import PROJ_DIR
+    for path in (PROJ_DIR / "icons" / f"{name}.png", PROJ_DIR / "packaging" / "icons" / f"{name}.png"):
+        if path.exists():
+            try:
+                root._icon_image = tk.PhotoImage(file=str(path))  # посилання, щоб GC не з'їв
+                root.iconphoto(True, root._icon_image)
+            except tk.TclError:
+                pass
+            return

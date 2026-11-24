@@ -43,7 +43,7 @@ SCORE_SCALE = 1e8
 
 from uiux.theme import (  # noqa: E402  (тема спільна з uiux/render.py)
     ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, DROP_OK, FINGER_COLORS, FONT, FROZEN_BG, FROZEN_FG,
-    KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM,
+    KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM, set_window_icon,
 )
 
 
@@ -219,6 +219,7 @@ class LayoutBuilderApp():
     ):
         self.root = root
         self.root.title("Аналізатор розкладки")
+        set_window_icon(self.root, "ukr-layout")
         self.width = 900
         self.heigh = 470
         self.root.geometry(f"{self.width}x{self.heigh}")
