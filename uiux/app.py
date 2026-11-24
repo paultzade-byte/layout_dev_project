@@ -182,6 +182,8 @@ class ButtonPanel:
          self.button_kb_write = make_button(left, "На клаву", self.logic.on_keyboard_write)
          self.button_kb_read = make_button(left, "З клави", self.logic.on_keyboard_read)
          self.button_start = make_button(mid, "Start", self.logic.toggle_optimization)
+         # тренажер друку на розкладці з дошки (uiux/trainer.py), модальне вікно
+         self.button_train = make_button(mid, "Тренування", self.logic.on_train)
          self.button_reheat = make_button(
              mid, "Reheat",
              lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None
@@ -200,6 +202,7 @@ class ButtonPanel:
              b.pack(side="left", padx=(0, 8))
          self.button_screenshot.pack(side="left", padx=(8, 0))
          self.button_export.pack(side="left", padx=(8, 0))
+         self.button_train.pack(side="left", padx=(16, 0))
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -379,6 +382,9 @@ class LayoutBuilderApp():
             p.button_save: "Зберегти розкладку в той самий файл (вперше — спитає куди).",
             p.button_save_as: "Зберегти розкладку в новий файл.",
             p.button_screenshot: "Зберегти картинку розкладки (.png).",
+            p.button_train: "Тренажер друку на розкладці, що зараз на дошці: слова з української "
+                            "класики, складність — скільки літер відкрито. На звичайній клавіатурі "
+                            "можна вчитись, не встановлюючи розкладку в систему.",
             p.button_export: "Файли, щоб встановити розкладку в систему: Windows (.klc для MSKLC), "
                              "Linux (xkb), macOS (.keylayout) і README, як встановити.",
             p.button_kb_write: "Записати літери з дошки на клавіатуру Corne (шар CYR).",
@@ -1364,7 +1370,7 @@ class LayoutBuilderApp():
     def _set_file_buttons(self, state):
         panel = self.button_panel
         for b in (panel.button_open, panel.button_save, panel.button_save_as, panel.button_screenshot,
-                  panel.button_export, *getattr(self, "heat_buttons", {}).values()):
+                  panel.button_export, panel.button_train, *getattr(self, "heat_buttons", {}).values()):
             b.config(state=state)
         if state == "disabled" and getattr(self, "heat_shown", None):
             self.heat_latched = None   # пошук / вкладка шару — мапу знімаємо
@@ -1726,6 +1732,13 @@ class LayoutBuilderApp():
         self._last_dir = saved.parent
         self.status_var.set(f"Картинка: {saved}")
         self.toasts.show(f"Картинка: {saved}")
+
+    def on_train(self):
+        """Вікно «Тренування» з розкладкою, що зараз на дошці (знімок; модальне)."""
+        if self.processor.is_running:
+            return
+        from uiux.trainer import TrainerWindow
+        return TrainerWindow(self.root, self.layout.keys, self.geometry, self.geometry_name, self.statistic)
 
     def on_export(self):
         """Файли розкладки для Windows / Linux / macOS + README у вибрану теку

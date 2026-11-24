@@ -25,7 +25,7 @@ geometry = json.loads((CONFIG / "geometry.json").read_text(encoding="utf-8"))
 start_layouts = sorted({g["start_layout"] for g in geometry["layouts"].values() if g.get("start_layout")})
 
 resources = ["geometry.json", "moves.yaml", "moves_standard.yaml", "statistic.json",
-             "word_stats.json", "mutator_config.json", *start_layouts]
+             "word_stats.json", "mutator_config.json", "quotes_uk.json", *start_layouts]
 datas = [(str(CONFIG / name), "config") for name in resources]
 # іконки: .ico — у сам exe (Провідник, ярлики), .png — у вікно Tk (uiux.theme.set_window_icon);
 # згенеровані scripts/make_icons.py і лежать у git
