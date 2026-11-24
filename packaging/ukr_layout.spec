@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller: GUI оптимізатора одним каталогом (onedir).
+"""PyInstaller: GUI оптимізатора + міні-апка статистики одним каталогом (onedir).
+
+Два exe в одній теці (спільні бібліотеки): ukr-layout.exe (оптимізатор) і
+ukr-stats.exe (статистика текстів, ukr_stats.py; воркери — multiprocessing).
 
     pyinstaller --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
 
@@ -44,4 +47,23 @@ exe = EXE(
     console=False,          # віконний застосунок; помилки — error.log + вікно
     upx=False,              # UPX частіше насторожує антивіруси
 )
-coll = COLLECT(exe, a.binaries, a.datas, name="ukr-layout", upx=False)
+
+s_a = Analysis(
+    [str(ROOT / "ukr_stats.py")],
+    pathex=[str(ROOT)],
+    datas=[],
+    hiddenimports=[],
+    excludes=["pytest", "playwright", "greenlet", "pyee", "pygments", "dotenv",
+              "matplotlib", "scipy", "pandas", "IPython", "numba", "llvmlite", "PIL", "yaml"],
+    noarchive=False,
+)
+s_exe = EXE(
+    PYZ(s_a.pure),
+    s_a.scripts,
+    [],
+    exclude_binaries=True,
+    name="ukr-stats",
+    console=False,
+    upx=False,
+)
+coll = COLLECT(exe, a.binaries, a.datas, s_exe, s_a.binaries, s_a.datas, name="ukr-layout", upx=False)

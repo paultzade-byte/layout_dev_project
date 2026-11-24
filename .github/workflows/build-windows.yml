@@ -1,4 +1,4 @@
-# Windows-збірка GUI (PyInstaller onedir) -> zip-артефакт.
+# Windows-збірка GUI (PyInstaller onedir: ukr-layout.exe + ukr-stats.exe) -> zip-артефакт.
 # Запуск: вручну з будь-якої гілки (Actions -> Build Windows -> Run workflow,
 # або `gh workflow run build-windows.yml --ref ГІЛКА`) чи тегом v* —
 # тоді zip ще й прикріплюється до GitHub Release.
@@ -45,6 +45,12 @@ jobs:
         run: |
           $p = Start-Process -FilePath dist\ukr-layout\ukr-layout.exe -ArgumentList "--smoke" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "exe завершився з кодом $($p.ExitCode)"; exit 1 }
+
+      - name: Перевірка exe статистики (воркери рахують, вікно відкривається)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\ukr-layout\ukr-stats.exe -ArgumentList "--smoke" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "ukr-stats.exe завершився з кодом $($p.ExitCode)"; exit 1 }
 
       - name: Zip
         shell: pwsh
