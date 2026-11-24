@@ -24,12 +24,17 @@ foreach ($a in $apps) {
     $exe = Join-Path $dir $a.Exe
     if (-not (Test-Path -LiteralPath $exe)) { Write-Host "Немає $exe — пропускаю."; continue }
     foreach ($where in @($desk, $menu)) {
-        $lnk = $shell.CreateShortcut((Join-Path $where "$($a.Name).lnk"))
+        # WScript.Shell пише назву в ANSI-кодуванні: на англійському Windows кирилиця
+        # стає «???» і Save() падає. Тож — латинська тимчасова назва, потім перейменування.
+        $final = Join-Path $where "$($a.Name).lnk"
+        $tmp   = Join-Path $where "$([IO.Path]::GetFileNameWithoutExtension($a.Exe))-tmp.lnk"
+        $lnk = $shell.CreateShortcut($tmp)
         $lnk.TargetPath       = $exe
         $lnk.WorkingDirectory = $dir
         $lnk.IconLocation     = "$exe,0"
         $lnk.Description      = $a.Note
         $lnk.Save()
+        Move-Item -LiteralPath $tmp -Destination $final -Force
     }
 }
 Write-Host 'Готово: ярлики на робочому столі і в меню «Пуск» -> ukr-layout.'
