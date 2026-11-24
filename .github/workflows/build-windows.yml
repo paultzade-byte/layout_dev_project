@@ -59,8 +59,18 @@ jobs:
           Copy-Item packaging\windows\shortcuts.ps1 dist\ukr-layout\
           Copy-Item packaging\windows\create-shortcuts.bat "dist\ukr-layout\Створити ярлики.bat"
           Copy-Item packaging\windows\remove-shortcuts.bat "dist\ukr-layout\Видалити ярлики.bat"
-          $ps = [System.Management.Automation.Language.Parser]::ParseFile("$PWD\dist\ukr-layout\shortcuts.ps1", [ref]$null, [ref]$errs)
-          if ($errs) { $errs; exit 1 }
+
+      - name: Перевірка ярликів (створити -> є .lnk -> видалити)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\ukr-layout\shortcuts.ps1
+          $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'ukr-layout'
+          $n = (Get-ChildItem -LiteralPath $lnk -Filter *.lnk).Count
+          if ($n -ne 2) { Write-Error "у «Пуск» $n ярликів замість 2"; exit 1 }
+          $t = (New-Object -ComObject WScript.Shell).CreateShortcut((Get-ChildItem -LiteralPath $lnk -Filter *.lnk)[0].FullName).TargetPath
+          if (-not (Test-Path -LiteralPath $t)) { Write-Error "ярлик веде в нікуди: $t"; exit 1 }
+          powershell -NoProfile -ExecutionPolicy Bypass -File dist\ukr-layout\shortcuts.ps1 -Remove
+          if (Test-Path -LiteralPath $lnk) { Write-Error "ярлики не прибрано"; exit 1 }
 
       - name: Zip
         shell: pwsh
