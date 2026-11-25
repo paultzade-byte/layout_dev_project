@@ -1809,6 +1809,10 @@ def main(smoke_ms: int | None = None):
     mode = settings.initial_mode(GEOMETRIES)  # запам'ятований режим; в exe типово «Звичайна»
     moves_config = load_moves(mode)
     root = tk.Tk()
+    # головне вікно будується сховане, поверх — інвітейшн (uiux/invite.py): старт без мигання
+    root.withdraw()
+    from uiux.invite import Invite, next_launch
+    invite = Invite(root, next_launch())
     app = LayoutBuilderApp(
         root,
         statistic=statistic,
@@ -1816,6 +1820,12 @@ def main(smoke_ms: int | None = None):
         on_layout_changed=make_score_display(statistic, moves_config),
         geometry_name=mode,
         statistic_file=statistic_file)
+    root.update_idletasks()
+
+    def show():
+        root.deiconify()
+        invite.lift()            # інвітейшн лишається зверху, доки не клацнуть
+    root.after(150, show)
     if smoke_ms:
         root.after(smoke_ms, root.destroy)
     root.mainloop()
