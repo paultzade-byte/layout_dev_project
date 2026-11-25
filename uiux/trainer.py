@@ -143,7 +143,8 @@ class TrainerWindow:
                     f"{trainer.LEVEL_UP_SPREAD * 100:.0f}%), відкривається наступна порція літер.\n"
                     "Вимкнено — рівень лише повзунком.")
         tip = ("Складність: скільки літер у вправах. Ліворуч — лише домашній ряд, "
-               f"кожен крок праворуч додає {trainer.STEP} літери (за частотою), до кінця — усі.\n"
+               f"кожен крок праворуч додає {trainer.STEP} клавіші (за частотою; кома й крапка — теж), "
+               "до кінця — усі.\n"
                "Нова літера підсвічена — на ній варто зосередитись.")
         tooltip.add(self.scale, tip)
         tooltip.add(self.letters_label, tip)
@@ -155,7 +156,9 @@ class TrainerWindow:
                                       "Вимкнено — усе малими, Shift не потрібен.")
         self.check_punct = self._check(opts, "Розділові", self.punct, "trainer_punct",
                                        "«Класика» з розділовими: , . ! ? : ; - \" ( ). Тире стає -, "
-                                       "лапки — \", три крапки — ... Вимкнено — без розділових.")
+                                       "лапки — \", три крапки — ... Вимкнено — без розділових.\n"
+                                       "У «Словах» кома й крапка з'являються самі, коли повзунок "
+                                       "дійде до їхніх клавіш.")
         for label, attr, tip in (("Схема", "board", "Розмір схеми клавіатури: менше / більше."),
                                  ("Текст", "text", "Розмір тексту вправи: менше / більше.")):
             plus = _button(opts, "+", lambda a=attr: self._resize(a, +1))
@@ -467,10 +470,10 @@ class TrainerWindow:
         nxt = self.session.text[self.session.pos] if not self.session.done else ""
         altgr = self.geometry.get("altgr", {})
         for pid, (rect, ch, finger) in self.board_keys.items():
-            if ch in trainer.ALPHABET:
+            if ch in trainer.ALPHABET or ch in trainer.WORD_PUNCT:
                 on = ch in self.allowed
                 base = FINGER_COLORS.get(_finger(finger), SLOT) if on else SLOT
-                if nxt and (ch == nxt.lower() or altgr.get(ch) == nxt.lower()):
+                if nxt and nxt != " " and nxt.lower() in trainer.key_outputs(ch, altgr):
                     base = ACCENT
                 if self.focus and ch == self.focus and ch != nxt:
                     self.board.itemconfigure(rect, fill=base, outline=ACCENT, width=2)
