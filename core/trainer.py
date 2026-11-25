@@ -7,7 +7,8 @@
 слова зі слабкими літерами — частіше. Частина 3: «Класика» — цитата цілком (pick_quote),
 малими літерами без розділових, як і решта вправ (або з великими / розділовими — два
 перемикачі); автор і твір — у підказці. Перекладач знає Shift і цифровий ряд — таблиця
-клавіш та сама, що й в експорті (core/export.keymap).
+клавіш та сама, що й в експорті (core/export.keymap). «Свій текст…» — .txt людини, уривками
+по черзі (read_text_file, text_chunks), з тими самими перемикачами, що й «Класика».
 
 Слова — лише з цитат класики (config/quotes_uk.json), окремого словника нема.
 Поки відкритих літер мало і справжніх слів з них майже не складеш, вправа
@@ -92,10 +93,50 @@ def quote_text(quote: dict, caps: bool = False, punct: bool = False) -> str:
         if not caps:
             text = text.lower()
         if punct:
+            # від викинутих слів (латиниця, цифри) лишаються сироти: «було! .» -> «було!»
+            text = re.sub(r"([,.!?:;])(?:\s+[,.!?:;]+)+", r"\1", text)
+            text = re.sub(r"(^|\s)-(?=\s*(-|$))", r"\1", text)
             text = re.sub(r"\s+([,.!?:;)])", r"\1", text)      # без пробілу перед , . ! ? : ; )
             text = re.sub(r"\(\s+", "(", text)
     text = re.sub(r"(?<![^\W\d_])'|'(?![^\W\d_])", "", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+OWN_CHARS = 110             # довжина уривку «Свого тексту» (приблизно, по межі слова)
+OWN_MAX_BYTES = 2_000_000   # з більшого файлу береться початок
+
+
+def read_text_file(path: Path | str) -> str:
+    """Текст .txt: UTF-8 (з BOM чи без), інакше cp1251 (старі Windows-файли)."""
+    with open(path, "rb") as f:
+        raw = f.read(OWN_MAX_BYTES)
+    for enc in ("utf-8-sig", "cp1251"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def text_chunks(text: str, caps: bool = False, punct: bool = False, size: int = OWN_CHARS) -> list[str]:
+    """Свій текст -> уривки ~size знаків по межі слова (і речення, якщо близько):
+    та сама чистка, що й у «Класиці» (quote_text)."""
+    clean = quote_text({"text": text}, caps, punct)
+    words, out, cur = clean.split(" "), [], ""
+    for w in words:
+        if not w:
+            continue
+        if cur and len(cur) + 1 + len(w) > size:
+            out.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}" if cur else w
+        if punct and len(cur) >= size * 0.7 and cur[-1] in ".!?":
+            out.append(cur)
+            cur = ""
+    if cur:
+        out.append(cur)
+    return out
 
 
 def pick_quote(quotes: list[dict], letters, rng: random.Random, last: dict | None = None) -> dict | None:

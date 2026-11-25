@@ -150,6 +150,17 @@ def test_quote_caps_punct_and_shift():
     assert T.as_is("—") == "-" and T.as_is("«") == '"' and T.as_is("Ж") == "Ж"
 
 
+def test_own_text_file_and_chunks(tmp_path):
+    f = tmp_path / "мій.txt"
+    f.write_bytes("Перше речення. Друге — довше: «так»! Latin 42.\n".encode("cp1251") * 20)
+    text = T.read_text_file(f)
+    assert text.startswith("Перше речення.")
+    chunks = T.text_chunks(text, punct=True, caps=True)
+    assert len(chunks) > 3 and all(len(c) <= T.OWN_CHARS for c in chunks)
+    assert "".join(chunks).count("Latin") == 0 and "!." not in " ".join(chunks)
+    assert " ".join(T.text_chunks(text)).split() == T.normalize(text.replace("Latin", "")).split()
+
+
 tk = pytest.importorskip("tkinter")
 needs_display = pytest.mark.skipif(not os.environ.get("DISPLAY") and os.name != "nt",
                                    reason="немає дисплея (xvfb-run)")
@@ -195,11 +206,19 @@ def test_trainer_window_types_through_translator(tmp_path, monkeypatch):
         assert tw.text_size > size and int(tw.board["width"]) < width and int(tw.text_box["height"]) > h
         root.update()
         assert tw.text.dlineinfo(f"1.{len(tw.session.text) - 1}") is not None   # кінець тексту видно
+        own = tmp_path / "own.txt"
+        own.write_text("Свій текст для тренування. " * 30, encoding="utf-8")
+        monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kw: str(own))
+        tw._set_mode("own")
+        assert tw.mode == "own" and tw.session.text == tw.own_chunks[0]
+        tw._new_line(advance=True)
+        assert tw.own_idx == 1 and tw.session.text == tw.own_chunks[1] and "own.txt" in tw._text_tip()
         tw._set_mode("ngrams")
         tw.close()
         from config import settings
         assert settings.load()["trainer_levels"]["generic_105_alpha"] == 2
         assert settings.load()["trainer_mode"] == "ngrams"
+        assert settings.load()["trainer_own_pos"][str(own)] == 1
         assert sum(r["hits"] for r in T.load_stats("generic_105_alpha").values()) >= 8   # 12 знаків, слова від 2 літер — ≥ 8 літер
     finally:
         root.destroy()

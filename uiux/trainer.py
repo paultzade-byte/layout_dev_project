@@ -15,7 +15,8 @@ import random
 import time
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import messagebox
+from pathlib import Path
+from tkinter import filedialog, messagebox
 
 from config import settings
 from core import trainer
@@ -40,7 +41,11 @@ MODES = (("words", "Слова", "Слова з цитат українсько�
                                  "Лише з відкритих літер."),
          ("quotes", "Класика", "Цілі цитати української класики (Франко, Леся Українка, Коцюбинський, "
                                "Стефаник, Нечуй-Левицький…) — усі літери, малими, без розділових. "
-                               "Хто й звідки — наведи мишу на текст."))
+                               "Хто й звідки — наведи мишу на текст."),
+         ("own", "Свій текст…", "Свій .txt: уривками по черзі, з того місця, де зупинився минулого разу "
+                                "(запам'ятовується). «Великі» й «Розділові» — як у «Класиці». "
+                                "Клацни ще раз, коли вже вибрано, — інший файл."))
+TEXT_MODES = ("quotes", "own")     # усі літери, рівень не діє, діють «Великі» / «Розділові»
 
 
 def _button(parent, text, command, small=True):
@@ -67,11 +72,15 @@ class TrainerWindow:
         self.level = min(saved.get("trainer_levels", {}).get(geometry_name, 0), self.levels - 1)
         self.hard_ngrams = hard_ngrams or []
         self.mode = saved.get("trainer_mode", "words")
-        if self.mode not in ("words", "ngrams", "quotes") or (self.mode == "ngrams" and not self.hard_ngrams):
+        if self.mode not in ("words", "ngrams", "quotes", "own") or (self.mode == "ngrams" and not self.hard_ngrams):
             self.mode = "words"
         self.auto_level = saved.get("trainer_auto_level", True)
         self.caps = tk.BooleanVar(value=saved.get("trainer_caps", False))
         self.punct = tk.BooleanVar(value=saved.get("trainer_punct", False))
+        self.own_file = saved.get("trainer_own_file")
+        self.own_chunks, self.own_idx = [], 0
+        if self.mode == "own" and not self._load_own(self.own_file):
+            self.mode = "words"
         size = saved.get("trainer_text_size", TEXT_SIZE)
         self.text_size = size if size in TEXT_SIZES else TEXT_SIZE
         scale = saved.get("trainer_board_scale", BOARD_SCALE)
@@ -194,7 +203,7 @@ class TrainerWindow:
         close = _button(bottom, "Закрити", self.close, small=False)
         close.pack(side="right")
         tooltip.add(close, "Закрити тренування (Esc). Рівень і переклад запам'ятовуються.")
-        again = _button(bottom, "Інший рядок", self._new_line, small=False)
+        again = _button(bottom, "Інший рядок", lambda: self._new_line(advance=True), small=False)
         again.pack(side="right", padx=(0, 8))
         tooltip.add(again, "Пропустити цей рядок і взяти новий.")
         reset = _button(bottom, "Скинути статистику", self._reset_stats, small=False)
@@ -228,13 +237,15 @@ class TrainerWindow:
     def _check(self, parent, text, var, key, tip):
         def changed():
             settings.save(**{key: var.get()})
-            if self.mode == "quotes":
+            if self.mode == "own":
+                self._load_own(self.own_file)
+            if self.mode in TEXT_MODES:
                 self._new_line()
         c = tk.Checkbutton(parent, text=text, variable=var, command=changed, bg=BG, fg=TEXT,
                            selectcolor=PANEL, activebackground=BG, activeforeground=TEXT,
                            disabledforeground=TEXT_DIM, highlightthickness=0, bd=0, font=(FONT, 10))
         c.pack(side="left", padx=(0, 12))
-        tooltip.add(c, lambda: tip if self.mode == "quotes" else tip + "\n(Лише для «Класики».)")
+        tooltip.add(c, lambda: tip if self.mode in TEXT_MODES else tip + "\n(Лише для «Класики» і «Свого тексту».)")
         return c
 
     def _draw_board(self):
@@ -294,6 +305,8 @@ class TrainerWindow:
     def _text_tip(self):
         if self.mode == "quotes" and self.quote:
             return f"{self.quote['author']} — «{self.quote['work']}»"
+        if self.mode == "own" and self.own_chunks:
+            return f"{Path(self.own_file).name} — уривок {self.own_idx + 1} з {len(self.own_chunks)}"
         return ("Друкуй підсвічену літеру. Помилка — літера червоніє, курсор чекає "
                 "правильну. Рядок закінчився — одразу наступний.")
 
@@ -306,7 +319,7 @@ class TrainerWindow:
         self._update_auto_button()
 
     def _update_checks(self):
-        state = "normal" if self.mode == "quotes" else "disabled"
+        state = "normal" if self.mode in TEXT_MODES else "disabled"
         self.check_caps.config(state=state)
         self.check_punct.config(state=state)
 
@@ -316,7 +329,41 @@ class TrainerWindow:
             b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
                      activebackground=ACCENT if on else BUTTON_HOVER)
 
+    def _load_own(self, path) -> bool:
+        """Уривки файлу path під поточні «Великі» / «Розділові»; місце — з settings."""
+        if not path:
+            return False
+        try:
+            text = trainer.read_text_file(path)
+        except OSError:
+            return False
+        letters = set(self.order)
+        text = "".join(ch for ch in text if not ch.isalpha() or ch.lower() in letters)   # чого нема на розкладці
+        chunks = trainer.text_chunks(text, self.caps.get(), self.punct.get())
+        if not chunks:
+            return False
+        self.own_file, self.own_chunks = str(path), chunks
+        self.own_idx = settings.load().get("trainer_own_pos", {}).get(self.own_file, 0) % len(chunks)
+        return True
+
+    def _choose_own(self) -> bool:
+        from config.paths import layouts_dir
+        initial = Path(self.own_file).parent if self.own_file else layouts_dir()
+        path = filedialog.askopenfilename(parent=self.win, title="Свій текст для тренування",
+                                          initialdir=str(initial),
+                                          filetypes=[("Текст", "*.txt"), ("Усі файли", "*")])
+        if not path:
+            return False
+        if not self._load_own(path):
+            messagebox.showerror("Свій текст", "У файлі нема тексту, який можна набрати цією розкладкою.",
+                                 parent=self.win)
+            return False
+        settings.save(trainer_own_file=self.own_file)
+        return True
+
     def _set_mode(self, mode):
+        if mode == "own" and (self.mode == "own" or not self.own_chunks) and not self._choose_own():
+            return                              # файл не вибрано — режим не міняємо
         self.mode = mode
         settings.save(trainer_mode=mode)
         self._update_mode_buttons()
@@ -361,16 +408,29 @@ class TrainerWindow:
             self._new_line()
 
     # ------------------------------------------------------------------
-    def _new_line(self):
+    def _new_line(self, advance: bool = False):
+        """advance — до наступного уривка «Свого тексту» (рядок дописано чи «Інший рядок»)."""
         self._merge_session()
+        if advance and self.mode == "own" and self.own_chunks:
+            self.own_idx += 1
+            if self.own_idx >= len(self.own_chunks):
+                self.own_idx = 0
+                self.toasts.show("Текст закінчився — знову з початку")
+            pos = {**settings.load().get("trainer_own_pos", {}), self.own_file: self.own_idx}
+            settings.save(trainer_own_pos=pos)
         self.allowed = trainer.letters_at(self.order, self.level)
         self.focus = self.allowed[-1] if self.level > 0 else None
         quote = (trainer.pick_quote(self.quotes, self.order, self.rng, self.quote)
                  if self.mode == "quotes" else None)
-        self.scale.config(state="disabled" if quote else "normal")
+        own = self.mode == "own" and bool(self.own_chunks)
+        self.scale.config(state="disabled" if quote or own else "normal")
         n, total = len(self.allowed), len(self.order)
         targets = trainer.hard_targets(self.hard_ngrams, self.allowed) if self.mode == "ngrams" else []
-        if quote:
+        if own:
+            self.allowed, self.focus = list(self.order), None
+            text = self.own_chunks[self.own_idx]
+            n, info = total, f" · {Path(self.own_file).name}: {self.own_idx + 1} з {len(self.own_chunks)}"
+        elif quote:
             self.quote, self.allowed, self.focus = quote, list(self.order), None
             text = trainer.quote_text(quote, self.caps.get(), self.punct.get())
             n, info = total, " · цитата: усі літери"
@@ -444,9 +504,9 @@ class TrainerWindow:
             return
         if self.translate:
             ch = trainer.fit(self.translator.translate(event.keycode, event.char, event.state),
-                             self.caps.get() and self.mode == "quotes")
+                             self.caps.get() and self.mode in TEXT_MODES)
         else:
-            ch = trainer.fit(trainer.as_is(event.char), self.caps.get() and self.mode == "quotes")
+            ch = trainer.fit(trainer.as_is(event.char), self.caps.get() and self.mode in TEXT_MODES)
         if ch is None:
             return "break"
         s = self.session
@@ -454,16 +514,16 @@ class TrainerWindow:
         if s.done:
             line = (s.cpm(time.monotonic()), s.accuracy())
             self.done_lines.append(line)
-            if self.mode != "quotes":                # цитата — усі літери, рівень не міряє
+            if self.mode not in TEXT_MODES:          # цитата / свій текст — усі літери, рівень не міряє
                 self.level_lines.append(line)
-            if self.mode != "quotes" and self.auto_level and self.level < self.levels - 1 and trainer.should_level_up(self.level_lines):
+            if self.mode not in TEXT_MODES and self.auto_level and self.level < self.levels - 1 and trainer.should_level_up(self.level_lines):
                 self.scale.set(self.level + 1)       # -> _on_level -> новий рядок
                 self.win.update_idletasks()
                 self._on_level(self.level + 1)
                 self.toasts.show(f"Рівень вище: нова літера «{self.allowed[-1]}»"
                                  if self.focus else "Рівень вище")
                 return "break"
-            self._new_line()
+            self._new_line(advance=True)
             return "break"
         self._paint_board()
         self._render()
