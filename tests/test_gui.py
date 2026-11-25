@@ -94,8 +94,11 @@ def test_export_button_writes_files(tmp_path, monkeypatch):
                                 geometry_name="generic_105_alpha")
         root.update()
         monkeypatch.setattr(A.filedialog, "askdirectory", lambda **kw: str(tmp_path))
+        opened = []
+        monkeypatch.setattr(A, "reveal_in_file_manager", opened.append)
         ui.on_export()
         (out,) = tmp_path.glob("ukr-layout_*")
+        assert opened == [out]                       # тека з файлами відкривається в Провіднику
         assert {p.suffix for p in out.iterdir()} == {".klc", ".xkb", ".keylayout", ".txt"}
         assert "Експорт" in ui.status_var.get()
     finally:

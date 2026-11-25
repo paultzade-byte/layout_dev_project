@@ -1778,7 +1778,9 @@ class LayoutBuilderApp():
         (підтека ukr-layout_<дата_час>)."""
         if self.processor.is_running or not self._export_mode():
             return
-        base = filedialog.askdirectory(parent=self.root, title="Куди покласти файли розкладки",
+        # вибір теки показує лише теки — файли видно вже в Провіднику, який відкриваємо після
+        base = filedialog.askdirectory(parent=self.root,
+                                       title="Виберіть теку: у ній з'явиться тека ukr-layout_… з файлами",
                                        initialdir=self._dialog_dir(), mustexist=True)
         if not base:
             return
@@ -1793,6 +1795,21 @@ class LayoutBuilderApp():
         self.toasts.show(f"Розкладку експортовано: {out}\n"
                          "Windows — .klc (MSKLC), Linux — .xkb, macOS — .keylayout;\n"
                          "як встановити — README.txt там же.", ms=12000)
+        reveal_in_file_manager(out)
+
+
+def reveal_in_file_manager(path) -> None:
+    """Відкрити теку в Провіднику / Finder / файловому менеджері (не вийшло — мовчки)."""
+    import os
+    import subprocess
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path))  # noqa: S606
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, AttributeError):
+        pass
 
 
 def _windows_setup():
