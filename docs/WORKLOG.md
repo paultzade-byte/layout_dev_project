@@ -1460,3 +1460,11 @@ position_id; GUI — `root.after(...)` сценарій Start→Reheat→Stop.
 geometry.json, id 8 і 22 `generic_105_alpha`): GUI (належать місцю, не літері; з тепловою
 мапою — над відсотком; тултіп), тренажер (схема + тултіп), render PNG/SVG. Corne — без рисок.
 Коміт 13d4c82, тести 93. CI зелений run 45596507713, zip ~/Documents/ukr-layout/build_2026-11-25b/.
+
+### 2026-11-25, пізніше — пре-реліз v0.1.0-beta.2 (автор: «максимально достойний варіант»)
+
+CI на тег тепер: SHA256SUMS.txt (zip + обидва exe), attestation (`actions/attest-build-provenance@v3`),
+текст релізу з `packaging/release_notes.md` (хеш, посилання на run, Get-FileHash, `gh attestation verify`),
+prerelease, якщо в тегу є «-». Run 45621495845 зелений; zip sha256 5ba415d5…0ccd0f1, перевірено
+локально (хеш + attestation через API; локальний gh 2.4.0 не має `attestation`). Копія —
+~/Documents/ukr-layout/release_v0.1.0-beta.2/. Наступний реліз — просто новий тег v*.
