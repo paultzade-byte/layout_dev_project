@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from uiux.theme import FONT, KEY_TEXT
+from uiux.theme import FONT, KEY_TEXT, px
 
 BG = "#fbe9be"            # м'який жовтий
 BORDER = "#e0c27a"
@@ -75,11 +75,11 @@ class Invite:
             w.attributes("-topmost", True)
         except tk.TclError:
             pass
-        body = tk.Frame(w, bg=BG, padx=34, pady=22)
-        body.pack(padx=2, pady=2)
+        body = tk.Frame(w, bg=BG, padx=px(34), pady=px(22))
+        body.pack(padx=px(2), pady=px(2))
         labels = [
             tk.Label(body, text="Гасло дня", bg=BG, fg=DIM, font=(FONT, 11)),
-            tk.Label(body, text=text, bg=BG, fg=KEY_TEXT, font=(FONT, 20, "bold"), wraplength=560,
+            tk.Label(body, text=text, bg=BG, fg=KEY_TEXT, font=(FONT, 20, "bold"), wraplength=px(560),
                      justify="center"),
         ]
         pads = [(0, 6), (0, 0)]

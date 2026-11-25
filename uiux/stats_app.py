@@ -22,7 +22,8 @@ from config import settings
 from config.paths import layouts_dir
 from config.stats_files import stats_dir
 from core import corpus
-from uiux.theme import ACCENT, BG, BUTTON, BUTTON_HOVER, FONT, KEY_TEXT, PANEL, TEXT, TEXT_DIM, set_window_icon
+from uiux.theme import (ACCENT, BG, BUTTON, BUTTON_HOVER, FONT, KEY_TEXT, PANEL, TEXT, TEXT_DIM, init_ui_scale, px,
+                        set_window_icon)
 from uiux.toast import Toasts
 from uiux.tooltip import Tooltip
 from uiux.widgets import RoundButton
@@ -117,7 +118,7 @@ class StatsApp:
                                  "типову теку; файл з іншої відкривається через «Вибрати файл…».")
 
         f = row("Хід", "Скільки вже прочитано і скільки лишилось.")
-        self.bar = tk.Canvas(f, width=420, height=16, bg=PANEL, highlightthickness=0)
+        self.bar = tk.Canvas(f, width=px(420), height=px(16), bg=PANEL, highlightthickness=0)
         self.bar.pack(side="left")
         Tooltip(self.bar, lambda: self.label_progress.cget("text") or "Ще не запущено.")
         self.label_progress = tk.Label(f, bg=BG, fg=TEXT_DIM, font=(FONT, 10), anchor="w", width=36)
@@ -174,9 +175,9 @@ class StatsApp:
 
     def _draw_bar(self, frac: float):
         self.bar.delete("all")
-        w = int(420 * max(0.0, min(1.0, frac)))
+        w = int(px(420) * max(0.0, min(1.0, frac)))
         if w:
-            self.bar.create_rectangle(0, 0, w, 16, fill=ACCENT, width=0)
+            self.bar.create_rectangle(0, 0, w, px(16), fill=ACCENT, width=0)
 
     # ------------------------------------------------------------ дії
 
@@ -304,6 +305,7 @@ class StatsApp:
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     root = tk.Tk()
+    init_ui_scale(root)
     StatsApp(root, argv[0] if argv else None)
     root.mainloop()
 

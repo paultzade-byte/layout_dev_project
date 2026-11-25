@@ -42,3 +42,13 @@ def test_altgr_legends_in_svg():
     svg = render.render_svg(start_layout(name).keys, geometry_config(name), name)
     for extra in geometry_config(name)["altgr"].values():
         assert f">{render.escape(extra)}</text>" in svg
+
+
+def test_key_cells_scale_for_hidpi():
+    """GUI на екрані з масштабом Windows 150%: клавіші й проміжки — у 1.5 раза більші."""
+    from config.main_config import geometry_config
+    from uiux.render import key_cells
+    g = geometry_config("generic_105_alpha")
+    plain, big = key_cells(g, "generic_105_alpha"), key_cells(g, "generic_105_alpha", 1.5)
+    for (_, x, y, w), (_, bx, by, bw) in zip(plain, big):
+        assert abs(bx - 1.5 * x) <= 1 and abs(by - 1.5 * y) <= 1 and abs(bw - 1.5 * w) <= 1

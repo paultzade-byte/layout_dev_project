@@ -24,7 +24,7 @@ from uiux import render
 from uiux.render import key_cells
 from uiux.toast import Toasts
 from uiux.theme import (ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, FINGER_COLORS, FONT, KEY_TEXT,
-                        PANEL, SLOT, TEXT, TEXT_DIM)
+                        PANEL, SLOT, TEXT, TEXT_DIM, px, ui_scale)
 from uiux.widgets import RoundButton
 
 TEXT_SIZES = (14, 16, 18, 20, 22, 24, 28)            # кнопки «Текст − +»
@@ -111,11 +111,11 @@ class TrainerWindow:
     def _build(self):
         w = self.win
         top = tk.Frame(w, bg=BG)
-        top.pack(fill="x", padx=16, pady=(14, 6))
+        top.pack(fill="x", padx=px(16), pady=(px(14), px(6)))
         self.mode_buttons = {}
         for mode, title, tip in MODES:
             b = _button(top, title, lambda m=mode: self._set_mode(m))
-            b.pack(side="left", padx=(0, 6))
+            b.pack(side="left", padx=(0, px(6)))
             if mode == "ngrams" and not self.hard_ngrams:
                 b.config(state="disabled")
             tooltip.add(b, tip)
@@ -126,13 +126,13 @@ class TrainerWindow:
         tooltip.add(self.button_translate, self._translate_tip)
 
         lv = tk.Frame(w, bg=BG)
-        lv.pack(fill="x", padx=16, pady=(4, 4))
+        lv.pack(fill="x", padx=px(16), pady=(px(4), px(4)))
         tk.Label(lv, text="Літери", bg=BG, fg=TEXT_DIM, font=(FONT, 10)).pack(side="left")
         self.scale = tk.Scale(lv, from_=0, to=self.levels - 1, orient="horizontal", showvalue=False,
-                              length=220, bg=BG, fg=TEXT, troughcolor=PANEL, highlightthickness=0,
-                              bd=0, sliderlength=18, command=self._on_level)
+                              length=px(220), bg=BG, fg=TEXT, troughcolor=PANEL, highlightthickness=0,
+                              bd=0, sliderlength=px(18), command=self._on_level)
         self.scale.set(self.level)
-        self.scale.pack(side="left", padx=8)
+        self.scale.pack(side="left", padx=px(8))
         self.letters_label = tk.Label(lv, bg=BG, fg=TEXT, font=(FONT, 10))
         self.letters_label.pack(side="left")
         self.button_auto = _button(lv, "", self._toggle_auto)
@@ -143,37 +143,40 @@ class TrainerWindow:
                     f"{trainer.LEVEL_UP_SPREAD * 100:.0f}%), відкривається наступна порція літер.\n"
                     "Вимкнено — рівень лише повзунком.")
         tip = ("Складність: скільки літер у вправах. Ліворуч — лише домашній ряд, "
-               f"кожен крок праворуч додає {trainer.STEP} літери (за частотою), до кінця — усі.\n"
+               f"кожен крок праворуч додає {trainer.STEP} клавіші (за частотою; кома й крапка — теж), "
+               "до кінця — усі.\n"
                "Нова літера підсвічена — на ній варто зосередитись.")
         tooltip.add(self.scale, tip)
         tooltip.add(self.letters_label, tip)
 
         opts = tk.Frame(w, bg=BG)
-        opts.pack(fill="x", padx=16, pady=(2, 2))
+        opts.pack(fill="x", padx=px(16), pady=(px(2), px(2)))
         self.check_caps = self._check(opts, "Великі", self.caps, "trainer_caps",
                                       "«Класика» з великими літерами, як в оригіналі (Shift). "
                                       "Вимкнено — усе малими, Shift не потрібен.")
         self.check_punct = self._check(opts, "Розділові", self.punct, "trainer_punct",
                                        "«Класика» з розділовими: , . ! ? : ; - \" ( ). Тире стає -, "
-                                       "лапки — \", три крапки — ... Вимкнено — без розділових.")
+                                       "лапки — \", три крапки — ... Вимкнено — без розділових.\n"
+                                       "У «Словах» кома й крапка з'являються самі, коли повзунок "
+                                       "дійде до їхніх клавіш.")
         for label, attr, tip in (("Схема", "board", "Розмір схеми клавіатури: менше / більше."),
                                  ("Текст", "text", "Розмір тексту вправи: менше / більше.")):
             plus = _button(opts, "+", lambda a=attr: self._resize(a, +1))
             plus.pack(side="right")
             minus = _button(opts, "−", lambda a=attr: self._resize(a, -1))
-            minus.pack(side="right", padx=(0, 3))
+            minus.pack(side="right", padx=(0, px(3)))
             name = tk.Label(opts, text=label, bg=BG, fg=TEXT_DIM, font=(FONT, 10))
-            name.pack(side="right", padx=(12, 4))
+            name.pack(side="right", padx=(px(12), px(4)))
             for widget in (plus, minus, name):
                 tooltip.add(widget, tip + " Запам'ятовується.")
 
         # рамка з точним розміром у пікселях (_fit_text): Text сам не враховує spacing2 у висоті
         self.text_box = tk.Frame(w, bg=PANEL)
-        self.text_box.pack(padx=16, pady=(6, 8))
+        self.text_box.pack(padx=px(16), pady=(px(6), px(8)))
         self.text_box.pack_propagate(False)
         self.text = tk.Text(self.text_box, height=1, width=1, wrap="word", bg=PANEL, fg=TEXT_DIM, bd=0,
-                            font=(FONT, self.text_size), padx=TEXT_PAD_X, pady=TEXT_PAD_Y,
-                            highlightthickness=0, cursor="arrow", spacing2=TEXT_SPACING)
+                            font=(FONT, self.text_size), padx=px(TEXT_PAD_X), pady=px(TEXT_PAD_Y),
+                            highlightthickness=0, cursor="arrow", spacing2=px(TEXT_SPACING))
         self.text.pack(fill="both", expand=True)
         self.text.tag_configure("done", foreground=TEXT)
         self.text.tag_configure("wrong", foreground=DROP_BLOCKED)
@@ -183,21 +186,21 @@ class TrainerWindow:
         tooltip.add(self.text, self._text_tip)
 
         self.board = tk.Canvas(w, bg=BG, highlightthickness=0)
-        self.board.pack(padx=16, pady=(0, 8))
+        self.board.pack(padx=px(16), pady=(0, px(8)))
         self._draw_board()
         tooltip.add(self.board, "Розкладка з дошки головного вікна. Синім — клавіша, яку натиснути "
                                 "зараз; сірі — літери, яких ще нема у вправах. Риски — F і J "
                                 "(на справжній клавіатурі там пухирці): тут лежать вказівні.")
 
         bottom = tk.Frame(w, bg=BG)
-        bottom.pack(fill="x", padx=16, pady=(0, 14))
+        bottom.pack(fill="x", padx=px(16), pady=(0, px(14)))
         self.stats_label = tk.Label(bottom, bg=BG, fg=TEXT, font=(FONT, 10), anchor="w", justify="left")
         self.stats_label.pack(side="left")
         tooltip.add(self.stats_label, "Швидкість — правильних знаків за хвилину (зн/хв). Точність — "
                                       "частка натискань без помилки. «Сесія» — середнє за всі "
                                       "завершені рядки, відколи відкрито вікно.")
         self.weak_label = tk.Label(w, bg=BG, fg=TEXT_DIM, font=(FONT, 10), anchor="w", justify="left")
-        self.weak_label.pack(fill="x", padx=16, pady=(0, 6), before=bottom)
+        self.weak_label.pack(fill="x", padx=px(16), pady=(0, px(6)), before=bottom)
         tooltip.add(self.weak_label, "Найслабші літери за всі тренування на цій клавіатурі "
                                      f"(від {trainer.MIN_SAMPLES} натискань): точність і середній час "
                                      "від попередньої літери. Слабкість — помилки, потім повільність.")
@@ -205,10 +208,10 @@ class TrainerWindow:
         close.pack(side="right")
         tooltip.add(close, "Закрити тренування (Esc). Рівень і переклад запам'ятовуються.")
         again = _button(bottom, "Інший рядок", lambda: self._new_line(advance=True), small=False)
-        again.pack(side="right", padx=(0, 8))
+        again.pack(side="right", padx=(0, px(8)))
         tooltip.add(again, "Пропустити цей рядок і взяти новий.")
         reset = _button(bottom, "Скинути статистику", self._reset_stats, small=False)
-        reset.pack(side="right", padx=(0, 8))
+        reset.pack(side="right", padx=(0, px(8)))
         tooltip.add(reset, "Забути статистику по літерах для цієї клавіатури (спитає ще раз). "
                            "Варто, коли розкладку суттєво змінено.")
         self._update_translate_button()
@@ -245,13 +248,14 @@ class TrainerWindow:
         c = tk.Checkbutton(parent, text=text, variable=var, command=changed, bg=BG, fg=TEXT,
                            selectcolor=PANEL, activebackground=BG, activeforeground=TEXT,
                            disabledforeground=TEXT_DIM, highlightthickness=0, bd=0, font=(FONT, 10))
-        c.pack(side="left", padx=(0, 12))
+        c.pack(side="left", padx=(0, px(12)))
         tooltip.add(c, lambda: tip if self.mode in TEXT_MODES else tip + "\n(Лише для «Класики» і «Свого тексту».)")
         return c
 
     def _draw_board(self):
         """Схема клавіатури в масштабі self.board_scale (і після «Схема − +»)."""
-        b, s = self.board, self.board_scale
+        # s — пікселі (з масштабом екрана), шрифти — у пунктах, їх масштабує сам Tk
+        b, s, fs = self.board, self.board_scale * ui_scale(), self.board_scale
         b.delete("all")
         cells = key_cells(self.geometry, self.geometry_name)
         kh = self.geometry["key_height"]
@@ -259,7 +263,7 @@ class TrainerWindow:
         height = max(y for _, _, y, _ in cells) * s + kh * s
         b.config(width=width + 4, height=height + 4)
         self.board_keys = {}
-        big, small = max(8, round(17 * s)), max(6, round(11 * s))
+        big, small = max(8, round(17 * fs)), max(6, round(11 * fs))
         for pos, x, y, cw in cells:
             ch = self.chars.get(pos["id"], "")
             x0, y0 = x * s + 2, y * s + 2
@@ -269,14 +273,14 @@ class TrainerWindow:
             b.create_text((x0 + x1) / 2, (y0 + y1) / 2, text=label, fill=KEY_TEXT, font=(FONT, big, "bold"))
             alt = self.geometry.get("altgr", {}).get(ch, "")
             if alt:
-                b.create_text(x1 - small, y0 + small + 1, text=alt, fill=KEY_TEXT, font=(FONT, small))
+                b.create_text(x1 - px(small), y0 + px(small + 1), text=alt, fill=KEY_TEXT, font=(FONT, small))
             if pos.get("homing"):  # риска під вказівний (F/J), як на справжній клавіатурі
                 hw, hh, hb = render.HOMING_W * s / 2, max(2, render.HOMING_H * s), render.HOMING_BOTTOM * s
                 b.create_rectangle((x0 + x1) / 2 - hw, y1 - hb - hh, (x0 + x1) / 2 + hw, y1 - hb,
                                    fill=KEY_TEXT, outline="", width=0)
             self.board_keys[pos["id"]] = (rect, ch, pos.get("finger", ""))
         # ширина тексту — як схема (але не вужча за MIN_TEXT_PX)
-        self.text_px = max(width, MIN_TEXT_PX)
+        self.text_px = max(width, px(MIN_TEXT_PX))
 
     def _resize(self, what, step):
         if what == "text":
@@ -298,7 +302,7 @@ class TrainerWindow:
         # валять процес (див. uiux/widgets.py)
         font = (FONT, self.text_size)
         measure = lambda t: int(self.win.tk.call("font", "measure", font, t))
-        width_px = self.text_px - 2 * TEXT_PAD_X - 4          # 4 — запас на внутрішні відступи Tk
+        width_px = self.text_px - 2 * px(TEXT_PAD_X) - px(4)          # 4 — запас на внутрішні відступи Tk
         lines, cur = 1, 0
         for word in self.session.text.split(" "):
             if cur and cur + measure(word) > width_px:
@@ -306,7 +310,7 @@ class TrainerWindow:
             cur += measure(word + " ")
         lines = max(2, lines)
         linespace = int(self.win.tk.call("font", "metrics", font, "-linespace"))
-        height = 2 * TEXT_PAD_Y + lines * linespace + (lines - 1) * TEXT_SPACING + 4
+        height = 2 * px(TEXT_PAD_Y) + lines * linespace + (lines - 1) * px(TEXT_SPACING) + px(4)
         self.text.config(font=(FONT, self.text_size))
         self.text_box.config(width=self.text_px, height=height)
         self.text_lines = lines
@@ -467,13 +471,13 @@ class TrainerWindow:
         nxt = self.session.text[self.session.pos] if not self.session.done else ""
         altgr = self.geometry.get("altgr", {})
         for pid, (rect, ch, finger) in self.board_keys.items():
-            if ch in trainer.ALPHABET:
+            if ch in trainer.ALPHABET or ch in trainer.WORD_PUNCT:
                 on = ch in self.allowed
                 base = FINGER_COLORS.get(_finger(finger), SLOT) if on else SLOT
-                if nxt and (ch == nxt.lower() or altgr.get(ch) == nxt.lower()):
+                if nxt and nxt != " " and nxt.lower() in trainer.key_outputs(ch, altgr):
                     base = ACCENT
                 if self.focus and ch == self.focus and ch != nxt:
-                    self.board.itemconfigure(rect, fill=base, outline=ACCENT, width=2)
+                    self.board.itemconfigure(rect, fill=base, outline=ACCENT, width=px(2))
                     continue
                 self.board.itemconfigure(rect, fill=base, outline="", width=0)
             else:

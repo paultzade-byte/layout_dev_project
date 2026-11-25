@@ -43,9 +43,10 @@ SYMBOL_FONTS = ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "seguisym.ttf", "Apple 
 SVG_FONT = "Ubuntu, 'DejaVu Sans', 'Segoe UI', Arial, sans-serif"
 
 
-def key_cells(geometry: dict, geometry_name: str) -> list[tuple[dict, int, int, int]]:
+def key_cells(geometry: dict, geometry_name: str, scale: float = 1.0) -> list[tuple[dict, int, int, int]]:
     """[(position, x, y, width)] — верхній лівий кут і ширина клавіші в px,
     від (0, 0) дошки. Та сама сітка, що й у GUI (LayoutBuilderApp.build_grid).
+    scale — множник (GUI: theme.ui_scale() на екранах з масштабом Windows).
 
     stages: 0 — рівна сітка по col; 1 — col + offset_x (px);
     2 — x і w в одиницях клавіші u (звичайна ANSI-клавіатура)."""
@@ -67,7 +68,8 @@ def key_cells(geometry: dict, geometry_name: str) -> list[tuple[dict, int, int, 
         raw.append((pos, x, pos["row"] * pitch_y, width))
     min_x = min(x for _, x, _, _ in raw)
     min_y = min(y for _, _, y, _ in raw)
-    return [(pos, x - min_x, y - min_y, width) for pos, x, y, width in raw]
+    return [(pos, round((x - min_x) * scale), round((y - min_y) * scale), round(width * scale))
+            for pos, x, y, width in raw]
 
 
 def _cells(keys, geometry: dict, geometry_name: str, heat: dict | None = None) -> list[dict]:

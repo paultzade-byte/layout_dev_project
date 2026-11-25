@@ -43,7 +43,8 @@ SCORE_SCALE = 1e8
 
 from uiux.theme import (  # noqa: E402  (тема спільна з uiux/render.py)
     ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, DROP_OK, FINGER_COLORS, FONT, FROZEN_BG, FROZEN_FG,
-    GROUP_COLORS, KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM, blend, set_window_icon,
+    GROUP_COLORS, KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM, blend, init_ui_scale, px, set_window_icon,
+    ui_scale,
 )
 
 
@@ -69,9 +70,9 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     font = KEY_FONT if len(text) <= 2 else (FONT, 11, "bold")
     widget.config(
         text=text, bg=bg, fg=fg, font=font,
-        highlightthickness=2, highlightbackground=border, highlightcolor=border,
+        highlightthickness=px(2), highlightbackground=border, highlightcolor=border,
         # з тепловою мапою внизу відсоток — літеру вгору, щоб він не накривав хвостики (р, у, д)
-        anchor="n" if cell is not None else "center", pady=4 if cell is not None else 1,
+        anchor="n" if cell is not None else "center", pady=px(4) if cell is not None else px(1),
     )
     # AltGr-символ клавіші (geometry["altgr"]: літера -> символ) — дрібно в
     # правому верхньому куті, як на картинці; іде за літерою при перетягуванні
@@ -80,14 +81,14 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
         extra = "" if widget.is_frozen else getattr(widget, "altgr", {}).get(key.char, "")
         if extra:
             mark.config(text=extra, bg=bg, fg=fg)
-            mark.place(relx=1.0, x=-5, y=2, anchor="ne")
+            mark.place(relx=1.0, x=-px(5), y=px(2), anchor="ne")
         else:
             mark.place_forget()
     note = getattr(widget, "note_label", None)
     if note is not None:
         if cell is not None:
             note.config(text=cell["text"], bg=bg, fg=fg)
-            note.place(relx=0.5, rely=1.0, y=-2, anchor="s")
+            note.place(relx=0.5, rely=1.0, y=-px(2), anchor="s")
         else:
             note.place_forget()
     # риска орієнтира (F/J, geometry "homing") — належить місцю, не літері:
@@ -96,8 +97,8 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     if homing is not None:
         if key.position_id in getattr(widget, "homing_ids", ()):
             homing.config(bg=fg)
-            homing.place(relx=0.5, rely=1.0, y=-(render.HOMING_BOTTOM + (11 if cell is not None else 0)),
-                         anchor="s", width=render.HOMING_W, height=render.HOMING_H)
+            homing.place(relx=0.5, rely=1.0, y=-px(render.HOMING_BOTTOM + (11 if cell is not None else 0)),
+                         anchor="s", width=px(render.HOMING_W), height=px(render.HOMING_H))
         else:
             homing.place_forget()
 
@@ -186,7 +187,7 @@ class ButtonPanel:
          # групами — «пружини» (не менше GROUP_GAP, вільне місце порівну), тож ряд у будь-якому
          # режимі тягнеться від краю до краю дошки; сховану групу прибирає arrange()
          self.button_frame = tk.Frame(self.root, bg=BG)
-         self.button_frame.pack(fill="x", padx=20, pady=(0, 14))
+         self.button_frame.pack(fill="x", padx=px(20), pady=(0, px(14)))
          group = lambda: tk.Frame(self.button_frame, bg=BG)
          kb, run, train, open_, save, picture = (group() for _ in range(6))
          self.groups = [kb, run, train, open_, save, picture]
@@ -212,14 +213,14 @@ class ButtonPanel:
          for g in self.groups:
              buttons = g.winfo_children()
              for b in buttons:
-                 b.pack(side="left", padx=(0, INNER_GAP) if b is not buttons[-1] else 0)
+                 b.pack(side="left", padx=(0, px(INNER_GAP)) if b is not buttons[-1] else 0)
          self.arrange(keyboard=True, export=True)
 
      def arrange(self, keyboard: bool, export: bool) -> None:
          """Групи в ряд з пружинами між ними; keyboard / export — чи видно «На клаву / З клави»
          і «Експорт…». Викликається на старті й при кожному перемиканні режиму."""
          if export and not self.button_export.winfo_manager():
-             self.button_screenshot.pack_configure(padx=(0, INNER_GAP))
+             self.button_screenshot.pack_configure(padx=(0, px(INNER_GAP)))
              self.button_export.pack(side="left")
          elif not export and self.button_export.winfo_manager():
              self.button_export.pack_forget()
@@ -233,7 +234,7 @@ class ButtonPanel:
          for i, g in enumerate(shown):
              g.grid(row=0, column=2 * i)
              if i:
-                 frame.columnconfigure(2 * i - 1, weight=1, minsize=GROUP_GAP)
+                 frame.columnconfigure(2 * i - 1, weight=1, minsize=px(GROUP_GAP))
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -282,13 +283,13 @@ class LayoutBuilderApp():
 
         # перемикач режиму — у самому верху, щоб його бачив будь-хто
         self.mode_bar = tk.Frame(self.root, bg=BG)
-        self.mode_bar.pack(fill="x", padx=20, pady=(12, 0))
+        self.mode_bar.pack(fill="x", padx=px(20), pady=(px(12), 0))
         tk.Label(self.mode_bar, text="Клавіатура:", bg=BG, fg=TEXT_DIM,
-                 font=(FONT, 11, "bold")).pack(side="left", padx=(2, 8))
+                 font=(FONT, 11, "bold")).pack(side="left", padx=(px(2), px(8)))
         self.mode_buttons = {}
         for name in GEOMETRIES_ORDER:
             b = make_button(self.mode_bar, GEOMETRY_TITLES.get(name, name), lambda n=name: self.on_mode(n))
-            b.pack(side="left", padx=(0, 6))
+            b.pack(side="left", padx=(0, px(6)))
             self.mode_buttons[name] = b
         # справа (як «⟳ з клави» на спліті): повернути дошку до ЙЦУКЕН
         self.button_ycuken = make_button(self.mode_bar, "↺ ЙЦУКЕН", self.on_ycuken, small=True)
@@ -299,14 +300,14 @@ class LayoutBuilderApp():
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
         self.status_row = tk.Frame(self.root, bg=BG)
-        self.status_row.pack(fill="x", padx=(22, 20), pady=(10, 0))
+        self.status_row.pack(fill="x", padx=(px(22), px(20)), pady=(px(10), 0))
         # теплові мапи: затиснути — показати, поки тримаєш; клік — лишити увімкненою
         self.heat_shown = None     # що зараз на дошці: None / "freq" / "pain"
         self.heat_latched = None   # що лишається після відпускання
         self.heat_buttons = {}
         for kind, title in (("pain", "Незручність"), ("freq", "Частота")):
             b = make_button(self.status_row, title, None, small=True)
-            b.pack(side="right", padx=(6, 0))
+            b.pack(side="right", padx=(px(6), 0))
             for n in (1, 3):
                 b.bind(f"<ButtonPress-{n}>", lambda e, k=kind: self._heat_press(k), add="+")
                 b.bind(f"<ButtonRelease-{n}>", lambda e, k=kind: self._heat_release(k), add="+")
@@ -323,21 +324,21 @@ class LayoutBuilderApp():
 
         # вкладки: редактор розкладки (CYR з оптимізатора) або перегляд шару клавіатури
         self.tab_bar = tk.Frame(self.root, bg=BG)
-        self.tab_bar.pack(fill="x", padx=20, pady=(8, 0))
+        self.tab_bar.pack(fill="x", padx=px(20), pady=(px(8), 0))
         self.tabs = {}
         for name in ["Редактор"] + layer_view.lh.ORDER:
             b = make_button(self.tab_bar, name, lambda n=name: self.show_tab(n), small=True)
-            b.pack(side="left", padx=(0, 4))
+            b.pack(side="left", padx=(0, px(4)))
             self.tabs[name] = b
         # справа: скинути зміни шару / перечитати клавіатуру
         self.button_refresh_layers = make_button(self.tab_bar, "⟳ з клави", self.on_layers_refresh, small=True)
         self.button_refresh_layers.pack(side="right")
         self.button_reset_layer = make_button(self.tab_bar, "↺ скинути шар", self.on_layer_reset, small=True)
-        self.button_reset_layer.pack(side="right", padx=(0, 4))
+        self.button_reset_layer.pack(side="right", padx=(0, px(4)))
 
         # frame main
         self.board = tk.Frame(self.root, bg=PANEL, bd=0)
-        self.board.pack(fill="both", expand=True, padx=20, pady=10)
+        self.board.pack(fill="both", expand=True, padx=px(20), pady=px(10))
         self.layer_view = layer_view.LayerView(self.root, on_change=self._layers_changed, colors=dict(
             PANEL=PANEL, SLOT=SLOT, TEXT_DIM=TEXT_DIM, KEY_TEXT=KEY_TEXT, FONT=FONT,
             FINGER={"pinky": FINGER_COLORS[Finger.PINKY], "ring": FINGER_COLORS[Finger.RING],
@@ -533,9 +534,9 @@ class LayoutBuilderApp():
         self.positions_by_id = {p["id"]: p for p in self.geometry["positions"]}  # для ресинку при свопах
         self.base_moves = moves if moves is not None else load_moves(name)  # ваги з файлу
         self.moves = self._effective_moves()                                # + повзунки
-        self.key_width = self.geometry["key_width"]
-        self.key_height = self.geometry["key_height"]
-        self.tolerance = self.geometry["tolerance_x"]
+        self.key_width = px(self.geometry["key_width"])
+        self.key_height = px(self.geometry["key_height"])
+        self.tolerance = px(self.geometry["tolerance_x"])
         self.stages = self.geometry["stages"]
 
     def _build_engine(self):
@@ -599,7 +600,7 @@ class LayoutBuilderApp():
                      activebackground=ACCENT if on else BUTTON_HOVER)
         if self._zmk_mode():
             if not self.tab_bar.winfo_manager():
-                self.tab_bar.pack(fill="x", padx=20, pady=(8, 0), before=self.board)
+                self.tab_bar.pack(fill="x", padx=px(20), pady=(px(8), 0), before=self.board)
         else:
             if self.current_tab != "Редактор":
                 self.show_tab("Редактор")
@@ -607,7 +608,7 @@ class LayoutBuilderApp():
         if self._ycuken_mode():
             if not self.button_ycuken.winfo_manager():
                 self.button_ycuken.pack(side="right")
-                self.button_default.pack(side="right", padx=(0, 4))
+                self.button_default.pack(side="right", padx=(0, px(4)))
         else:
             self.button_ycuken.pack_forget()
             self.button_default.pack_forget()
@@ -664,9 +665,9 @@ class LayoutBuilderApp():
         шириною (інакше праві кнопки обрізаються), і за висотою (інакше
         обрізається нижній ряд, напр. пробіл ANSI після «Детальніше» на Corne).
         Клавіші стоять через place(), тож розмір дошки задаємо явно."""
-        cells = render.key_cells(self.geometry, self.geometry_name)
-        board_w = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X
-        board_h = max(y for _, _, y, _ in cells) + self.key_height + 2 * layer_view.BASE_Y
+        cells = render.key_cells(self.geometry, self.geometry_name, ui_scale())
+        board_w = max(x + width for _, x, _, width in cells) + 2 * px(layer_view.BASE_X)
+        board_h = max(y for _, _, y, _ in cells) + self.key_height + 2 * px(layer_view.BASE_Y)
         if self._zmk_mode():
             # вкладки шарів — на місці дошки, але вищі: під клавішами ще підпис
             # шару (не має обрізатись). Дошка редактора лишається без порожнечі,
@@ -675,12 +676,12 @@ class LayoutBuilderApp():
         self.board.config(width=board_w, height=board_h)
         self.root.update_idletasks()
         # ряд кнопок — з пружинами між групами (ButtonPanel.arrange), запас не потрібен
-        buttons = self.button_panel.button_frame.winfo_reqwidth() + 40
-        panel = self.knob_frame.winfo_reqwidth() + 40 if getattr(self, "knobs_open", False) else 0
+        buttons = self.button_panel.button_frame.winfo_reqwidth() + px(40)
+        panel = self.knob_frame.winfo_reqwidth() + px(40) if getattr(self, "knobs_open", False) else 0
         # ширина — рівно під вміст: інакше після ширшого режиму (Corne -> Звичайна) вікно лишалось
         # широким, а пружини між кнопками розтягувались
-        needed_w = max(900, board_w + 40, buttons, panel, self.root.winfo_reqwidth())
-        needed_h = max(450, self.root.winfo_reqheight())
+        needed_w = max(px(900), board_w + px(40), buttons, panel, self.root.winfo_reqwidth())
+        needed_h = max(px(450), self.root.winfo_reqheight())
         height = self.root.winfo_height() if height is None else height
         new_h = needed_h if exact_height else max(height, needed_h)
         self._resize(needed_w, new_h)
@@ -768,13 +769,13 @@ class LayoutBuilderApp():
 
     def build_grid(self):
         """Побудова сітки слотів на основі геометрії"""
-        base_x, base_y = layer_view.BASE_X, layer_view.BASE_Y  # та сама сітка, що й у вкладках шарів
-        gap = render.GAP  # Відстань між кнопками
+        base_x, base_y = px(layer_view.BASE_X), px(layer_view.BASE_Y)  # та сама сітка, що й у вкладках шарів
+        gap = px(render.GAP)  # Відстань між кнопками
         # відпущена клавіша прилипає до найближчого слота в межах усієї його
         # клітинки (з проміжками), а не лише tolerance_x від центру
         self.tolerance = max(self.tolerance, math.hypot(self.key_width + gap, self.key_height + gap) / 2)
 
-        cells = render.key_cells(self.geometry, self.geometry_name)
+        cells = render.key_cells(self.geometry, self.geometry_name, ui_scale())
         # ширина вікна під дошку й кнопки — _fit_window()
         for pos, x, y, width in cells:
             x, y = base_x + x, base_y + y
@@ -1195,16 +1196,16 @@ class LayoutBuilderApp():
     def _build_knob_panel(self):
         self.knobs_open = False
         self.knob_bar = tk.Frame(self.root, bg=BG)
-        self.knob_bar.pack(fill="x", padx=20, pady=(0, 6), before=self.button_panel.button_frame)
+        self.knob_bar.pack(fill="x", padx=px(20), pady=(0, px(6)), before=self.button_panel.button_frame)
         self.button_knobs = make_button(self.knob_bar, "Детальніше ▸", self.toggle_knobs, small=True)
         self.button_knobs.pack(side="left")
         self.button_preset = make_button(self.knob_bar, "Пресет: ▾", self.show_preset_menu, small=True)
-        self.button_preset.pack(side="left", padx=(8, 0))
+        self.button_preset.pack(side="left", padx=(px(8), 0))
         self.button_cpu = make_button(self.knob_bar, "", self.show_cpu_menu, small=True)
-        self.button_cpu.pack(side="left", padx=(8, 0))
+        self.button_cpu.pack(side="left", padx=(px(8), 0))
         self._update_cpu_button()
         self.button_stats = make_button(self.knob_bar, "", self.show_stats_menu, small=True)
-        self.button_stats.pack(side="left", padx=(8, 0))
+        self.button_stats.pack(side="left", padx=(px(8), 0))
         self._update_stats_button()
         self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
                                               self.on_knobs_reset, small=True)
@@ -1225,7 +1226,7 @@ class LayoutBuilderApp():
         for row, knob in enumerate(knobs.knobs_for(self.geometry_name)):
             # назва, під нею дрібно — цифра, на яку повзунок впливає
             cell = tk.Frame(self.knob_frame, bg=PANEL)
-            cell.grid(row=row, column=0, sticky="w", padx=(12, 10), pady=(4, 2))
+            cell.grid(row=row, column=0, sticky="w", padx=(px(12), px(10)), pady=(px(4), px(2)))
             if knob.id == "closeness":
                 title = tk.Checkbutton(cell, text=knob.title, variable=self.closeness_var,
                                        command=self.on_closeness_toggle, fg=TEXT, selectcolor=SLOT,
@@ -1242,17 +1243,17 @@ class LayoutBuilderApp():
             left = tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts)
             left.grid(row=row, column=1, sticky="e")
             scale = tk.Scale(self.knob_frame, from_=-knobs.LIMIT, to=knobs.LIMIT, resolution=0.05,
-                             orient="horizontal", showvalue=0, length=220, sliderlength=18, width=12,
+                             orient="horizontal", showvalue=0, length=px(220), sliderlength=px(18), width=px(12),
                              bg=PANEL, fg=TEXT, troughcolor=SLOT, activebackground=ACCENT,
                              highlightthickness=0, bd=0,
                              command=lambda _v, k=knob.id: self._on_knob_move(k))
             scale.set(state["values"].get(knob.id, 0.0))
-            scale.grid(row=row, column=2, padx=6)
+            scale.grid(row=row, column=2, padx=px(6))
             scale.bind("<ButtonRelease-1>", lambda _e, k=knob.id: self.on_knob_release(k))
             right = tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts)
             right.grid(row=row, column=3, sticky="w")
             step_label = tk.Label(self.knob_frame, fg=ACCENT, width=14, anchor="w", **label_opts)
-            step_label.grid(row=row, column=4, sticky="w", padx=(10, 12))
+            step_label.grid(row=row, column=4, sticky="w", padx=(px(10), px(12)))
             for widget in (left, right):
                 tooltip.add(widget, tip)
             tooltip.add(scale, lambda t=tip, k=knob.id: self._knob_scale_tip(t, k))
@@ -1274,7 +1275,7 @@ class LayoutBuilderApp():
     def toggle_knobs(self):
         self.knobs_open = not self.knobs_open
         if self.knobs_open:
-            self.knob_frame.pack(fill="x", padx=20, pady=(0, 8), before=self.button_panel.button_frame)
+            self.knob_frame.pack(fill="x", padx=px(20), pady=(0, px(8)), before=self.button_panel.button_frame)
             self.button_knobs_reset.pack(side="right")
             self.button_knobs.config(text="Детальніше ▾")
             self._update_knob_metrics()
@@ -1548,11 +1549,11 @@ class LayoutBuilderApp():
             self.layer_view.pack_forget()
             # над «Детальніше ▸» (knob_bar), а не просто над кнопками —
             # інакше після зміни вкладки панель повзунків стрибала вгору
-            self.board.pack(fill="both", expand=True, padx=20, pady=10,
+            self.board.pack(fill="both", expand=True, padx=px(20), pady=px(10),
                             before=self.knob_bar)
         else:
             self.board.pack_forget()
-            self.layer_view.pack(fill="both", expand=True, padx=20, pady=10,
+            self.layer_view.pack(fill="both", expand=True, padx=px(20), pady=px(10),
                                  before=self.knob_bar)
             self.layer_view.show(name)
         previous, self.current_tab = self.current_tab, name
@@ -1777,7 +1778,9 @@ class LayoutBuilderApp():
         (підтека ukr-layout_<дата_час>)."""
         if self.processor.is_running or not self._export_mode():
             return
-        base = filedialog.askdirectory(parent=self.root, title="Куди покласти файли розкладки",
+        # вибір теки показує лише теки — файли видно вже в Провіднику, який відкриваємо після
+        base = filedialog.askdirectory(parent=self.root,
+                                       title="Виберіть теку: у ній з'явиться тека ukr-layout_… з файлами",
                                        initialdir=self._dialog_dir(), mustexist=True)
         if not base:
             return
@@ -1792,6 +1795,21 @@ class LayoutBuilderApp():
         self.toasts.show(f"Розкладку експортовано: {out}\n"
                          "Windows — .klc (MSKLC), Linux — .xkb, macOS — .keylayout;\n"
                          "як встановити — README.txt там же.", ms=12000)
+        reveal_in_file_manager(out)
+
+
+def reveal_in_file_manager(path) -> None:
+    """Відкрити теку в Провіднику / Finder / файловому менеджері (не вийшло — мовчки)."""
+    import os
+    import subprocess
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path))  # noqa: S606
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, AttributeError):
+        pass
 
 
 def _windows_setup():
@@ -1837,6 +1855,7 @@ def main(smoke_ms: int | None = None):
     mode = settings.initial_mode(GEOMETRIES)  # запам'ятований режим; в exe типово «Звичайна»
     moves_config = load_moves(mode)
     root = tk.Tk()
+    init_ui_scale(root)          # до побудови вікон: розміри в px — під масштаб екрана
     # головне вікно будується сховане, поверх — інвітейшн (uiux/invite.py): старт без мигання
     root.withdraw()
     from uiux.invite import Invite, next_launch

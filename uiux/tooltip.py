@@ -11,7 +11,7 @@ text — рядок або функція без аргументів (для в
 
 import tkinter as tk
 
-from uiux.theme import FONT, TEXT
+from uiux.theme import FONT, TEXT, px
 
 DELAY_MS = 600
 BG = "#2f3542"
@@ -49,7 +49,7 @@ class Tooltip:
             return
         root = self.widget.winfo_toplevel()
         self._tip = tk.Label(root, text=text, bg=BG, fg=TEXT, font=(FONT, 10),
-                             justify="left", wraplength=360, padx=10, pady=6,
+                             justify="left", wraplength=px(360), padx=px(10), pady=px(6),
                              highlightthickness=1, highlightbackground=BORDER)
         root.update_idletasks()
         w, h = self._tip.winfo_reqwidth(), self._tip.winfo_reqheight()

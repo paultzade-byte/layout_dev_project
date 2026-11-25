@@ -222,3 +222,22 @@ def test_trainer_window_types_through_translator(tmp_path, monkeypatch):
         assert sum(r["hits"] for r in T.load_stats("generic_105_alpha").values()) >= 8   # 12 знаків, слова від 2 літер — ≥ 8 літер
     finally:
         root.destroy()
+
+
+def test_comma_and_period_unlock_by_level_and_follow_words():
+    geometry, chars = geometry_config("generic_105_alpha"), _chars("generic_105_alpha")
+    order = T.make_order(chars, geometry, STATISTIC["unigrams"])
+    on_board = set(chars.values()) & set(T.WORD_PUNCT)
+    assert on_board and on_board <= set(order)                       # повзунок до них доходить
+    assert not on_board & set(T.letters_at(order, 0))                # але не з першого рівня
+    src = T.WordSource(T.quote_words(T.load_quotes()), STATISTIC["bigrams"], random.Random(5))
+    lines = [src.line(list("оанівртк,."), ",") for _ in range(30)]
+    text = " ".join(lines)
+    assert text.count(",") > text.count(".") > 0
+    assert all(w.rstrip(",.") and not set(w.rstrip(",.")) & set(",.") for w in text.split())
+    assert "," not in " ".join(src.line(list("оанівртк"), "к") for _ in range(10))
+
+
+def test_key_outputs_light_shifted_and_altgr():
+    assert T.key_outputs(".", {}) == {".", ":"}
+    assert T.key_outputs("г", {"г": "ґ"}) == {"г", "ґ"}

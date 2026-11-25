@@ -58,6 +58,11 @@ LEVEL_UP_SPREAD = 0.2    # ... і швидкість стабільна: (мак
 
 _APOSTROPHES = str.maketrans({"’": "'", "ʼ": "'", "‘": "'", "`": "'"})
 PUNCT = ',.!?:;-"()'      # розділові, що бувають у «Класиці» з перемикачем «Розділові»
+# розділові, що відкриваються рівнями, як літери (стоять на власних клавішах розкладки):
+# у «Словах» вони йдуть після слів, у «Класиці» з «Розділовими» — підсвічені на схемі
+WORD_PUNCT = ",."
+PUNCT_AFTER = {",": 0.10, ".": 0.07}   # імовірність знака після слова (частота в корпусі ~1:9 і ~1:11 слів)
+PUNCT_FOCUS = 0.30                     # ... якщо це нова (у фокусі) чи слабка клавіша
 _PUNCT_MAP = str.maketrans({"—": "-", "–": "-", "‑": "-", "„": '"', "“": '"', "”": '"', "«": '"',
                             "»": '"', "…": "..."})
 SHIFT_MASK = 0x01         # біт Shift у event.state (X11 і Windows)
@@ -162,11 +167,12 @@ def quote_words(quotes: list[dict]) -> Counter:
 # ----------------------------------------------------------------------
 def unlock_order(chars: dict[int, str], geometry: dict, unigrams: dict) -> list[str]:
     """Літери розкладки в порядку відкриття: домашній ряд (за частотою), потім решта
-    (за частотою). chars — {position_id: літера} з дошки."""
+    (за частотою) разом із , і . (WORD_PUNCT — відкриваються, як літери, навіть якщо на
+    домашньому ряді). chars — {position_id: літера} з дошки."""
     rows = {p["id"]: p["row"] for p in geometry["positions"]}
-    letters = {pid: ch for pid, ch in chars.items() if ch in ALPHABET}
+    letters = {pid: ch for pid, ch in chars.items() if ch in ALPHABET or ch in WORD_PUNCT}
     freq = lambda ch: -unigrams.get(ch, 0)
-    home = sorted({ch for pid, ch in letters.items() if rows.get(pid) == 1}, key=freq)
+    home = sorted({ch for pid, ch in letters.items() if rows.get(pid) == 1 and ch in ALPHABET}, key=freq)
     rest = sorted(set(letters.values()) - set(home), key=freq)
     return home + rest
 
@@ -211,7 +217,7 @@ class WordSource:
     def pseudo_word(self, allowed: set[str], focus: str | None = None, start: str = "") -> str:
         """Псевдослово 3–7 літер ланцюжком Маркова за біграмами корпусу
         (start — готовий початок, напр. поєднання для «Поєднання»)."""
-        letters = sorted(allowed - {"'"})
+        letters = sorted(allowed - {"'"} - set(WORD_PUNCT))
         length = max(self.rng.randint(3, 7), len(start) + 1)
         word = start or (focus if focus and focus in letters and self.rng.random() < 0.5 else None)
         if word is None:
@@ -226,8 +232,11 @@ class WordSource:
 
     def line(self, allowed: list[str] | set[str], focus: str | None = None,
              chars: int = LINE_CHARS, weak=()) -> str:
-        """weak — слабкі літери: слова з ними у WEAK_WEIGHT разів частіше."""
+        """weak — слабкі літери: слова з ними у WEAK_WEIGHT разів частіше.
+        Відкриті , і . — після слів (PUNCT_AFTER; нові чи слабкі — частіше)."""
         allowed = set(allowed)
+        marks = [(m, PUNCT_FOCUS if m == focus or m in weak else p)
+                 for m, p in PUNCT_AFTER.items() if m in allowed]
         real = self._real(allowed)
         weak = set(weak)
         weighted = [(w, n * (FOCUS_WEIGHT if focus and focus in w else 1.0)
@@ -241,9 +250,13 @@ class WordSource:
                 w = self.pseudo_word(allowed, focus)
             if w == last and len(weighted) > 1:
                 continue
+            last = w
+            for m, p in marks:
+                if self.rng.random() < p:
+                    w += m
+                    break
             out.append(w)
             length += len(w) + 1
-            last = w
         return " ".join(out)
 
 
@@ -275,7 +288,7 @@ def hard_targets(penalties: list[tuple[str, float]], allowed, top: int = HARD_TO
     """Найважчі поєднання з відкритих літер: [(n-грама, вага)], ваги в сумі 1.
     penalties — з MovementScoringEngine.ngram_penalty (біграми й триграми разом).
     Поєднання з однієї літери двічі (нн) — лише якщо інших мало."""
-    allowed = set(allowed) - {"'"}
+    allowed = set(allowed) - {"'"} - set(WORD_PUNCT)
     ok = [(g, v) for g, v in penalties if set(g) <= allowed]
     varied = [(g, v) for g, v in ok if len(set(g)) > 1]
     chosen = sorted(varied if len(varied) >= top // 2 else ok, key=lambda x: -x[1])[:top]
@@ -390,6 +403,16 @@ BY_CHAR.update({ch.upper(): k for ch, k in list(BY_CHAR.items()) if ch.isalpha()
 # Windows — Alt (0x20000; AltGr приходить як Ctrl+Alt)
 ALTGR_MASK = {"x11": 0x08 | 0x80, "win32": 0x20000}
 SPACE_KEYCODE = {"x11": 65, "win32": 0x20}
+
+
+def key_outputs(ch: str, altgr: dict) -> set[str]:
+    """Що дає клавіша з символом ch (без Shift, з Shift, AltGr) — для підсвітки на схемі
+    наступного знака (: — це Shift на клавіші з ., ґ — AltGr на г). Малими: схема без регістру."""
+    from core import export
+    out = {ch, export._shifted(ch)} if ch else set()
+    if altgr.get(ch):
+        out.add(altgr[ch])
+    return {c.lower() for c in out if c}
 
 
 def can_translate(geometry: dict) -> bool:
