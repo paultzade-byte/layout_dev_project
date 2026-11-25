@@ -71,6 +71,53 @@ def test_session_counts_errors_and_waits():
     assert s.accuracy() == pytest.approx(200 / 3) and s.cpm(5.0) == pytest.approx(60.0)   # 1 знак після першого за 1 с
 
 
+def test_session_letter_stats_and_merge(tmp_path, monkeypatch):
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    s = T.Session("аб ба")
+    for ch, t in [("а", 0.0), ("х", 0.1), ("б", 0.3), (" ", 0.5), ("б", 0.7), ("а", 10.0)]:
+        s.type(ch, t)
+    assert s.done and s.hits == {"а": 2, "б": 1} and s.misses == {"б": 1}   # перша б з помилкою — не hit
+    assert s.timed == {"б": 1} and s.time_ms["б"] == pytest.approx(200)   # а після паузи 9.3 с — без часу
+    stats = T.merge_stats({}, s)
+    T.save_stats("generic_105_alpha", stats)
+    assert T.load_stats("generic_105_alpha")["б"] == {"hits": 1, "misses": 1, "ms": 200, "timed": 1}
+    assert T.load_stats("corne_42") == {}
+    many = {"а": {"hits": 50, "misses": 0, "ms": 5000, "timed": 50},
+            "б": {"hits": 40, "misses": 10, "ms": 4000, "timed": 40},
+            "в": {"hits": 50, "misses": 0, "ms": 15000, "timed": 50},
+            "г": {"hits": 3, "misses": 5, "ms": 0, "timed": 0}}          # замало натискань
+    assert [ch for ch, _, _ in T.weak_letters(many)] == ["б", "в", "а"]
+
+
+def test_level_up_rule():
+    assert not T.should_level_up([(200, 99), (210, 99)])
+    assert T.should_level_up([(100, 50), (200, 97), (210, 99), (205, 96)])
+    assert not T.should_level_up([(200, 97), (210, 94), (205, 96)])      # точність
+    assert not T.should_level_up([(150, 97), (210, 99), (205, 96)])      # швидкість скаче
+
+
+def test_hard_ngrams_lines():
+    from config.main_config import load_moves
+    from core.scorer import MovementScoringEngine
+    from uiux.app import start_layout
+    layout = start_layout("generic_105_alpha")
+    engine = MovementScoringEngine(layout.keys, load_moves("generic_105_alpha"))
+    engine.prepare_statistics(STATISTIC)
+    engine.update_layout(layout.keys)
+    pen = engine.ngram_penalty("bigrams", 50)
+    assert len(pen) == 50 and all(len(g) == 2 for g, _ in pen) and pen[0][1] >= pen[-1][1] > 0
+    allowed = list(T.ALPHABET)
+    targets = T.hard_targets(pen + engine.ngram_penalty("trigrams", 50), allowed)
+    assert len(targets) == T.HARD_TOP and sum(w for _, w in targets) == pytest.approx(1.0)
+    src = T.WordSource(T.quote_words(T.load_quotes()), STATISTIC["bigrams"], random.Random(5))
+    line = src.ngram_line(targets, allowed)
+    assert len(line) >= T.LINE_CHARS - 10 and set(line) <= set(T.ALPHABET) | {" "}
+    words = line.split()
+    assert sum(any(g in w for g, _ in targets) for w in words) == len(words)   # кожне слово — з поєднанням
+    few = T.hard_targets(pen, list("олнзср"))
+    assert few and all(set(g) <= set("олнзср") for g, _ in few)
+
+
 tk = pytest.importorskip("tkinter")
 needs_display = pytest.mark.skipif(not os.environ.get("DISPLAY") and os.name != "nt",
                                    reason="немає дисплея (xvfb-run)")
@@ -103,8 +150,12 @@ def test_trainer_window_types_through_translator(tmp_path, monkeypatch):
         tw.scale.set(2)
         root.update()
         assert len(tw.allowed) == len(T.letters_at(tw.order, 0)) + 2 * T.STEP
+        tw._set_mode("ngrams")
+        assert tw.hard_ngrams and any(g in tw.session.text for g, _ in T.hard_targets(tw.hard_ngrams, tw.allowed))
         tw.close()
         from config import settings
         assert settings.load()["trainer_levels"]["generic_105_alpha"] == 2
+        assert settings.load()["trainer_mode"] == "ngrams"
+        assert sum(r["hits"] for r in T.load_stats("generic_105_alpha").values()) >= 8   # 12 знаків, слова від 2 літер — ≥ 8 літер
     finally:
         root.destroy()

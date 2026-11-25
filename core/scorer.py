@@ -609,6 +609,19 @@ class MovementScoringEngine:
                     out[c] += per_letter[ngrams].sum()
         return {char: float(out[i]) for i, char in enumerate(self.chars)}
 
+    def ngram_penalty(self, name: str = "bigrams", top: int = 200) -> List[Tuple[str, float]]:
+        """Найдорожчі n-грами сімейства (bigrams / trigrams / skipgrams) для поточної
+        розкладки: [(n-грама, внесок у штраф)], за спаданням; внесок = частота × штраф
+        за одиницю частоти. Для тренажера (режим «Поєднання»)."""
+        self._require_statistics()
+        fam = self._families.get(name)
+        if fam is None or fam.keys.ndim != 2:
+            return []
+        contrib = fam.total[fam.code(fam.keys)] * fam.weight
+        best = np.argsort(-contrib)[:top]
+        return [("".join(self.chars[i] for i in fam.keys[:, j]), float(contrib[j]))
+                for j in best if contrib[j] > 0]
+
     def score_from_statistics(self, statistics: Dict[str, Any]) -> ScoreMetrics:
         """Slow, self-contained convenience path for one-off calls (tests,
         scripts). Re-does the expensive statistics prep every call — do not

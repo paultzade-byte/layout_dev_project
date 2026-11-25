@@ -1,6 +1,9 @@
 """Тренажер друку: тексти вправ, порядок відкриття літер, перекладач клавіш.
 
 Без Tk — вікно в uiux/trainer.py. Частина 1 (2026-11-24): режим «Слова».
+Частина 2 (2026-11-25): режим «Поєднання» (найдорожчі для розкладки біграми й
+триграми — MovementScoringEngine.ngram_penalty), статистика по літерах між
+сесіями (trainer_stats.json у теці налаштувань), «Сам підвищуй» (should_level_up).
 
 Слова — лише з цитат класики (config/quotes_uk.json), окремого словника нема.
 Поки відкритих літер мало і справжніх слів з них майже не складеш, вправа
@@ -28,7 +31,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from config.paths import CONFIG_DIR
+from config.paths import CONFIG_DIR, user_data_dir
 
 QUOTES_FILE = CONFIG_DIR / "quotes_uk.json"
 ALPHABET = "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя'"
@@ -36,7 +39,15 @@ STEP = 2                 # скільки літер додає кожен рі�
 LINE_CHARS = 55          # довжина рядка вправи (приблизно)
 FOCUS_WEIGHT = 4.0       # у скільки разів частіше слова з новою літерою
 MIN_REAL_WORDS = 12
-MIN_ELAPSED_S = 1.0      # раніше швидкість не показуємо (з двох натискань — сміття)      # менше справжніх слів з відкритих літер — домішуємо псевдослова
+MIN_ELAPSED_S = 1.0      # раніше швидкість не показуємо (з двох натискань — сміття)
+PAUSE_S = 3.0            # довша пауза між натисканнями — не рахуємо в час літери
+HARD_TOP = 12            # скільки найважчих поєднань тренує «Поєднання»
+REPEAT = (2, 3)          # скільки слів поспіль на одне поєднання
+STATS_FILE = "trainer_stats.json"
+MIN_SAMPLES = 15         # менше натискань літери — в «слабкі» не беремо
+LEVEL_UP_LINES = 3       # «Сам підвищуй»: стільки останніх рядків рівня
+LEVEL_UP_ACCURACY = 95.0  # ... кожен з точністю не нижче, %
+LEVEL_UP_SPREAD = 0.2    # ... і швидкість стабільна: (макс - мін) / середнє
 
 _APOSTROPHES = str.maketrans({"’": "'", "ʼ": "'", "‘": "'", "`": "'"})
 
@@ -120,11 +131,12 @@ class WordSource:
     def _real(self, allowed: set[str]) -> list[tuple[str, float]]:
         return [(w, n) for w, n in self.words.items() if set(w) <= allowed]
 
-    def pseudo_word(self, allowed: set[str], focus: str | None = None) -> str:
-        """Псевдослово 3–7 літер ланцюжком Маркова за біграмами корпусу."""
+    def pseudo_word(self, allowed: set[str], focus: str | None = None, start: str = "") -> str:
+        """Псевдослово 3–7 літер ланцюжком Маркова за біграмами корпусу
+        (start — готовий початок, напр. поєднання для «Поєднання»)."""
         letters = sorted(allowed - {"'"})
-        length = self.rng.randint(3, 7)
-        word = focus if focus and focus in letters and self.rng.random() < 0.5 else None
+        length = max(self.rng.randint(3, 7), len(start) + 1)
+        word = start or (focus if focus and focus in letters and self.rng.random() < 0.5 else None)
         if word is None:
             starts = [self.bigrams.get(" " + ch, 0) + 1 for ch in letters]
             word = self.rng.choices(letters, starts)[0]
@@ -153,6 +165,117 @@ class WordSource:
             length += len(w) + 1
             last = w
         return " ".join(out)
+
+
+    def ngram_line(self, targets: list[tuple[str, float]], allowed: list[str] | set[str],
+                   chars: int = LINE_CHARS) -> str:
+        """Рядок для «Поєднання»: на кожне вибране (за вагою) поєднання — REPEAT слів
+        поспіль, у яких воно є (з цитат; нема — псевдослово, що з нього починається)."""
+        allowed = set(allowed)
+        real = self._real(allowed)
+        by_target = {t: [(w, n) for w, n in real if t in w] for t, _ in targets}
+        out, length, last = [], 0, None
+        while length < chars and targets:
+            t = self.rng.choices([t for t, _ in targets], [w for _, w in targets])[0]
+            if t == last and len(targets) > 1:
+                continue
+            last = t
+            words = by_target[t]
+            for _ in range(self.rng.randint(*REPEAT)):
+                if words and self.rng.random() < 0.8:
+                    w = self.rng.choices([w for w, _ in words], [n ** 0.5 for _, n in words])[0]
+                else:
+                    w = self.pseudo_word(allowed, start=t)
+                out.append(w)
+                length += len(w) + 1
+        return " ".join(out)
+
+
+def hard_targets(penalties: list[tuple[str, float]], allowed, top: int = HARD_TOP) -> list[tuple[str, float]]:
+    """Найважчі поєднання з відкритих літер: [(n-грама, вага)], ваги в сумі 1.
+    penalties — з MovementScoringEngine.ngram_penalty (біграми й триграми разом).
+    Поєднання з однієї літери двічі (нн) — лише якщо інших мало."""
+    allowed = set(allowed) - {"'"}
+    ok = [(g, v) for g, v in penalties if set(g) <= allowed]
+    varied = [(g, v) for g, v in ok if len(set(g)) > 1]
+    chosen = sorted(varied if len(varied) >= top // 2 else ok, key=lambda x: -x[1])[:top]
+    # корінь — щоб перше поєднання не з'їдало весь рядок
+    weights = [v ** 0.5 for _, v in chosen]
+    total = sum(weights) or 1.0
+    return [(g, w / total) for (g, _), w in zip(chosen, weights)]
+
+
+# ----------------------------------------------------------------------
+# Статистика по літерах між сесіями
+# ----------------------------------------------------------------------
+def _stats_path() -> Path:
+    return user_data_dir() / STATS_FILE
+
+
+def load_stats(geometry_name: str) -> dict:
+    """{літера: {"hits", "misses", "ms", "timed"}} для геометрії (порожньо, якщо файлу нема)."""
+    try:
+        data = json.loads(_stats_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    stats = data.get(geometry_name, {}) if isinstance(data, dict) else {}
+    return stats if isinstance(stats, dict) else {}
+
+
+def save_stats(geometry_name: str, stats: dict) -> None:
+    try:
+        data = json.loads(_stats_path().read_text(encoding="utf-8"))
+        data = data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        data = {}
+    data[geometry_name] = stats
+    try:
+        _stats_path().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def merge_stats(stats: dict, session: "Session") -> dict:
+    """Додає натискання сесії до статистики (на місці; повертає її ж)."""
+    for ch in set(session.hits) | set(session.misses):
+        rec = stats.setdefault(ch, {"hits": 0, "misses": 0, "ms": 0, "timed": 0})
+        rec["hits"] += session.hits[ch]
+        rec["misses"] += session.misses[ch]
+        rec["ms"] += round(session.time_ms[ch])
+        rec["timed"] += session.timed[ch]
+    return stats
+
+
+def weak_letters(stats: dict, letters=None, n: int = 5) -> list[tuple[str, float, float | None]]:
+    """Найслабші літери: [(літера, точність %, середній час мс або None)], від найгіршої.
+    Слабкість — частка помилок, а при рівній — повільніша. Лише з ≥ MIN_SAMPLES натискань."""
+    out = []
+    for ch, rec in stats.items():
+        if letters is not None and ch not in letters:
+            continue
+        total = rec.get("hits", 0) + rec.get("misses", 0)
+        if rec.get("hits", 0) < MIN_SAMPLES or ch == " ":
+            continue
+        acc = 100.0 * rec["hits"] / total
+        ms = rec["ms"] / rec["timed"] if rec.get("timed") else None
+        out.append((ch, acc, ms))
+    slow = sorted(ms for _, _, ms in out if ms is not None)
+    median = slow[len(slow) // 2] if slow else 1.0
+    # бал: помилки (у % пунктах) + повільність відносно медіани (×10 = 10% повільніше ~ 1 п.п.)
+    score = lambda x: (100.0 - x[1]) + (10.0 * (x[2] / median - 1.0) if x[2] else 0.0)
+    return sorted(out, key=score, reverse=True)[:n]
+
+
+def should_level_up(lines: list[tuple[float, float]]) -> bool:
+    """«Сам підвищуй»: останні LEVEL_UP_LINES рядків поточного рівня — кожен з точністю
+    ≥ LEVEL_UP_ACCURACY і швидкість стабільна (розкид ≤ LEVEL_UP_SPREAD від середньої)."""
+    if len(lines) < LEVEL_UP_LINES:
+        return False
+    last = lines[-LEVEL_UP_LINES:]
+    cpms = [c for c, _ in last]
+    mean = sum(cpms) / len(cpms)
+    return (all(a >= LEVEL_UP_ACCURACY for _, a in last) and mean > 0
+            and (max(cpms) - min(cpms)) / mean <= LEVEL_UP_SPREAD)
 
 
 # ----------------------------------------------------------------------
@@ -233,8 +356,12 @@ class Session:
     errors: int = 0
     wrong_at: set = field(default_factory=set)     # позиції з помилкою (червоні)
     misses: Counter = field(default_factory=Counter)  # літера -> скільки разів не та
+    hits: Counter = field(default_factory=Counter)    # літера -> набрано правильно з першого разу
+    time_ms: Counter = field(default_factory=Counter)  # літера -> сума часу до неї (мс)
+    timed: Counter = field(default_factory=Counter)    # ... скільки натискань у цій сумі
     started: float | None = None
     finished: float | None = None
+    last_ok: float | None = None
 
     @property
     def done(self) -> bool:
@@ -248,13 +375,23 @@ class Session:
         if self.started is None:
             self.started = now
         if ch == self.text[self.pos]:
+            if ch != " ":
+                if self.pos not in self.wrong_at:
+                    self.hits[ch] += 1
+                # час від попередньої правильної літери; після помилки чи паузи — не рахуємо
+                if (self.last_ok is not None and self.pos not in self.wrong_at
+                        and now - self.last_ok <= PAUSE_S):
+                    self.time_ms[ch] += 1000.0 * (now - self.last_ok)
+                    self.timed[ch] += 1
+            self.last_ok = now
             self.pos += 1
             if self.done:
                 self.finished = now
             return True
         self.errors += 1
+        if self.pos not in self.wrong_at and self.text[self.pos] != " ":
+            self.misses[self.text[self.pos]] += 1       # одна позиція — одна помилка в статистиці
         self.wrong_at.add(self.pos)
-        self.misses[self.text[self.pos]] += 1
         return False
 
     def cpm(self, now: float) -> float:

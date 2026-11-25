@@ -1,10 +1,12 @@
 """Вікно «Тренування»: модальне, поверх головного, з розкладкою з дошки.
 
-    TrainerWindow(root, keys, geometry, geometry_name, statistic)
+    TrainerWindow(root, keys, geometry, geometry_name, statistic, hard_ngrams)
 
-Логіка (тексти, рівні, перекладач) — core/trainer.py. Частина 1: режим «Слова»;
-«Поєднання» (біграми/триграми) і «Класика» (цитати цілком) — далі.
-Налаштування (переклад, рівень на кожну геометрію) — settings.json.
+Логіка (тексти, рівні, перекладач, статистика) — core/trainer.py. Режими «Слова» і
+«Поєднання» (hard_ngrams — найдорожчі для розкладки бі/триграми з engine головного
+вікна); «Класика» (цитати цілком) — частина 3.
+Налаштування (переклад, режим, «Сам підвищуй», рівень на кожну геометрію) — settings.json;
+статистика по літерах — trainer_stats.json поруч.
 """
 
 from __future__ import annotations
@@ -12,11 +14,13 @@ from __future__ import annotations
 import random
 import time
 import tkinter as tk
+from tkinter import messagebox
 
 from config import settings
 from core import trainer
 from uiux import tooltip
 from uiux.render import key_cells
+from uiux.toast import Toasts
 from uiux.theme import (ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, FINGER_COLORS, FONT, KEY_TEXT,
                         PANEL, SLOT, TEXT, TEXT_DIM)
 from uiux.widgets import RoundButton
@@ -24,7 +28,9 @@ from uiux.widgets import RoundButton
 BOARD_SCALE = 0.55
 MODES = (("words", "Слова", "Слова з цитат української класики (поки мало літер — і псевдослова "
                             "з них). Слова з новою літерою трапляються частіше."),
-         ("ngrams", "Поєднання", "Скоро: вправи на найважчі для цієї розкладки пари й трійки літер."),
+         ("ngrams", "Поєднання", "Найважчі для цієї розкладки пари й трійки літер (ті, що найбільше "
+                                 "додають до штрафу): по кілька слів поспіль на кожне поєднання. "
+                                 "Лише з відкритих літер."),
          ("quotes", "Класика", "Скоро: цілі цитати Франка, Лесі Українки, Коцюбинського, Стефаника…"))
 
 
@@ -35,7 +41,8 @@ def _button(parent, text, command, small=True):
 
 
 class TrainerWindow:
-    def __init__(self, root: tk.Misc, keys, geometry: dict, geometry_name: str, statistic: dict):
+    def __init__(self, root: tk.Misc, keys, geometry: dict, geometry_name: str, statistic: dict,
+                 hard_ngrams: list[tuple[str, float]] | None = None):
         self.geometry, self.geometry_name = geometry, geometry_name
         self.chars = {k.position_id: k.char for k in keys}
         self.rng = random.Random()
@@ -47,8 +54,15 @@ class TrainerWindow:
         self.can_translate = trainer.can_translate(geometry)
         self.translate = self.can_translate and saved.get("trainer_translate", True)
         self.level = min(saved.get("trainer_levels", {}).get(geometry_name, 0), self.levels - 1)
-        self.mode = "words"
+        self.hard_ngrams = hard_ngrams or []
+        self.mode = saved.get("trainer_mode", "words")
+        if self.mode not in ("words", "ngrams") or (self.mode == "ngrams" and not self.hard_ngrams):
+            self.mode = "words"
+        self.auto_level = saved.get("trainer_auto_level", True)
         self.done_lines = []        # (cpm, accuracy) завершених рядків цієї сесії
+        self.level_lines = []       # ... лише на поточному рівні (для «Сам підвищуй»)
+        self.stats = trainer.load_stats(geometry_name)
+        self._merged = True         # поточну сесію вже додано до статистики
 
         self.win = tk.Toplevel(root)
         self.win.title("Тренування")
@@ -56,6 +70,7 @@ class TrainerWindow:
         self.win.resizable(False, False)
         self.win.transient(root)
         self._build()
+        self.toasts = Toasts(self.win)
         self.translator = trainer.Translator(self.chars, geometry, self.win.tk.call("tk", "windowingsystem"))
         self.win.bind("<KeyPress>", self._on_key)
         self.win.bind("<Escape>", lambda e: self.close())
@@ -75,9 +90,10 @@ class TrainerWindow:
         for mode, title, tip in MODES:
             b = _button(top, title, lambda m=mode: self._set_mode(m))
             b.pack(side="left", padx=(0, 6))
-            if mode != "words":
+            if mode == "quotes" or (mode == "ngrams" and not self.hard_ngrams):
                 b.config(state="disabled")
-            tooltip.add(b, tip)
+            tooltip.add(b, tip if mode != "quotes" else "Скоро: цілі цитати Франка, Лесі Українки, "
+                                                         "Коцюбинського, Стефаника…")
             self.mode_buttons[mode] = b
 
         self.button_translate = _button(top, "", self._toggle_translate)
@@ -94,6 +110,13 @@ class TrainerWindow:
         self.scale.pack(side="left", padx=8)
         self.letters_label = tk.Label(lv, bg=BG, fg=TEXT, font=(FONT, 10))
         self.letters_label.pack(side="left")
+        self.button_auto = _button(lv, "", self._toggle_auto)
+        self.button_auto.pack(side="right")
+        tooltip.add(self.button_auto, "Сам підвищуй: коли останні "
+                    f"{trainer.LEVEL_UP_LINES} рядки на рівні — з точністю від "
+                    f"{trainer.LEVEL_UP_ACCURACY:.0f}% і рівною швидкістю (розкид до "
+                    f"{trainer.LEVEL_UP_SPREAD * 100:.0f}%), відкривається наступна порція літер.\n"
+                    "Вимкнено — рівень лише повзунком.")
         tip = ("Складність: скільки літер у вправах. Ліворуч — лише домашній ряд, "
                f"кожен крок праворуч додає {trainer.STEP} літери (за частотою), до кінця — усі.\n"
                "Нова літера підсвічена — на ній варто зосередитись.")
@@ -141,13 +164,24 @@ class TrainerWindow:
         tooltip.add(self.stats_label, "Швидкість — правильних знаків за хвилину (зн/хв). Точність — "
                                       "частка натискань без помилки. «Сесія» — середнє за всі "
                                       "завершені рядки, відколи відкрито вікно.")
+        self.weak_label = tk.Label(w, bg=BG, fg=TEXT_DIM, font=(FONT, 10), anchor="w", justify="left")
+        self.weak_label.pack(fill="x", padx=16, pady=(0, 6), before=bottom)
+        tooltip.add(self.weak_label, "Найслабші літери за всі тренування на цій клавіатурі "
+                                     f"(від {trainer.MIN_SAMPLES} натискань): точність і середній час "
+                                     "від попередньої літери. Слабкість — помилки, потім повільність.")
         close = _button(bottom, "Закрити", self.close, small=False)
         close.pack(side="right")
         tooltip.add(close, "Закрити тренування (Esc). Рівень і переклад запам'ятовуються.")
         again = _button(bottom, "Інший рядок", self._new_line, small=False)
         again.pack(side="right", padx=(0, 8))
         tooltip.add(again, "Пропустити цей рядок і взяти новий.")
+        reset = _button(bottom, "Скинути статистику", self._reset_stats, small=False)
+        reset.pack(side="right", padx=(0, 8))
+        tooltip.add(reset, "Забути статистику по літерах для цієї клавіатури (спитає ще раз). "
+                           "Варто, коли розкладку суттєво змінено.")
         self._update_translate_button()
+        self._update_auto_button()
+        self._update_mode_buttons()
 
     # ------------------------------------------------------------------
     def _translate_tip(self):
@@ -168,15 +202,58 @@ class TrainerWindow:
         settings.save(trainer_translate=self.translate)
         self._update_translate_button()
 
+    def _update_auto_button(self):
+        self.button_auto.config(text="Сам підвищуй: так" if self.auto_level else "Сам підвищуй: ні")
+
+    def _toggle_auto(self):
+        self.auto_level = not self.auto_level
+        settings.save(trainer_auto_level=self.auto_level)
+        self._update_auto_button()
+
+    def _update_mode_buttons(self):
+        for mode, b in self.mode_buttons.items():
+            on = mode == self.mode
+            b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
+                     activebackground=ACCENT if on else BUTTON_HOVER)
+
     def _set_mode(self, mode):
         self.mode = mode
+        settings.save(trainer_mode=mode)
+        self._update_mode_buttons()
         self._new_line()
+
+    def _reset_stats(self):
+        if not messagebox.askyesno("Статистика", "Забути статистику по літерах для цієї клавіатури?",
+                                   parent=self.win):
+            return
+        self.stats = {}
+        self._merged = True                     # і поточний рядок не рахувати
+        trainer.save_stats(self.geometry_name, self.stats)
+        self._show_weak()
+
+    def _merge_session(self):
+        """Натискання поточного рядка -> статистика (раз на рядок, і для недодрукованого)."""
+        if self._merged or not hasattr(self, "session"):
+            return
+        self._merged = True
+        if self.session.pos or self.session.errors:
+            trainer.merge_stats(self.stats, self.session)
+            trainer.save_stats(self.geometry_name, self.stats)
+
+    def _show_weak(self):
+        weak = trainer.weak_letters(self.stats, set(self.order))
+        if not weak:
+            self.weak_label.config(text="Слабкі літери: ще замало натискань")
+            return
+        parts = [f"{ch} {acc:.0f}%" + (f" {ms:.0f} мс" if ms else "") for ch, acc, ms in weak]
+        self.weak_label.config(text="Слабкі літери: " + " · ".join(parts))
 
     def _on_level(self, value):
         level = int(float(value))
         if level == self.level and hasattr(self, "session"):
             return
         self.level = level
+        self.level_lines = []
         levels = {**settings.load().get("trainer_levels", {}), self.geometry_name: level}
         settings.save(trainer_levels=levels)
         if hasattr(self, "session"):
@@ -184,15 +261,26 @@ class TrainerWindow:
 
     # ------------------------------------------------------------------
     def _new_line(self):
+        self._merge_session()
         self.allowed = trainer.letters_at(self.order, self.level)
         self.focus = self.allowed[-1] if self.level > 0 else None
-        self.session = trainer.Session(self.source.line(self.allowed, self.focus))
         n, total = len(self.allowed), len(self.order)
-        focus = f" · нова: «{self.focus}»" if self.focus else " · домашній ряд"
-        self.letters_label.config(text=f"{n} з {total}{focus}")
+        targets = trainer.hard_targets(self.hard_ngrams, self.allowed) if self.mode == "ngrams" else []
+        if targets:
+            text = self.source.ngram_line(targets, self.allowed)
+            info = " · " + " ".join(g for g, _ in targets[:6]) + ("…" if len(targets) > 6 else "")
+        else:
+            text = self.source.line(self.allowed, self.focus)
+            info = f" · нова: «{self.focus}»" if self.focus else " · домашній ряд"
+            if self.mode == "ngrams":
+                info += " · важких поєднань з цих літер нема"
+        self.session = trainer.Session(text)
+        self._merged = False
+        self.letters_label.config(text=f"{n} з {total}{info}")
         self._paint_board()
         self._render()
         self._show_stats()
+        self._show_weak()
 
     def _paint_board(self):
         nxt = self.session.text[self.session.pos] if not self.session.done else ""
@@ -251,7 +339,16 @@ class TrainerWindow:
         s = self.session
         s.type(ch, time.monotonic())
         if s.done:
-            self.done_lines.append((s.cpm(time.monotonic()), s.accuracy()))
+            line = (s.cpm(time.monotonic()), s.accuracy())
+            self.done_lines.append(line)
+            self.level_lines.append(line)
+            if self.auto_level and self.level < self.levels - 1 and trainer.should_level_up(self.level_lines):
+                self.scale.set(self.level + 1)       # -> _on_level -> новий рядок
+                self.win.update_idletasks()
+                self._on_level(self.level + 1)
+                self.toasts.show(f"Рівень вище: нова літера «{self.allowed[-1]}»"
+                                 if self.focus else "Рівень вище")
+                return "break"
             self._new_line()
             return "break"
         self._paint_board()
@@ -267,6 +364,7 @@ class TrainerWindow:
         self.win.geometry(f"+{max(0, x)}+{max(0, y)}")
 
     def close(self):
+        self._merge_session()
         try:
             self.win.grab_release()
         except tk.TclError:

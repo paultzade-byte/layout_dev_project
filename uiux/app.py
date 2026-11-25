@@ -1738,7 +1738,11 @@ class LayoutBuilderApp():
         if self.processor.is_running:
             return
         from uiux.trainer import TrainerWindow
-        return TrainerWindow(self.root, self.layout.keys, self.geometry, self.geometry_name, self.statistic)
+        # найдорожчі для цієї розкладки бі/триграми — режим «Поєднання»
+        self.engine.update_layout(self.layout.keys)
+        hard = self.engine.ngram_penalty("bigrams") + self.engine.ngram_penalty("trigrams")
+        return TrainerWindow(self.root, self.layout.keys, self.geometry, self.geometry_name,
+                             self.statistic, sorted(hard, key=lambda x: -x[1]))
 
     def on_export(self):
         """Файли розкладки для Windows / Linux / macOS + README у вибрану теку
