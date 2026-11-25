@@ -160,6 +160,10 @@ class KeyLabel(tk.Label):
     current_slot: Slot
 
 
+INNER_GAP = 6     # px між кнопками однієї групи
+GROUP_GAP = 18    # px між групами щонайменше
+
+
 class ButtonPanel:
      def __init__(
          self,
@@ -168,45 +172,58 @@ class ButtonPanel:
      ):
          self.root = root
          self.logic = logic
-         # три групи: клавіатура зліва, оптимізатор по центру, Rec справа
+         # групи по 1–2 кнопки одного кольору (GROUP_COLORS): усередині групи INNER_GAP, між
+         # групами — «пружини» (не менше GROUP_GAP, вільне місце порівну), тож ряд у будь-якому
+         # режимі тягнеться від краю до краю дошки; сховану групу прибирає arrange()
          self.button_frame = tk.Frame(self.root, bg=BG)
          self.button_frame.pack(fill="x", padx=20, pady=(0, 14))
-         # середня колонка забирає вільне місце: групи не обрізаються, коли
-         # ліва (клавіатура) схована в режимі «Звичайна»
-         self.button_frame.columnconfigure(1, weight=1)
-         left, mid, right = (tk.Frame(self.button_frame, bg=BG) for _ in range(3))
-         left.grid(row=0, column=0, sticky="w")
-         mid.grid(row=0, column=1)
-         right.grid(row=0, column=2, sticky="e")
+         group = lambda: tk.Frame(self.button_frame, bg=BG)
+         kb, run, train, open_, save, picture = (group() for _ in range(6))
+         self.groups = [kb, run, train, open_, save, picture]
 
          # клавіатура: шари <-> розкладка на екрані (scripts/zmk/keyboard_sync.py)
-         self.keyboard_frame = left
-         self.button_kb_write = make_button(left, "На клаву", self.logic.on_keyboard_write, color=GROUP_COLORS["keyboard"])
-         self.button_kb_read = make_button(left, "З клави", self.logic.on_keyboard_read, color=GROUP_COLORS["keyboard"])
-         self.button_start = make_button(mid, "Start", self.logic.toggle_optimization, color=GROUP_COLORS["run"])
-         # тренажер друку на розкладці з дошки (uiux/trainer.py), модальне вікно
-         self.button_train = make_button(mid, "Тренування", self.logic.on_train, color=GROUP_COLORS["train"])
+         self.keyboard_frame = kb
+         self.button_kb_write = make_button(kb, "На клаву", self.logic.on_keyboard_write, color=GROUP_COLORS["keyboard"])
+         self.button_kb_read = make_button(kb, "З клави", self.logic.on_keyboard_read, color=GROUP_COLORS["keyboard"])
+         self.button_start = make_button(run, "Start", self.logic.toggle_optimization, color=GROUP_COLORS["run"])
          self.button_reheat = make_button(
-             mid, "Reheat",
+             run, "Reheat",
              lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None,
              color=GROUP_COLORS["run"])
+         # тренажер друку на розкладці з дошки (uiux/trainer.py), модальне вікно
+         self.button_train = make_button(train, "Тренування", self.logic.on_train, color=GROUP_COLORS["train"])
          # файли: розкладка (json) і картинка — завжди через діалог, юзер бачить куди
-         self.button_open = make_button(right, "Відкрити…", self.logic.on_open, color=GROUP_COLORS["open"])
-         self.button_save = make_button(right, "Зберегти", self.logic.on_save, color=GROUP_COLORS["save"])
-         self.button_save_as = make_button(right, "Зберегти як…", self.logic.on_save_as, color=GROUP_COLORS["save"])
-         self.button_screenshot = make_button(right, "Скрін", self.logic.on_screenshot, color=GROUP_COLORS["picture"])
+         self.button_open = make_button(open_, "Відкрити…", self.logic.on_open, color=GROUP_COLORS["open"])
+         self.button_save = make_button(save, "Зберегти", self.logic.on_save, color=GROUP_COLORS["save"])
+         self.button_save_as = make_button(save, "Зберегти як…", self.logic.on_save_as, color=GROUP_COLORS["save"])
+         self.button_screenshot = make_button(picture, "Скрін", self.logic.on_screenshot, color=GROUP_COLORS["picture"])
          # експорт в ОС (.klc / xkb / .keylayout) — лише «Звичайна» (core/export.py)
-         self.button_export = make_button(right, "Експорт…", self.logic.on_export, color=GROUP_COLORS["picture"])
-         # групи по 1–2 кнопки одного кольору: усередині групи 6 px, між групами 18
-         for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat)):
-             a.pack(side="left", padx=(0, 6))
-             b.pack(side="left")
-         self.button_open.pack(side="left")
-         self.button_save.pack(side="left", padx=(18, 6))
-         self.button_save_as.pack(side="left")
-         self.button_screenshot.pack(side="left", padx=(18, 6))
-         self.button_export.pack(side="left")
-         self.button_train.pack(side="left", padx=(18, 0))
+         self.button_export = make_button(picture, "Експорт…", self.logic.on_export, color=GROUP_COLORS["picture"])
+         for g in self.groups:
+             buttons = g.winfo_children()
+             for b in buttons:
+                 b.pack(side="left", padx=(0, INNER_GAP) if b is not buttons[-1] else 0)
+         self.arrange(keyboard=True, export=True)
+
+     def arrange(self, keyboard: bool, export: bool) -> None:
+         """Групи в ряд з пружинами між ними; keyboard / export — чи видно «На клаву / З клави»
+         і «Експорт…». Викликається на старті й при кожному перемиканні режиму."""
+         if export and not self.button_export.winfo_manager():
+             self.button_screenshot.pack_configure(padx=(0, INNER_GAP))
+             self.button_export.pack(side="left")
+         elif not export and self.button_export.winfo_manager():
+             self.button_export.pack_forget()
+             self.button_screenshot.pack_configure(padx=0)
+         frame = self.button_frame
+         for g in self.groups:
+             g.grid_forget()
+         for col in range(2 * len(self.groups)):
+             frame.columnconfigure(col, weight=0, minsize=0)
+         shown = [g for g in self.groups if keyboard or g is not self.keyboard_frame]
+         for i, g in enumerate(shown):
+             g.grid(row=0, column=2 * i)
+             if i:
+                 frame.columnconfigure(2 * i - 1, weight=1, minsize=GROUP_GAP)
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -568,19 +585,13 @@ class LayoutBuilderApp():
             on = name == self.geometry_name
             b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
                      activebackground=ACCENT if on else BUTTON_HOVER)
-        panel = self.button_panel
         if self._zmk_mode():
             if not self.tab_bar.winfo_manager():
                 self.tab_bar.pack(fill="x", padx=20, pady=(8, 0), before=self.board)
-            if not panel.button_kb_write.winfo_manager():
-                panel.button_kb_write.pack(side="left", padx=(0, 8))
-                panel.button_kb_read.pack(side="left")
         else:
             if self.current_tab != "Редактор":
                 self.show_tab("Редактор")
             self.tab_bar.pack_forget()
-            panel.button_kb_write.pack_forget()
-            panel.button_kb_read.pack_forget()
         if self._ycuken_mode():
             if not self.button_ycuken.winfo_manager():
                 self.button_ycuken.pack(side="right")
@@ -588,11 +599,7 @@ class LayoutBuilderApp():
         else:
             self.button_ycuken.pack_forget()
             self.button_default.pack_forget()
-        if self._export_mode():
-            if not panel.button_export.winfo_manager():
-                panel.button_export.pack(side="left", padx=(8, 0))
-        else:
-            panel.button_export.pack_forget()
+        self.button_panel.arrange(keyboard=self._zmk_mode(), export=self._export_mode())
         self._fit_window()
 
     def _ycuken_mode(self) -> bool:
@@ -655,16 +662,16 @@ class LayoutBuilderApp():
             self.layer_view.config(width=board_w, height=self.layer_view.fit(max(board_w, 860)))
         self.board.config(width=board_w, height=board_h)
         self.root.update_idletasks()
-        buttons = self.button_panel.button_frame.winfo_reqwidth() + 40 + 24
+        # ряд кнопок — з пружинами між групами (ButtonPanel.arrange), запас не потрібен
+        buttons = self.button_panel.button_frame.winfo_reqwidth() + 40
         panel = self.knob_frame.winfo_reqwidth() + 40 if getattr(self, "knobs_open", False) else 0
-        needed_w = max(900, board_w + 40, buttons, panel)
+        # ширина — рівно під вміст: інакше після ширшого режиму (Corne -> Звичайна) вікно лишалось
+        # широким, а пружини між кнопками розтягувались
+        needed_w = max(900, board_w + 40, buttons, panel, self.root.winfo_reqwidth())
         needed_h = max(450, self.root.winfo_reqheight())
-        width = self.root.winfo_width()
         height = self.root.winfo_height() if height is None else height
         new_h = needed_h if exact_height else max(height, needed_h)
-        if width <= 1:  # вікно ще не показане
-            width = needed_w
-        self._resize(max(width, needed_w), new_h)
+        self._resize(needed_w, new_h)
 
     def _resize(self, width, height):
         """Розмір вікна; лівий верхній кут лишається на місці (позицію Tk

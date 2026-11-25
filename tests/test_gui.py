@@ -46,14 +46,14 @@ def test_mode_toggle_hides_zmk_and_remembers(tmp_path):
                                 on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
                                 geometry_name="corne_42")
         root.update()
-        assert ui.tab_bar.winfo_manager() and ui.button_panel.button_kb_write.winfo_manager()
+        assert ui.tab_bar.winfo_manager() and ui.button_panel.keyboard_frame.winfo_manager()
         split_chars = [k.char for k in ui.layout.keys]
 
         ui.on_mode("generic_105_alpha")
         root.update()
         assert ui.geometry_name == "generic_105_alpha"
         assert not ui.tab_bar.winfo_manager()
-        assert not ui.button_panel.button_kb_write.winfo_manager()
+        assert not ui.button_panel.keyboard_frame.winfo_manager()   # група «На клаву / З клави» схована
         assert ui.button_panel.button_export.winfo_manager()       # експорт — лише тут
         assert settings.load()["mode"] == "generic_105_alpha"
         assert settings.initial_mode(A.GEOMETRIES) == "generic_105_alpha"
@@ -69,10 +69,17 @@ def test_mode_toggle_hides_zmk_and_remembers(tmp_path):
         ui.on_mode("corne_42")
         root.update()
         assert [k.char for k in ui.layout.keys] == split_chars
-        assert ui.tab_bar.winfo_manager() and ui.button_panel.button_kb_write.winfo_manager()
+        assert ui.tab_bar.winfo_manager() and ui.button_panel.keyboard_frame.winfo_manager()
         assert not ui.button_panel.button_export.winfo_manager()
         ui.on_mode("generic_105_alpha")
         assert [k.char for k in ui.layout.keys] == edited
+        # ряд кнопок — від краю до краю (20 px полів), вікно звужується назад після Corne
+        root.update()
+        shown = [b for g in ui.button_panel.groups for b in g.winfo_children() if b.winfo_ismapped()]
+        x0 = root.winfo_rootx()
+        assert shown[0].winfo_rootx() - x0 == 20
+        assert root.winfo_width() - (shown[-1].winfo_rootx() - x0 + shown[-1].winfo_width()) == 20
+        assert root.winfo_width() < 1000
     finally:
         root.destroy()
         settings.save(mode=None)
