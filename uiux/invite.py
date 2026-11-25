@@ -1,10 +1,11 @@
-"""Інвітейшн при вході: м'яка жовта плашка з фразою кампанії «Пізнай себе».
+"""Інвітейшн при вході: м'яка жовта плашка — сіре «Гасло дня» і фраза кампанії «Пізнай себе».
 
     invite = Invite(root, launch)     # launch — номер запуску (settings.json `launch_count`)
 
 Показується першою, поки головне вікно будується сховане (main у uiux/app.py), —
 прикриває його мигання на старті. Закривається кліком (або Esc / Enter / пробіл).
-Тексти й етапи — від автора (2026-11-25).
+Тексти й етапи — від автора (2026-11-25); на плашці лише «Гасло дня» і фраза (автор: «забагато
+тексту»), етапи — для довідки в коді.
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ def next_launch() -> int:
 
 class Invite:
     def __init__(self, root: tk.Misc, launch: int):
-        stage, text = phrase(launch)
+        _, text = phrase(launch)
         self.win = w = tk.Toplevel(root)
         w.overrideredirect(True)            # без рамки вікна
         w.configure(bg=BORDER)
@@ -77,14 +78,11 @@ class Invite:
         body = tk.Frame(w, bg=BG, padx=34, pady=22)
         body.pack(padx=2, pady=2)
         labels = [
-            tk.Label(body, text=f"Інвітейшн · вхід №{launch}", bg=BG, fg=DIM, font=(FONT, 10)),
-            tk.Label(body, text=CAMPAIGN, bg=BG, fg=KEY_TEXT, font=(FONT, 12, "bold")),
-            tk.Label(body, text=stage, bg=BG, fg=DIM, font=(FONT, 10, "italic")),
+            tk.Label(body, text="Гасло дня", bg=BG, fg=DIM, font=(FONT, 11)),
             tk.Label(body, text=text, bg=BG, fg=KEY_TEXT, font=(FONT, 20, "bold"), wraplength=560,
                      justify="center"),
-            tk.Label(body, text="клацни, щоб закрити", bg=BG, fg=DIM, font=(FONT, 9)),
         ]
-        pads = [(0, 2), (0, 0), (0, 14), (0, 16), (0, 0)]
+        pads = [(0, 6), (0, 0)]
         for label, pad in zip(labels, pads):
             label.pack(pady=pad)
         for widget in (w, body, *labels):
