@@ -10,7 +10,9 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write   # для релізу за тегом
+  contents: write      # для релізу за тегом
+  id-token: write      # підпис походження збірки (attestation, Sigstore)
+  attestations: write
 
 jobs:
   build:
@@ -84,13 +86,53 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist\ukr-layout -DestinationPath ukr-layout-windows.zip
 
+      # хеші: архів + exe всередині (тестер перевіряє Get-FileHash)
+      - name: SHA256SUMS
+        shell: pwsh
+        run: |
+          $files = @('ukr-layout-windows.zip', 'dist\ukr-layout\ukr-layout.exe', 'dist\ukr-layout\ukr-stats.exe')
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
+            "$h  $((Split-Path $f -Leaf))"
+          }
+          $lines | Set-Content -Encoding ascii SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+          $zip = (Get-FileHash -Algorithm SHA256 ukr-layout-windows.zip).Hash.ToLower()
+          "ZIP_SHA256=$zip" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      # підпис походження: `gh attestation verify ФАЙЛ -R ВЛАСНИК/РЕПО`
+      - name: Підпис походження (attestation)
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            ukr-layout-windows.zip
+            dist/ukr-layout/ukr-layout.exe
+            dist/ukr-layout/ukr-stats.exe
+
       - uses: actions/upload-artifact@v5
         with:
           name: ukr-layout-windows
-          path: ukr-layout-windows.zip
+          path: |
+            ukr-layout-windows.zip
+            SHA256SUMS.txt
+
+      - name: Текст релізу
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $run = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $t = Get-Content -Raw -Encoding utf8 packaging\release_notes.md
+          $t = $t.Replace('{SHA256}', "$env:ZIP_SHA256  ukr-layout-windows.zip")
+          $t = $t.Replace('{RUN_URL}', $run).Replace('{REPO}', '${{ github.repository }}')
+          Set-Content -Encoding utf8 -Path release_body.md -Value $t
 
       - name: Реліз (лише для тегу)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: ukr-layout-windows.zip
+          name: ${{ github.ref_name }} — тестова версія
+          body_path: release_body.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            ukr-layout-windows.zip
+            SHA256SUMS.txt
