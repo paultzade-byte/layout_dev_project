@@ -61,7 +61,7 @@ def test_translator_physical_keys():
     key = next(p["key"] for p in geometry["positions"] if chars[p["id"]] == base)
     assert x11.translate(T._ROWS[key][0], "?", 0x80) == extra
     assert win.translate(T._ROWS[key][1], "?", 0x20000 | 0x4) == extra
-    assert T.as_is("’") == "'" and T.as_is("Ж") == "ж" and T.as_is("1") is None
+    assert T.as_is("’") == "'" and T.as_is("1") is None
 
 
 def test_session_counts_errors_and_waits():
@@ -132,6 +132,24 @@ def test_classics_and_weak_weighting():
     assert count(["ш"]) > count([])
 
 
+def test_quote_caps_punct_and_shift():
+    q = {"text": "Ой не даром! Знать, сумління: „Кривдив“ — п’ять …"}
+    assert T.quote_text(q) == "ой не даром знать сумління кривдив п'ять"
+    assert T.quote_text(q, caps=True) == "Ой не даром Знать сумління Кривдив п'ять"
+    assert T.quote_text(q, punct=True) == 'ой не даром! знать, сумління: "кривдив" - п\'ять...'
+    geometry = geometry_config("generic_105_alpha")
+    chars = _chars("generic_105_alpha")
+    x11 = T.Translator(chars, geometry, "x11")
+    by_key = {p["key"]: chars[p["id"]] for p in geometry["positions"] if p.get("key")}
+    assert x11.translate(24, "й", T.SHIFT_MASK) == by_key["AD01"].upper()
+    assert x11.translate(10, "1", T.SHIFT_MASK) == "!" and x11.translate(20, "-", 0) == "-"
+    assert x11.translate(11, "2", T.SHIFT_MASK) == '"'
+    comma = next(k for k, ch in by_key.items() if ch == ",")
+    assert x11.translate(T._ROWS[comma][0], "?", T.SHIFT_MASK) == ";"
+    assert T.fit("Ж", caps=False) == "ж" and T.fit("Ж", caps=True) == "Ж"
+    assert T.as_is("—") == "-" and T.as_is("«") == '"' and T.as_is("Ж") == "Ж"
+
+
 tk = pytest.importorskip("tkinter")
 needs_display = pytest.mark.skipif(not os.environ.get("DISPLAY") and os.name != "nt",
                                    reason="немає дисплея (xvfb-run)")
@@ -169,6 +187,14 @@ def test_trainer_window_types_through_translator(tmp_path, monkeypatch):
         tw._set_mode("quotes")
         assert tw.quote and tw.session.text == T.quote_text(tw.quote) and str(tw.scale["state"]) == "disabled"
         assert tw.quote["author"] in tw._text_tip()
+        tw.caps.set(True); tw.punct.set(True)
+        tw._new_line()
+        assert tw.session.text == T.quote_text(tw.quote, True, True)
+        h, size, width = int(tw.text_box["height"]), tw.text_size, int(tw.board["width"])
+        tw._resize("text", +1); tw._resize("board", -1)
+        assert tw.text_size > size and int(tw.board["width"]) < width and int(tw.text_box["height"]) > h
+        root.update()
+        assert tw.text.dlineinfo(f"1.{len(tw.session.text) - 1}") is not None   # кінець тексту видно
         tw._set_mode("ngrams")
         tw.close()
         from config import settings
