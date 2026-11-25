@@ -4,6 +4,9 @@
 (uiux/toast.py): без окремих Toplevel, з якими віконні менеджери
 поводяться по-різному. З'являються після паузи, ховаються, щойно курсор
 пішов або натиснуто кнопку миші.
+
+text — рядок або функція без аргументів (для віджетів, чий зміст міняється:
+клавіші дошки, кнопки, що бувають недоступні); порожній текст — без підказки.
 """
 
 import tkinter as tk
@@ -16,8 +19,8 @@ BORDER = "#4a5263"
 
 
 class Tooltip:
-    def __init__(self, widget: tk.Widget, text: str):
-        self.widget, self.text = widget, text
+    def __init__(self, widget: tk.Widget, text, delay: int = DELAY_MS):
+        self.widget, self.text, self.delay = widget, text, delay
         self._job = None
         self._tip = None
         # add="+": не перебиваємо hover самої кнопки (RoundButton)
@@ -27,7 +30,7 @@ class Tooltip:
 
     def _schedule(self, _event=None):
         self._cancel()
-        self._job = self.widget.after(DELAY_MS, self._show)
+        self._job = self.widget.after(self.delay, self._show)
 
     def _cancel(self):
         if self._job is not None:
@@ -39,10 +42,13 @@ class Tooltip:
 
     def _show(self):
         self._job = None
-        if not self.text or not self.widget.winfo_exists():
+        if not self.widget.winfo_exists():
+            return
+        text = self.text() if callable(self.text) else self.text
+        if not text:
             return
         root = self.widget.winfo_toplevel()
-        self._tip = tk.Label(root, text=self.text, bg=BG, fg=TEXT, font=(FONT, 10),
+        self._tip = tk.Label(root, text=text, bg=BG, fg=TEXT, font=(FONT, 10),
                              justify="left", wraplength=360, padx=10, pady=6,
                              highlightthickness=1, highlightbackground=BORDER)
         root.update_idletasks()
@@ -62,5 +68,5 @@ class Tooltip:
             self._tip = None
 
 
-def add(widget: tk.Widget, text: str) -> Tooltip:
-    return Tooltip(widget, text)
+def add(widget: tk.Widget, text, delay: int = DELAY_MS) -> Tooltip:
+    return Tooltip(widget, text, delay)

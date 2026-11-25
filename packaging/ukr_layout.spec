@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller: GUI оптимізатора одним каталогом (onedir).
+"""PyInstaller: GUI оптимізатора + міні-апка статистики одним каталогом (onedir).
+
+Два exe в одній теці (спільні бібліотеки): ukr-layout.exe (оптимізатор) і
+ukr-stats.exe (статистика текстів, ukr_stats.py; воркери — multiprocessing).
 
     pyinstaller --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
 
@@ -22,8 +25,12 @@ geometry = json.loads((CONFIG / "geometry.json").read_text(encoding="utf-8"))
 start_layouts = sorted({g["start_layout"] for g in geometry["layouts"].values() if g.get("start_layout")})
 
 resources = ["geometry.json", "moves.yaml", "moves_standard.yaml", "statistic.json",
-             "word_stats.json", "mutator_config.json", *start_layouts]
+             "word_stats.json", "mutator_config.json", "quotes_uk.json", *start_layouts]
 datas = [(str(CONFIG / name), "config") for name in resources]
+# іконки: .ico — у сам exe (Провідник, ярлики), .png — у вікно Tk (uiux.theme.set_window_icon);
+# згенеровані scripts/make_icons.py і лежать у git
+ICONS = ROOT / "packaging" / "icons"
+datas += [(str(ICONS / "ukr-layout.png"), "icons")]
 
 a = Analysis(
     [str(ROOT / "ukr_layout.py")],
@@ -41,7 +48,28 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="ukr-layout",
+    icon=str(ICONS / "ukr-layout.ico"),
     console=False,          # віконний застосунок; помилки — error.log + вікно
     upx=False,              # UPX частіше насторожує антивіруси
 )
-coll = COLLECT(exe, a.binaries, a.datas, name="ukr-layout", upx=False)
+
+s_a = Analysis(
+    [str(ROOT / "ukr_stats.py")],
+    pathex=[str(ROOT)],
+    datas=[(str(ICONS / "ukr-stats.png"), "icons")],
+    hiddenimports=[],
+    excludes=["pytest", "playwright", "greenlet", "pyee", "pygments", "dotenv",
+              "matplotlib", "scipy", "pandas", "IPython", "numba", "llvmlite", "PIL", "yaml"],
+    noarchive=False,
+)
+s_exe = EXE(
+    PYZ(s_a.pure),
+    s_a.scripts,
+    [],
+    exclude_binaries=True,
+    name="ukr-stats",
+    icon=str(ICONS / "ukr-stats.ico"),
+    console=False,
+    upx=False,
+)
+coll = COLLECT(exe, a.binaries, a.datas, s_exe, s_a.binaries, s_a.datas, name="ukr-layout", upx=False)

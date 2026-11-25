@@ -41,6 +41,7 @@ scripts) — they rebuild everything from scratch every call, same as before.
 Do NOT use them inside a hot loop.
 """
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
@@ -48,7 +49,12 @@ import numpy as np
 
 import yaml
 
+from core import kernels
 from core.models import Finger, Key, Layout, ScoreMetrics
+
+# Скомпільовані ядра delta-оцінки (core/kernels.py), якщо є numba.
+# LAYOUT_NO_NUMBA=1 — примусово NumPy-шлях (порівняння, діагностика).
+USE_KERNELS = kernels.AVAILABLE and os.environ.get("LAYOUT_NO_NUMBA") != "1"
 
 
 # Символи, які не оцінюються ніколи, навіть якщо стоять на розкладці.
@@ -81,6 +87,7 @@ _REQUIRED_MOVES_SCHEMA = {
     "row_shape": (
         "ring_over_middle", "pinky_over_ring", "pinky_over_middle",
         "pinky_over_index", "index_over_middle", "index_over_ring", "curl_ratio",
+        "ring_curl_ratio", "curl_keeps_bonus",
     ),
     "stretch": ("per_column",),
     "hand": ("left_mult", "right_mult"),
@@ -169,6 +176,13 @@ class _Family(NamedTuple):
     total: np.ndarray          # сума tables
     masks: np.ndarray          # (N,) uint64: біт c — літера c є в n-грамі
     by_hand: bool              # залежить лише від рук літер (hand_runs)
+    by_char: Tuple[np.ndarray, ...]  # [c] -> відсортовані індекси n-грам з літерою c
+    scratch: np.ndarray        # (N,) bool, завжди False між викликами — для об'єднання by_char
+    kind: str                  # "position" / "hand" / "same_hand" — яке ядро (core/kernels.py)
+    indptr: np.ndarray         # by_char у форматі CSR для ядер
+    indices: np.ndarray
+    sub_buf: np.ndarray        # (N,) int64 — буфер ядра для індексів n-грам
+    new_buf: np.ndarray        # (N,) float64 — буфер ядра для нових внесків
 
 
 class MovementScoringEngine:
@@ -358,8 +372,16 @@ class MovementScoringEngine:
     def _add_family(self, name, keys, masks, weight, code, tables, by_hand) -> None:
         if len(weight) == 0:
             return
+        # Інвертований індекс «літера -> n-грами»: try_layout бере n-грами
+        # переміщених літер без сканування масок усіх ~59k n-грам.
+        by_char = tuple(np.flatnonzero((masks & bit) != 0) for bit in self._char_bits)
         self._families[name] = _Family(
-            keys, weight, code, tables, sum(tables.values()), masks, by_hand,
+            keys, weight, code, tables, sum(tables.values()), masks, by_hand, by_char,
+            np.zeros(len(weight), dtype=bool),
+            {"_position_code": "position", "_hand_code": "hand",
+             "_same_hand_code": "same_hand"}[code.__name__],
+            *kernels.csr(by_char),
+            np.empty(len(weight), dtype=np.int64), np.empty(len(weight), dtype=np.float64),
         )
 
     def _char_masks(self, idx: np.ndarray) -> np.ndarray:
@@ -545,7 +567,7 @@ class MovementScoringEngine:
         for fam in self._families.values():
             code = fam.code(fam.keys)
             for field, table in fam.tables.items():
-                # не np.dot: багатопотоковий BLAS під cpulimit у рази повільніший
+                # не np.dot: багатопотоковий BLAS під обмеженням CPU у рази повільніший
                 setattr(metrics, field, getattr(metrics, field) + float((table[code] * fam.weight).sum()))
 
         metrics.total_penalty = sum((
@@ -558,6 +580,47 @@ class MovementScoringEngine:
             metrics.row_shape_penalty, metrics.stretch_penalty, metrics.closeness_penalty,
         ))
         return metrics
+
+    def per_char_penalty(self) -> Dict[str, float]:
+        """Штраф поточної розкладки, розкладений по літерах (теплова мапа
+        «Незручність», core/heat.py). Внесок n-грами ділиться порівну між її
+        різними літерами; навантаження пальця понад ліміт — між літерами цього
+        пальця пропорційно частоті. Сталу частину hand_runs (не залежить від
+        розкладки) не розкладаємо: сума = total_penalty - стала."""
+        self._require_statistics()
+        out = np.zeros(len(self.chars), dtype=np.float64)
+        idx = self._unigram_idx
+        if idx is not None and len(idx):
+            pos = self.position[idx]
+            weight = self._unigram_weight
+            np.add.at(out, idx, self._pos_effort[pos] * weight)
+            slot = self._pos_slot[pos]
+            load = np.bincount(slot, weights=weight, minlength=12)
+            over = self.moves["finger_load"]["over_cap"] * np.maximum(load - self._load_cap, 0.0)
+            share = np.divide(over, load, out=np.zeros_like(over), where=load > 0)
+            np.add.at(out, idx, share[slot] * weight)
+            if self._closeness_cost is not None:
+                np.add.at(out, idx, self._closeness_weight * self._closeness_cost[idx, pos] * weight)
+        for fam in self._families.values():
+            contrib = fam.total[fam.code(fam.keys)] * fam.weight
+            per_letter = contrib / np.maximum(np.bitwise_count(fam.masks), 1)
+            for c, ngrams in enumerate(fam.by_char):
+                if len(ngrams):
+                    out[c] += per_letter[ngrams].sum()
+        return {char: float(out[i]) for i, char in enumerate(self.chars)}
+
+    def ngram_penalty(self, name: str = "bigrams", top: int = 200) -> List[Tuple[str, float]]:
+        """Найдорожчі n-грами сімейства (bigrams / trigrams / skipgrams) для поточної
+        розкладки: [(n-грама, внесок у штраф)], за спаданням; внесок = частота × штраф
+        за одиницю частоти. Для тренажера (режим «Поєднання»)."""
+        self._require_statistics()
+        fam = self._families.get(name)
+        if fam is None or fam.keys.ndim != 2:
+            return []
+        contrib = fam.total[fam.code(fam.keys)] * fam.weight
+        best = np.argsort(-contrib)[:top]
+        return [("".join(self.chars[i] for i in fam.keys[:, j]), float(contrib[j]))
+                for j in best if contrib[j] > 0]
 
     def score_from_statistics(self, statistics: Dict[str, Any]) -> ScoreMetrics:
         """Slow, self-contained convenience path for one-off calls (tests,
@@ -595,18 +658,56 @@ class MovementScoringEngine:
             raise RuntimeError("load() must be called before try_layout()")
         self.update_layout(layout_keys)
         moved = self.position != self._loaded_position
-        moved_bits = np.bitwise_or.reduce(self._char_bits[moved])
-        moved_hand_bits = np.bitwise_or.reduce(self._char_bits[moved & (self.hand != self._loaded_hand)])
+        moved_chars = np.flatnonzero(moved)
+        moved_hand_chars = np.flatnonzero(moved & (self.hand != self._loaded_hand))
+        global USE_KERNELS
+        if USE_KERNELS:
+            try:
+                return self._try_kernels(moved_chars, moved_hand_chars)
+            except Exception as error:  # компіляція не вдалась — далі NumPy
+                USE_KERNELS = False
+                print(f"numba kernels disabled: {type(error).__name__}: {error}")
         ngram_total = self._ngram_total
         changes = []
         for name, fam in self._families.items():
-            bits = moved_hand_bits if fam.by_hand else moved_bits
-            if bits == 0:
+            chars = moved_hand_chars if fam.by_hand else moved_chars
+            if len(chars) == 0:
                 continue
-            sub = np.flatnonzero((fam.masks & bits) != 0)
+            if len(chars) == 1:
+                sub = fam.by_char[chars[0]]
+            else:   # об'єднання без сортування; порядок той самий, що й flatnonzero по масках
+                mark = fam.scratch
+                for c in chars:
+                    mark[fam.by_char[c]] = True
+                sub = np.flatnonzero(mark)
+                mark[sub] = False
             new = fam.total[fam.code(fam.keys[..., sub])] * fam.weight[sub]
             ngram_total += float(new.sum()) - float(self._cost[name][sub].sum())
             changes.append((name, sub, new))
+        self._pending = (self.position.copy(), self.hand.copy(), changes, ngram_total)
+        return sum(self._unigram_terms()) + self._hand_run_constant() + ngram_total
+
+    def _try_kernels(self, moved_chars: np.ndarray, moved_hand_chars: np.ndarray) -> float:
+        """try_layout через скомпільовані ядра (core/kernels.py)."""
+        ngram_total = self._ngram_total
+        changes = []
+        n_pos = len(self._pos.row)
+        for name, fam in self._families.items():
+            chars = moved_hand_chars if fam.by_hand else moved_chars
+            if len(chars) == 0:
+                continue
+            args = (fam.indptr, fam.indices, chars, fam.scratch, fam.sub_buf, fam.new_buf,
+                    fam.keys, fam.weight, fam.total, self._cost[name])
+            if fam.kind == "position":
+                m, delta = kernels.delta_position(*args, self.position, n_pos)
+            elif fam.kind == "hand":
+                m, delta = kernels.delta_hand(*args, self._hand64)
+            else:
+                m, delta = kernels.delta_same_hand(*args, self._right_mask)
+            ngram_total += delta
+            # без копій: буфери перепише лише наступний try_layout, а accept()
+            # застосовує саме останній
+            changes.append((name, fam.sub_buf[:m], fam.new_buf[:m]))
         self._pending = (self.position.copy(), self.hand.copy(), changes, ngram_total)
         return sum(self._unigram_terms()) + self._hand_run_constant() + ngram_total
 
@@ -706,7 +807,12 @@ class MovementScoringEngine:
         lower = np.where(first_up, f2, f1)
         upper_row = np.minimum(r1, r2)
         mult = self._scissor_mult[upper, lower] * np.abs(r1 - r2)
-        mult = np.where(upper_row <= 0, mult, mult * self.moves["row_shape"]["curl_ratio"])
+        shape = self.moves["row_shape"]
+        # безіменний над середнім — власний коефіцієнт (автор 2026-11-19:
+        # «ма»/«ам» так само незручні, як «об»/«бо»)
+        ring_middle = (upper == Finger.RING.value) & (lower == Finger.MIDDLE.value)
+        curl = np.where(ring_middle, shape["ring_curl_ratio"], shape["curl_ratio"])
+        mult = np.where(upper_row <= 0, mult, mult * curl)
         valid = (g.hand[idx1] == g.hand[idx2]) & (f1 != f2) & (r1 != r2) & (r1 <= 2) & (r2 <= 2)
         return np.where(valid, mult, 0.0)
 
@@ -795,8 +901,11 @@ class MovementScoringEngine:
         # "ам" (вказівний вище або довший провалюється вниз) бонус зберігають.
         scissor = self._scissor_weight(g, idx1, idx2)
         upper_finger = np.where(row1 < row2, finger1, finger2)
+        # curl_keeps_bonus = 0: бонус знімається і тоді, коли довший палець
+        # провалюється вниз ("ма", "ам"), не лише при тягненні на верх
         reach_up = (
-            (scissor > 0) & (np.minimum(row1, row2) <= 0)
+            (scissor > 0)
+            & ((np.minimum(row1, row2) <= 0) | (self.moves["row_shape"]["curl_keeps_bonus"] == 0))
             & ((upper_finger == Finger.RING.value) | (upper_finger == Finger.PINKY.value))
         )
         alt_weight = self._finger_alt_mult[finger1, finger2]

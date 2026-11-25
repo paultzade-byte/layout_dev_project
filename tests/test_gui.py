@@ -1,5 +1,6 @@
 """Перемикання геометрії в GUI. Потрібен дисплей: локально — xvfb-run."""
 import os
+import time
 
 import pytest
 
@@ -45,14 +46,14 @@ def test_mode_toggle_hides_zmk_and_remembers(tmp_path):
                                 on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
                                 geometry_name="corne_42")
         root.update()
-        assert ui.tab_bar.winfo_manager() and ui.button_panel.button_kb_write.winfo_manager()
+        assert ui.tab_bar.winfo_manager() and ui.button_panel.keyboard_frame.winfo_manager()
         split_chars = [k.char for k in ui.layout.keys]
 
         ui.on_mode("generic_105_alpha")
         root.update()
         assert ui.geometry_name == "generic_105_alpha"
         assert not ui.tab_bar.winfo_manager()
-        assert not ui.button_panel.button_kb_write.winfo_manager()
+        assert not ui.button_panel.keyboard_frame.winfo_manager()   # група «На клаву / З клави» схована
         assert ui.button_panel.button_export.winfo_manager()       # експорт — лише тут
         assert settings.load()["mode"] == "generic_105_alpha"
         assert settings.initial_mode(A.GEOMETRIES) == "generic_105_alpha"
@@ -68,10 +69,17 @@ def test_mode_toggle_hides_zmk_and_remembers(tmp_path):
         ui.on_mode("corne_42")
         root.update()
         assert [k.char for k in ui.layout.keys] == split_chars
-        assert ui.tab_bar.winfo_manager() and ui.button_panel.button_kb_write.winfo_manager()
+        assert ui.tab_bar.winfo_manager() and ui.button_panel.keyboard_frame.winfo_manager()
         assert not ui.button_panel.button_export.winfo_manager()
         ui.on_mode("generic_105_alpha")
         assert [k.char for k in ui.layout.keys] == edited
+        # ряд кнопок — від краю до краю (20 px полів), вікно звужується назад після Corne
+        root.update()
+        shown = [b for g in ui.button_panel.groups for b in g.winfo_children() if b.winfo_ismapped()]
+        x0 = root.winfo_rootx()
+        assert shown[0].winfo_rootx() - x0 == 20
+        assert root.winfo_width() - (shown[-1].winfo_rootx() - x0 + shown[-1].winfo_width()) == 20
+        assert root.winfo_width() < 1000
     finally:
         root.destroy()
         settings.save(mode=None)
@@ -316,5 +324,129 @@ def test_tooltip_shows_and_hides():
         assert tip._tip is not None and tip._tip.cget("text") == "підказка"
         tip._hide()
         assert tip._tip is None
+    finally:
+        root.destroy()
+
+
+def test_cpu_menu_default_and_remembered(monkeypatch):
+    from config import settings
+    from uiux import app as A
+    settings.save(cpu_percent=None)
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        assert ui.button_cpu.cget("text") == "CPU: 25% ▾"      # скромно на чужому комп'ютері
+        popups = []
+        monkeypatch.setattr(A.tk.Menu, "tk_popup", lambda self, *a, **k: popups.append(self))
+        ui.show_cpu_menu()
+        assert popups and popups[0].index("end") == len(A.throttle.CHOICES) - 1
+        ui.set_cpu(75)
+        assert ui.button_cpu.cget("text") == "CPU: 75% ▾"
+        assert settings.load()["cpu_percent"] == 75
+        assert ui.processor.cpu_percent == 75
+        ui.set_geometry("corne_42")                            # новий процесор — та сама частка
+        assert ui.processor.cpu_percent == 75
+    finally:
+        settings.save(cpu_percent=None)
+        root.destroy()
+
+
+def test_tooltip_text_can_be_a_function():
+    from uiux import tooltip
+    root = tk.Tk()
+    try:
+        root.geometry("300x200")
+        b = tk.Button(root, text="x")
+        b.pack()
+        state = {"text": "раз"}
+        tip = tooltip.add(b, lambda: state["text"])
+        root.update()
+        tip._show()
+        assert tip._tip.cget("text") == "раз"
+        tip._hide()
+        state["text"] = ""
+        tip._show()
+        assert tip._tip is None                                # порожня — не показуємо
+    finally:
+        root.destroy()
+
+
+def test_layer_caption_fits_inside_panel():
+    """Підпис шару (опис + як увімкнути + підказка) не обрізається знизу панелі."""
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("corne_42"), geometry_name="corne_42")
+        root.update()
+        if not ui._zmk_mode() or ui.layer_view.dump is None:
+            pytest.skip("нема ZMK-скриптів або дампу")
+        longest = max(A.layer_view.CELLS, key=lambda p: len(A.layer_view.lh.pos_name(p)))
+        for name in A.layer_view.lh.ORDER:
+            ui.show_tab(name)
+            ui.layer_view.caption_hint(A.layer_view.lh.pos_name(longest))
+            root.update()
+            lv = ui.layer_view
+            assert lv.caption.winfo_y() + lv.caption.winfo_reqheight() <= lv.winfo_height(), name
+    finally:
+        root.destroy()
+
+
+def test_heat_buttons_hold_click_and_tabs():
+    import time
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("corne_42"), geometry_name="corne_42")
+        root.update()
+        widget = ui.slots[0].current_key
+        finger_bg = widget.cget("bg")
+        ui._heat_press("freq"); ui._heat_release("freq")            # клік — лишити
+        assert ui.heat_shown == ui.heat_latched == "freq" and widget.cget("bg") != finger_bg
+        ui._heat_press("pain")
+        ui._heat_pressed = ("pain", time.monotonic() - 1)           # затиснули й тримали
+        assert ui.heat_shown == "pain"
+        ui._heat_release("pain")
+        assert ui.heat_shown == "freq"                              # назад до лишеної
+        if ui._zmk_mode():
+            ui.show_tab("GRAPH")                                    # на шарах мапи нема
+            assert ui.heat_shown is None and ui.heat_buttons["freq"].cget("state") == "disabled"
+            ui.show_tab("Редактор")
+        ui._heat_press("freq"); ui._heat_release("freq")
+        ui._heat_press("freq"); ui._heat_release("freq")            # ще клік — вимкнути
+        assert ui.heat_shown is None and widget.cget("bg") == finger_bg
+    finally:
+        root.destroy()
+
+
+def test_statistic_menu_switch_and_remember(tmp_path, monkeypatch):
+    from config import settings, stats_files
+    from core import corpus
+    from uiux import app as A
+    src = tmp_path / "t.txt"
+    src.write_text("Їжак з'їв ґрунт, єнот пʼє воду. " * 300, encoding="utf-8")
+    monkeypatch.setattr(stats_files, "stats_dir", lambda: tmp_path / "stats")
+    path = corpus.write_statistic_file(corpus.count_corpus([src], "uk", 1.0), tmp_path / "stats", "мої")
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.MOVES_CONFIG,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        assert "вбудована" in ui.button_stats.cget("text")
+        before = ui._current_score()
+        assert ui.set_statistic(path)
+        deadline = time.time() + 60
+        while time.time() < deadline and ui._current_score() == before:
+            root.update()
+            time.sleep(0.05)
+        assert ui._current_score() != before
+        assert "ukr_мої" in ui.button_stats.cget("text")
+        assert settings.load()["statistic_file"] == str(path)
+        stat, chosen = A.startup_statistic()
+        assert chosen == path and stat["unigrams"] == ui.statistic["unigrams"]
+        assert ui.set_statistic(stats_files.BUILTIN)
+        assert settings.load()["statistic_file"] is None
     finally:
         root.destroy()

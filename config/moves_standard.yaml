@@ -102,6 +102,8 @@ row_shape:
   index_over_middle: 0.20  # "об", "од" — за автором нормально, легкий штраф
   index_over_ring: 0.20
   curl_ratio: 0.30
+  ring_curl_ratio: 0.30   # = curl_ratio: безіменний над середнім без окремого коефіцієнта
+  curl_keeps_bonus: 1      # 1: бонус brother_finger знімається лише при тягненні на верхній ряд
 
 hand:
   left_mult: 1.05

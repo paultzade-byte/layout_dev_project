@@ -30,11 +30,20 @@
   `accept()`. Штрафи бі/три/скіп-грам — з таблиць за кортежами позицій,
   побудованих у `__init__` тими ж `_*_terms`; `moves` після створення
   engine не змінювати. Після зміни моделі — `scripts/check_delta.py`.
-- `core/mutator.py` — `LayoutOptimizerSA`: simulated annealing + tabu +
-  драбина мутацій (swap → 3-цикл → подвійний swap) + рестарт з best/reheat.
+- `core/mutator.py` — `LayoutOptimizerSA`: simulated annealing із сумішшю
+  мутацій (`mutation_mix`: 85% swap / 15% 3-цикл; `null` — стара драбина
+  swap → 3-цикл → подвійний swap) + рестарт з best/reheat + фінальне
+  дотюнювання `_polish` (усі swap, потім 3-цикли, до локального оптимуму).
+  Tabu за станом вимкнено (`tabu_size: 0`, див. WORKLOG 2026-11-19).
   Мутації — на місці з undo-списком (без клонування розкладки).
   Температура калібрується за реальними delta на першому прогоні
   (`_calibrate`); параметри — імовірності прийняття в `mutator_config.json`.
+  Частка CPU — `core/throttle.py` (`cpu_share`, паузи між шматками роботи;
+  GUI-меню «CPU: 25% ▾», запам'ятовується в settings.json, типово 25%).
+- `core/heat.py` — теплові мапи: частота натискань і «незручність» (частка штрафу
+  на клавішу — `MovementScoringEngine.per_char_penalty()`), кольори шкал. GUI: кнопки
+  «Частота» / «Незручність» біля штрафу (затиснути — поки тримаєш, клік — лишити);
+  «Скрін» зберігає те, що на дошці (`render.save(..., heat=, footer=)`).
 - `core/models.py` — `Key`, `Layout`, `ScoreMetrics`.
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
@@ -47,7 +56,9 @@
   `python -m uiux.render LAYOUT.json OUT.png [--geometry ...]` (той самий код,
   що й кнопка «Скрін» і «На клаву»). Кольори — `uiux/theme.py`. Окремих слайдерів ваг немає — є 5 повзунків
   впливу (`core/knobs.py`, панель «Детальніше ▸»), що множать групи ваг з
-  moves-файлу. Інфо-повідомлення — `uiux/toast.py` (жовті плашки, не модальні). `uiux/processors.py` — оптимізація в окремому потоці.
+  moves-файлу. Інфо-повідомлення — `uiux/toast.py` (жовті плашки, не модальні). Інвітейшн при вході
+  (кампанія «Пізнай себе», фраза за номером запуску) — `uiux/invite.py`, з `main()`. Кольори груп
+  нижніх кнопок — `theme.GROUP_COLORS`. `uiux/processors.py` — оптимізація в окремому потоці.
 - `config/moves.yaml` — усі ваги штрафів (з коментарями) для спліта
   (`corne_42`); `config/moves_standard.yaml` — для звичайної клавіатури
   (`generic_105_alpha`). Відповідність — `MOVES_FILES` у `main_config.py`.
@@ -55,8 +66,8 @@
   і мізинця окремо.
 - `config/geometry.json` — фізичні позиції (`active_layout`).
 - `config/statistic.json` — уні/бі/три/скіп-грами корпусу UberText.
-- `config/word_stats.json` — частоти слів (для `hand_runs`), генерує
-  `scripts/word_counter.py`.
+- `config/word_stats.json` — частоти слів (для `hand_runs`); генерується разом
+  зі `statistic.json` (див. `core/corpus.py`).
 - `config/main_config.py` — завантажує конфіги, домішує `words` у `STATISTIC`;
   `geometry_config(name)` / `load_moves(name)`; активна геометрія —
   `active_layout` або змінна `LAYOUT_GEOMETRY` (для скриптів).
@@ -73,10 +84,28 @@
   `scripts/multistart.py` — N стартів, найкраща розкладка (`--out` у
   форматі Rec>>, `--from` — старт із замороженими клавішами);
   `scripts/check_delta.py` — delta-оцінка == повний `score()`.
+- `core/corpus.py` — статистика корпусу одним проходом: n-грами -> `statistic.json`,
+  вибірка слів -> `word_stats.json`; мова/алфавіт — параметр (`LANGUAGES`: uk/be/pl,
+  `detect_language`), апострофи ’ ‘ ʼ ` між літерами зводяться до `'`; CPU — `cpu_share`
+  (воркери + паузи). CLI — `scripts/ngram_counter.py ТЕКА --out config [--lang] [--cpu]`;
+  міні-апка — `python -m uiux.stats_app` / `ukr_stats.py` (вибір теки з .txt, CPU) пише один
+  файл `ukr_<тека>_<дата>.json` (мова в назві: ukr/bel/pol; n-грами + words + meta) у
+  Документи/ukr-layout/статистика. CLI з `--out config` — вбудована пара statistic.json + word_stats.json.
+- `core/trainer.py` + `uiux/trainer.py` — тренажер друку (кнопка «Тренування», модальне вікно з
+  розкладкою з дошки): слова з цитат `config/quotes_uk.json` + псевдослова за біграмами, рівні =
+  скільки літер відкрито (домашній ряд -> усі), перекладач фізичних клавіш для звичайної клавіатури;
+  «Поєднання» — найдорожчі бі/триграми розкладки (`MovementScoringEngine.ngram_penalty`), статистика
+  по літерах між сесіями (`trainer_stats.json` у теці налаштувань), «Сам підвищуй»; «Класика» (цитати,
+  автор тултіпом) і «Свій текст…» (.txt уривками) з «Великі» / «Розділові»; розмір тексту/схеми — «− +».
+  Стан — WORKLOG «Наступні кроки» -9.
+- `config/stats_files.py` — файли статистики для оптимізатора: список у теці статистики,
+  `load()`, підписи. GUI: «Статистика: … ▾» біля CPU (вбудована / файли з теки / «Вибрати
+  файл…»; лише українська), вибір у settings.json `statistic_file`, `startup_statistic()`.
 - `scripts/zmk/` — клавіатура (Eyelash Corne, ZMK Studio по USB): `studio.py`
   (протокол; порт `auto`), `cyr_from_layout.py` (розкладка <-> шар CYR),
   `keyboard_sync.py` (запис/читання одним викликом — кнопки «На клаву» /
-  «З клави» в GUI), `layers_html.py` (схема шарів для артефакту). Після
+  «З клави» в GUI; автознімки — `config/zmk/snapshots/`, у .gitignore; у `config/zmk`
+  лише віхи, архів — `~/Documents/layout/zmk_snapshots/`), `layers_html.py` (схема шарів для артефакту). Після
   кожної зміни розкладки на клавіатурі — оновити артефакт шарів (див. WORKLOG).
 - `.ignore*` — локальні файли автора (корпус ~16 ГБ у `.ignore_storage/`,
   нотатки, старі тести). У git не потрапляють.
@@ -90,32 +119,31 @@ python main.py --geometry generic_105_alpha --iterations 20000   # без GUI
 python ukr_layout.py          # GUI через точку входу exe (--smoke — закрити через 3 с)
 ```
 
-Збірка exe (фаза 6): Windows — GitHub Actions `Build Windows` (вручну або тег `v*`).
+Збірка exe (фаза 6; в одній теці `ukr-layout.exe` + `ukr-stats.exe`): Windows — GitHub Actions `Build Windows` (вручну або тег `v*`;
+з гілки: `gh workflow run build-windows.yml --ref ГІЛКА`).
 Локально (Linux, перевірка spec):
 ```bash
 systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m PyInstaller \
   --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
 ```
-PyInstaller — **не** під cpulimit: він запускає дочірні процеси, і cpulimit
-2026-11-15 лишив збірку зупиненою (SIGSTOP) на 6 годин. `systemd-run … CPUQuota`
-обмежує через cgroup і покриває дочірні.
-
-Тести (`tests/`, разом ~30 с; GUI-тест потребує дисплея):
+Тести (`tests/`, разом ~70 с; GUI-тест потребує дисплея):
 ```bash
-xvfb-run -a env OPENBLAS_NUM_THREADS=1 nice -n 10 cpulimit -l 60 -f -m -q -- .venv/bin/python -m pytest -q -p no:cacheprovider
+systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 \
+  xvfb-run -a env OPENBLAS_NUM_THREADS=1 .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
-cpulimit — лише на `python` (xvfb-run — shell-скрипт, див. правила нижче).
 
 ## Правила роботи
 
 - Один коміт на один пункт/виправлення. Не пушити без дозволу.
-- Важкі обчислення (корпус, довгі прогони оптимізатора) — під обмеженням CPU:
-  `cpulimit -l 60 -f -m -q -- python script.py` (60% — побажання автора; ця версія cpulimit не має `-i`).
-  Воркери multiprocessing — з `os.nice()`.
-  **Будь-які** обчислення, крім миттєвих перевірок, — через cpulimit, по одному
-  процесу, без паралельних прогонів. cpulimit ставити на кожен `python`
-  окремо, **ніколи** на bash-скрипт/цикл: `cpulimit -m bash ...` 2026-11-02
-  наплодив тисячі копій (load ~3800, кулери на максимум).
+- Обмеження CPU (60% — побажання автора) — **через cgroup, не cpulimit** (з 2026-11-19):
+  `systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 env OPENBLAS_NUM_THREADS=1 .venv/bin/python ...`
+  Квоту тримає ядро для всієї групи (дочірні процеси й потоки теж), процес
+  ніхто не зупиняє. cpulimit шле SIGSTOP/SIGCONT і тричі підвів: 2026-11-02
+  `cpulimit -m bash ...` — fork bomb (load ~3800); 2026-11-15 збірка exe і
+  2026-11-19 pytest лишились зупиненими (стан `T`). Ніколи не вертатись до нього.
+  **Будь-які** обчислення, крім миттєвих перевірок, — під квотою, по одному
+  процесу, без паралельних прогонів (одна квота на один запуск). Воркери
+  multiprocessing — з `os.nice()`.
 - Згенеровані текстові файли (статистика, звіти) — не більше 50 МБ.
 - Нові ваги — у `moves.yaml` з коментарем, що вони означають; схема
   обов'язкових ключів — `_REQUIRED_MOVES_SCHEMA` у `core/scorer.py`.

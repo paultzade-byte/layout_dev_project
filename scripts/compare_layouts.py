@@ -1,6 +1,6 @@
 """Порівняння двох розкладок: компоненти штрафу і n-грами/літери, що дають різницю.
 
-    cpulimit -l 60 -f -m -q -- python scripts/compare_layouts.py A.json B.json [топ]
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 python scripts/compare_layouts.py A.json B.json [топ]
 
 Плюс у різниці — B гірша за A. hand_runs (по словах) — лише компонентом.
 """

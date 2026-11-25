@@ -7,7 +7,7 @@
 кожного компонента штрафу.
 
 Запуск з кореня проєкту (під обмеженням CPU):
-    cpulimit -l 60 -f -m -q -- python scripts/compare_reference.py [ітерацій]
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 python scripts/compare_reference.py [ітерацій]
 """
 
 import json

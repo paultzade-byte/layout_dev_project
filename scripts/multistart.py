@@ -5,14 +5,14 @@
 ймовірно, глобальний мінімум моделі. Якщо всі різні — SA бракує ітерацій.
 
 Запуск з кореня проєкту (під обмеженням CPU; прогони послідовні — під
-cpulimit паралельність не дає швидкості):
-    cpulimit -l 60 -f -m -q -- python scripts/multistart.py ІТЕРАЦІЙ СТАРТІВ [--from JSON] [--out JSON]
+квотою CPU паралельність не дає швидкості):
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 python scripts/multistart.py ІТЕРАЦІЙ СТАРТІВ [--from JSON] [--out JSON]
   --from  стартова розкладка у форматі Rec>> (config/recorded_layout.json):
           літери і заморожені (is_frozen) клавіші — їх SA не рухає
   --out   куди записати найкращу розкладку (той самий формат; щоб відкрити
           в GUI через Rec<<, запиши в config/recorded_layout.json)
 напр.:
-    cpulimit -l 60 -f -m -q -- python scripts/multistart.py 100000 8 --out /tmp/best.json
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 python scripts/multistart.py 100000 8 --out /tmp/best.json
 """
 
 import argparse

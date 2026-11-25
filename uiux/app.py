@@ -6,14 +6,16 @@ import math
 import re
 import sys
 import threading
+import time
 from types import SimpleNamespace
 import copy
 
 from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEOMETRY_TITLES, geometry_config,
                                 load_moves, start_layout)
 from config import settings
+from config import stats_files
 from core.layout_factory import build_layout, build_key_from_position
-from core.models import Finger, Layout, Key
+from core.models import Finger, Hand, Layout, Key
 from core.scorer import MovementScoringEngine
 from uiux.processors import OptimizationProcessor
 from uiux import layer_view
@@ -22,6 +24,8 @@ from uiux import render
 from uiux.toast import Toasts
 from uiux import tooltip
 from core import knobs
+from core import heat
+from core import throttle
 from core import export
 from core.metrics import layout_metrics
 from config.paths import layouts_dir
@@ -39,7 +43,7 @@ SCORE_SCALE = 1e8
 
 from uiux.theme import (  # noqa: E402  (тема спільна з uiux/render.py)
     ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, DROP_OK, FINGER_COLORS, FONT, FROZEN_BG, FROZEN_FG,
-    KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM,
+    GROUP_COLORS, KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM, blend, set_window_icon,
 )
 
 
@@ -48,7 +52,14 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     border — рамка (DROP_OK / DROP_BLOCKED), finger — зона пальця, в яку
     клавіша потрапить (попередній перегляд кольору)."""
     key = widget.key
-    if widget.is_frozen:
+    # теплова мапа (core/heat.py): {position_id: {fill, ink, text}} — спільна для всіх клавіш
+    heat_map = getattr(widget, "heat_map", None)
+    cell = heat_map.get(key.position_id) if heat_map is not None else None
+    if cell is not None:
+        bg, fg = cell["fill"], cell["ink"]
+    elif heat_map is not None and len(key.char) == 1 and key.char.strip():
+        bg, fg = SLOT, TEXT_DIM            # літера без даних — сіра
+    elif widget.is_frozen:
         bg, fg = FROZEN_BG, FROZEN_FG
     else:
         bg, fg = FINGER_COLORS.get(finger or key.finger, TEXT_DIM), KEY_TEXT
@@ -59,6 +70,8 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
     widget.config(
         text=text, bg=bg, fg=fg, font=font,
         highlightthickness=2, highlightbackground=border, highlightcolor=border,
+        # з тепловою мапою внизу відсоток — літеру вгору, щоб він не накривав хвостики (р, у, д)
+        anchor="n" if cell is not None else "center", pady=4 if cell is not None else 1,
     )
     # AltGr-символ клавіші (geometry["altgr"]: літера -> символ) — дрібно в
     # правому верхньому куті, як на картинці; іде за літерою при перетягуванні
@@ -70,13 +83,32 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
             mark.place(relx=1.0, x=-5, y=2, anchor="ne")
         else:
             mark.place_forget()
+    note = getattr(widget, "note_label", None)
+    if note is not None:
+        if cell is not None:
+            note.config(text=cell["text"], bg=bg, fg=fg)
+            note.place(relx=0.5, rely=1.0, y=-2, anchor="s")
+        else:
+            note.place_forget()
+    # риска орієнтира (F/J, geometry "homing") — належить місцю, не літері:
+    # після перетягування клавіша з новим position_id перемальовується
+    homing = getattr(widget, "homing_mark", None)
+    if homing is not None:
+        if key.position_id in getattr(widget, "homing_ids", ()):
+            homing.config(bg=fg)
+            homing.place(relx=0.5, rely=1.0, y=-(render.HOMING_BOTTOM + (11 if cell is not None else 0)),
+                         anchor="s", width=render.HOMING_W, height=render.HOMING_H)
+        else:
+            homing.place_forget()
 
 
-def make_button(parent, text, command, small=False):
-    """Кнопка апки: заокруглена (uiux.widgets.RoundButton), hover — сама."""
+def make_button(parent, text, command, small=False, color=None):
+    """Кнопка апки: заокруглена (uiux.widgets.RoundButton), hover — сама.
+    color — кнопка групи: рамка і текст цього кольору, hover — його відтінок."""
     return RoundButton(
         parent, text=text, command=command, font=(FONT, 9 if small else 11, "bold"),
-        bg=BUTTON, fg=TEXT, activebackground=BUTTON_HOVER, disabledforeground=TEXT_DIM,
+        bg=BUTTON, fg=color or TEXT, outline=color,
+        activebackground=blend(color, BUTTON, 0.25) if color else BUTTON_HOVER, disabledforeground=TEXT_DIM,
         padx=8 if small else 16, pady=3 if small else 6, radius=6 if small else 8,
     )
 
@@ -100,6 +132,7 @@ def make_score_display(statistic, moves_config, engine=None):
     return on_layout_changed
 
 
+HEAT_TITLES = {"freq": "частота натискань, %", "pain": "незручність, % штрафу"}
 YCUKEN_GEOMETRIES = {"generic_105_alpha"}  # де `default` позицій = ЙЦУКЕН
 TITLE_ALLOWANCE = 70  # заголовок вікна + панель задач, px
 
@@ -137,6 +170,10 @@ class KeyLabel(tk.Label):
     current_slot: Slot
 
 
+INNER_GAP = 6     # px між кнопками однієї групи
+GROUP_GAP = 18    # px між групами щонайменше
+
+
 class ButtonPanel:
      def __init__(
          self,
@@ -145,40 +182,58 @@ class ButtonPanel:
      ):
          self.root = root
          self.logic = logic
-         # три групи: клавіатура зліва, оптимізатор по центру, Rec справа
+         # групи по 1–2 кнопки одного кольору (GROUP_COLORS): усередині групи INNER_GAP, між
+         # групами — «пружини» (не менше GROUP_GAP, вільне місце порівну), тож ряд у будь-якому
+         # режимі тягнеться від краю до краю дошки; сховану групу прибирає arrange()
          self.button_frame = tk.Frame(self.root, bg=BG)
          self.button_frame.pack(fill="x", padx=20, pady=(0, 14))
-         # середня колонка забирає вільне місце: групи не обрізаються, коли
-         # ліва (клавіатура) схована в режимі «Звичайна»
-         self.button_frame.columnconfigure(1, weight=1)
-         left, mid, right = (tk.Frame(self.button_frame, bg=BG) for _ in range(3))
-         left.grid(row=0, column=0, sticky="w")
-         mid.grid(row=0, column=1)
-         right.grid(row=0, column=2, sticky="e")
+         group = lambda: tk.Frame(self.button_frame, bg=BG)
+         kb, run, train, open_, save, picture = (group() for _ in range(6))
+         self.groups = [kb, run, train, open_, save, picture]
 
          # клавіатура: шари <-> розкладка на екрані (scripts/zmk/keyboard_sync.py)
-         self.keyboard_frame = left
-         self.button_kb_write = make_button(left, "На клаву", self.logic.on_keyboard_write)
-         self.button_kb_read = make_button(left, "З клави", self.logic.on_keyboard_read)
-         self.button_start = make_button(mid, "Start", self.logic.toggle_optimization)
+         self.keyboard_frame = kb
+         self.button_kb_write = make_button(kb, "На клаву", self.logic.on_keyboard_write, color=GROUP_COLORS["keyboard"])
+         self.button_kb_read = make_button(kb, "З клави", self.logic.on_keyboard_read, color=GROUP_COLORS["keyboard"])
+         self.button_start = make_button(run, "Start", self.logic.toggle_optimization, color=GROUP_COLORS["run"])
          self.button_reheat = make_button(
-             mid, "Reheat",
-             lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None
-         )
+             run, "Reheat",
+             lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None,
+             color=GROUP_COLORS["run"])
+         # тренажер друку на розкладці з дошки (uiux/trainer.py), модальне вікно
+         self.button_train = make_button(train, "Тренування", self.logic.on_train, color=GROUP_COLORS["train"])
          # файли: розкладка (json) і картинка — завжди через діалог, юзер бачить куди
-         self.button_open = make_button(right, "Відкрити…", self.logic.on_open)
-         self.button_save = make_button(right, "Зберегти", self.logic.on_save)
-         self.button_save_as = make_button(right, "Зберегти як…", self.logic.on_save_as)
-         self.button_screenshot = make_button(right, "Скрін", self.logic.on_screenshot)
+         self.button_open = make_button(open_, "Відкрити…", self.logic.on_open, color=GROUP_COLORS["open"])
+         self.button_save = make_button(save, "Зберегти", self.logic.on_save, color=GROUP_COLORS["save"])
+         self.button_save_as = make_button(save, "Зберегти як…", self.logic.on_save_as, color=GROUP_COLORS["save"])
+         self.button_screenshot = make_button(picture, "Скрін", self.logic.on_screenshot, color=GROUP_COLORS["picture"])
          # експорт в ОС (.klc / xkb / .keylayout) — лише «Звичайна» (core/export.py)
-         self.button_export = make_button(right, "Експорт…", self.logic.on_export)
-         for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat)):
-             a.pack(side="left", padx=(0, 8))
-             b.pack(side="left")
-         for b in (self.button_open, self.button_save, self.button_save_as):
-             b.pack(side="left", padx=(0, 8))
-         self.button_screenshot.pack(side="left", padx=(8, 0))
-         self.button_export.pack(side="left", padx=(8, 0))
+         self.button_export = make_button(picture, "Експорт…", self.logic.on_export, color=GROUP_COLORS["picture"])
+         for g in self.groups:
+             buttons = g.winfo_children()
+             for b in buttons:
+                 b.pack(side="left", padx=(0, INNER_GAP) if b is not buttons[-1] else 0)
+         self.arrange(keyboard=True, export=True)
+
+     def arrange(self, keyboard: bool, export: bool) -> None:
+         """Групи в ряд з пружинами між ними; keyboard / export — чи видно «На клаву / З клави»
+         і «Експорт…». Викликається на старті й при кожному перемиканні режиму."""
+         if export and not self.button_export.winfo_manager():
+             self.button_screenshot.pack_configure(padx=(0, INNER_GAP))
+             self.button_export.pack(side="left")
+         elif not export and self.button_export.winfo_manager():
+             self.button_export.pack_forget()
+             self.button_screenshot.pack_configure(padx=0)
+         frame = self.button_frame
+         for g in self.groups:
+             g.grid_forget()
+         for col in range(2 * len(self.groups)):
+             frame.columnconfigure(col, weight=0, minsize=0)
+         shown = [g for g in self.groups if keyboard or g is not self.keyboard_frame]
+         for i, g in enumerate(shown):
+             g.grid(row=0, column=2 * i)
+             if i:
+                 frame.columnconfigure(2 * i - 1, weight=1, minsize=GROUP_GAP)
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")
@@ -194,9 +249,11 @@ class LayoutBuilderApp():
         layout: Layout | None = None,
         on_layout_changed=None,
         geometry_name: str | None = None,
+        statistic_file=None,
     ):
         self.root = root
-        self.root.title("Аналізатор розкладки")
+        self.root.title("Оптимізатор розкладки")
+        set_window_icon(self.root, "ukr-layout")
         self.width = 900
         self.heigh = 470
         self.root.geometry(f"{self.width}x{self.heigh}")
@@ -210,6 +267,7 @@ class LayoutBuilderApp():
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
         self.statistic = statistic
+        self.statistic_file = Path(statistic_file) if statistic_file else stats_files.BUILTIN
         self._last_dir = None      # остання тека діалогів (у межах сесії)
         self.current_file = None   # файл розкладки для «Зберегти» (None — ще не збережено)
         self._mode_layouts = {}    # розкладка кожного режиму в межах сесії (перемикач не губить її)
@@ -240,15 +298,28 @@ class LayoutBuilderApp():
 
         # tkinter / buttons
         self.status_var = tk.StringVar(value="Штраф: -")
+        self.status_row = tk.Frame(self.root, bg=BG)
+        self.status_row.pack(fill="x", padx=(22, 20), pady=(10, 0))
+        # теплові мапи: затиснути — показати, поки тримаєш; клік — лишити увімкненою
+        self.heat_shown = None     # що зараз на дошці: None / "freq" / "pain"
+        self.heat_latched = None   # що лишається після відпускання
+        self.heat_buttons = {}
+        for kind, title in (("pain", "Незручність"), ("freq", "Частота")):
+            b = make_button(self.status_row, title, None, small=True)
+            b.pack(side="right", padx=(6, 0))
+            for n in (1, 3):
+                b.bind(f"<ButtonPress-{n}>", lambda e, k=kind: self._heat_press(k), add="+")
+                b.bind(f"<ButtonRelease-{n}>", lambda e, k=kind: self._heat_release(k), add="+")
+            self.heat_buttons[kind] = b
         self.status_label = tk.Label(
-            self.root,
+            self.status_row,
             textvariable=self.status_var,
             bg=BG,
             fg=TEXT,
             font=(FONT, 13, "bold"),
             anchor="w"
         )
-        self.status_label.pack(fill="x", padx=22, pady=(10, 0))
+        self.status_label.pack(side="left", fill="x", expand=True)
 
         # вкладки: редактор розкладки (CYR з оптимізатора) або перегляд шару клавіатури
         self.tab_bar = tk.Frame(self.root, bg=BG)
@@ -317,16 +388,34 @@ class LayoutBuilderApp():
             self.button_knobs: "Повзунки: що для тебе важливіше — домашній ряд, мізинці, перекати…\n"
                                "Повзунки лише перераховують штраф; щоб розкладка змінилась — Start.",
             self.button_preset: "Готові набори повзунків. Свій набір можна зберегти під назвою.",
+            self.button_cpu: "Скільки процесора бере пошук (Start): частка одного ядра. "
+                             "Менше — комп'ютер тихіший і не гріється, але пошук повільніший.\n"
+                             "Можна міняти й під час пошуку. Запам'ятовується.",
+            self.button_stats: lambda: (
+                "Статистика текстів, за якою рахується штраф: які літери й пари літер "
+                "трапляються найчастіше.\nВбудована — великий корпус UberText. Свою можна "
+                "порахувати програмою «Статистика текстів» (ukr-stats) з власних текстів — "
+                "файли з'являються тут у меню.\n"
+                f"Зараз: {self._stats_title(full=True)}"),
             self.button_knobs_reset: "Усі повзунки посередині, близькість до ЙЦУКЕН вимкнена.",
             p.button_start: "Start — шукати кращу розкладку, починаючи з тієї, що на дошці. "
                             "Ще раз — зупинити.\nЗаморожені клавіші (права кнопка миші) "
                             "лишаються на місці.",
             p.button_reheat: "Під час пошуку: «струснути» оптимізатор, якщо він застряг. "
                              "Найкраще знайдене не губиться.",
+            self.heat_buttons["freq"]: lambda: self._heat_tip(
+                "freq", "Теплова мапа частоти: що світліша клавіша, то частіше її натискають; "
+                        "на клавіші — % натискань."),
+            self.heat_buttons["pain"]: lambda: self._heat_tip(
+                "pain", "Теплова мапа незручності: що світліша клавіша, то більше штрафу набігає "
+                        "через неї (стрибки одним пальцем, ножиці, мізинці…); на клавіші — % штрафу."),
             p.button_open: "Відкрити збережену розкладку (.json).",
             p.button_save: "Зберегти розкладку в той самий файл (вперше — спитає куди).",
             p.button_save_as: "Зберегти розкладку в новий файл.",
             p.button_screenshot: "Зберегти картинку розкладки (.png).",
+            p.button_train: "Тренажер друку на розкладці, що зараз на дошці: слова з української "
+                            "класики, складність — скільки літер відкрито. На звичайній клавіатурі "
+                            "можна вчитись, не встановлюючи розкладку в систему.",
             p.button_export: "Файли, щоб встановити розкладку в систему: Windows (.klc для MSKLC), "
                              "Linux (xkb), macOS (.keylayout) і README, як встановити.",
             p.button_kb_write: "Записати літери з дошки на клавіатуру Corne (шар CYR).",
@@ -334,9 +423,105 @@ class LayoutBuilderApp():
             self.button_refresh_layers: "Перечитати шари з клавіатури.",
             self.button_reset_layer: "Відкинути незаписані зміни цього шару.",
         }
+        for name, b in self.tabs.items():
+            if name == "Редактор":
+                tips[b] = ("Редактор розкладки: тут літери переставляються (мишкою або Start), "
+                           "тут рахується штраф.")
+            else:
+                how = ("лише перегляд — кирилиця редагується в «Редакторі»" if name in layer_view.READ_ONLY
+                       else "клавіші можна переставляти мишкою, Shift — разом з утриманням, "
+                            "права кнопка — скасувати; «На клаву» — записати")
+                tips[b] = f"Шар {name} клавіатури Corne: {layer_view.lh.ABOUT.get(name, '')}\n({how})"
         for widget, text in tips.items():
-            if widget is not None:
+            if isinstance(widget, RoundButton):
+                tooltip.add(widget, lambda w=widget, t=text: self._button_tip(w, t() if callable(t) else t))
+            elif widget is not None:
                 tooltip.add(widget, text)
+
+    # ------------------------------------------------------------------
+    # Теплові мапи (core/heat.py): затиснути — поки тримаєш; клік — лишити
+    # ------------------------------------------------------------------
+    HEAT_CLICK_S = 0.35  # коротше — клік (перемикач), довше — «подивитись і відпустити»
+
+    def _heat_values(self, kind: str) -> dict:
+        if kind == "freq":
+            return heat.frequency(self.layout.keys, self.statistic)
+        return heat.discomfort(self.engine, self.layout.keys)
+
+    def _show_heat(self, kind):
+        """Дошка в кольорах мапи kind (None — кольори пальців)."""
+        self.heat_shown = kind
+        cells = heat.cells(self._heat_values(kind), kind) if kind else None
+        for slot in self.slots:
+            widget = slot.current_key
+            if widget is not None:
+                widget.heat_map = cells
+                style_key(widget)
+        for k, b in self.heat_buttons.items():
+            on = k == self.heat_latched
+            b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
+                     activebackground=ACCENT if on else BUTTON_HOVER)
+
+    def _heat_press(self, kind):
+        if self.heat_buttons[kind].cget("state") == "disabled":
+            return
+        self._heat_pressed = (kind, time.monotonic())
+        self._show_heat(kind)
+
+    def _heat_release(self, kind):
+        pressed = getattr(self, "_heat_pressed", None)
+        self._heat_pressed = None
+        if pressed is None or pressed[0] != kind:
+            return
+        if time.monotonic() - pressed[1] < self.HEAT_CLICK_S:   # клік — перемикач
+            self.heat_latched = None if self.heat_latched == kind else kind
+        self._show_heat(self.heat_latched)
+
+    def _heat_tip(self, kind: str, text: str) -> str:
+        text += ("\nЗатисни — мапа, поки тримаєш (ліва чи права кнопка миші); "
+                 "клік — лишити увімкненою, ще клік — вимкнути. «Скрін» збереже те, що на дошці.")
+        if self.heat_buttons[kind].cget("state") != "disabled":
+            values = self._heat_values(kind)
+            text += "\n\n" + heat.loads_text(self.layout.keys, values)
+        return text
+
+    def _button_tip(self, button, text: str) -> str:
+        """Підказка кнопки; недоступна — ще й чому."""
+        if button.cget("state") != "disabled":
+            return text
+        if self.processor.is_running:
+            why = "іде пошук — спершу Stop"
+        elif self.current_tab != "Редактор" and button not in self.tabs.values():
+            why = "лише у вкладці «Редактор»"
+        elif button is self.button_reset_layer:
+            why = "у цьому шарі нема незаписаних змін (або шар лише для перегляду)"
+        else:
+            why = "не в цьому стані"
+        return f"{text}\nЗараз недоступно: {why}."
+
+    def _key_tip(self, widget) -> str:
+        """Підказка клавіші на дошці: що це за клавіша і що з нею можна зробити."""
+        key = widget.key
+        label = widget.labels.get(key.char)
+        if label is not None:
+            return f"{label or 'Пробіл'} — службова клавіша, стоїть на своєму місці."
+        if not key.char.strip():
+            return "Порожня клавіша — літер тут нема."
+        finger = {Finger.PINKY: "мізинець", Finger.RING: "безіменний", Finger.MIDDLE: "середній",
+                  Finger.INDEX: "вказівний", Finger.THUMB: "великий"}[key.finger]
+        hand = "лівий" if key.hand == Hand.LEFT else "правий"
+        text = f"«{key.char}» — {hand} {finger}."
+        extra = widget.altgr.get(key.char)
+        if extra:
+            text += f" З AltGr — «{extra}»."
+        if key.position_id in widget.homing_ids:
+            text += "\nРиска — як пухирець на F/J справжньої клавіатури: тут лежить вказівний."
+        if self.processor.is_running:
+            return text + "\nІде пошук — дошка заблокована, спершу Stop."
+        if widget.is_frozen:
+            return text + "\nЗаморожена: оптимізатор її не рухає. Права кнопка — розморозити."
+        return text + ("\nПеретягни на іншу клавішу — поміняються місцями. "
+                       "Права кнопка — заморозити на місці.")
 
     # ------------------------------------------------------------------
     # Геометрія: спліт / звичайна, перемикається в рантаймі
@@ -412,19 +597,13 @@ class LayoutBuilderApp():
             on = name == self.geometry_name
             b.config(bg=ACCENT if on else BUTTON, fg=KEY_TEXT if on else TEXT,
                      activebackground=ACCENT if on else BUTTON_HOVER)
-        panel = self.button_panel
         if self._zmk_mode():
             if not self.tab_bar.winfo_manager():
                 self.tab_bar.pack(fill="x", padx=20, pady=(8, 0), before=self.board)
-            if not panel.button_kb_write.winfo_manager():
-                panel.button_kb_write.pack(side="left", padx=(0, 8))
-                panel.button_kb_read.pack(side="left")
         else:
             if self.current_tab != "Редактор":
                 self.show_tab("Редактор")
             self.tab_bar.pack_forget()
-            panel.button_kb_write.pack_forget()
-            panel.button_kb_read.pack_forget()
         if self._ycuken_mode():
             if not self.button_ycuken.winfo_manager():
                 self.button_ycuken.pack(side="right")
@@ -432,11 +611,7 @@ class LayoutBuilderApp():
         else:
             self.button_ycuken.pack_forget()
             self.button_default.pack_forget()
-        if self._export_mode():
-            if not panel.button_export.winfo_manager():
-                panel.button_export.pack(side="left", padx=(8, 0))
-        else:
-            panel.button_export.pack_forget()
+        self.button_panel.arrange(keyboard=self._zmk_mode(), export=self._export_mode())
         self._fit_window()
 
     def _ycuken_mode(self) -> bool:
@@ -492,18 +667,23 @@ class LayoutBuilderApp():
         cells = render.key_cells(self.geometry, self.geometry_name)
         board_w = max(x + width for _, x, _, width in cells) + 2 * layer_view.BASE_X
         board_h = max(y for _, _, y, _ in cells) + self.key_height + 2 * layer_view.BASE_Y
+        if self._zmk_mode():
+            # вкладки шарів — на місці дошки, але вищі: під клавішами ще підпис
+            # шару (не має обрізатись). Дошка редактора лишається без порожнечі,
+            # вікно підлаштовується при зміні вкладки (show_tab)
+            self.layer_view.config(width=board_w, height=self.layer_view.fit(max(board_w, 860)))
         self.board.config(width=board_w, height=board_h)
         self.root.update_idletasks()
-        buttons = self.button_panel.button_frame.winfo_reqwidth() + 40 + 24
+        # ряд кнопок — з пружинами між групами (ButtonPanel.arrange), запас не потрібен
+        buttons = self.button_panel.button_frame.winfo_reqwidth() + 40
         panel = self.knob_frame.winfo_reqwidth() + 40 if getattr(self, "knobs_open", False) else 0
-        needed_w = max(900, board_w + 40, buttons, panel)
+        # ширина — рівно під вміст: інакше після ширшого режиму (Corne -> Звичайна) вікно лишалось
+        # широким, а пружини між кнопками розтягувались
+        needed_w = max(900, board_w + 40, buttons, panel, self.root.winfo_reqwidth())
         needed_h = max(450, self.root.winfo_reqheight())
-        width = self.root.winfo_width()
         height = self.root.winfo_height() if height is None else height
         new_h = needed_h if exact_height else max(height, needed_h)
-        if width <= 1:  # вікно ще не показане
-            width = needed_w
-        self._resize(max(width, needed_w), new_h)
+        self._resize(needed_w, new_h)
 
     def _resize(self, width, height):
         """Розмір вікна; лівий верхній кут лишається на місці (позицію Tk
@@ -610,6 +790,7 @@ class LayoutBuilderApp():
     def populate_initial_keys(self):
         """Автоматична прив'язка літер до гріда
         Прив'язує кожен tkinter-віджет до реального доменного Key."""
+        homing_ids = {p["id"] for p in self.geometry["positions"] if p.get("homing")}
         for pos, slot in zip(self.geometry["positions"], self.slots):
             key = self.keys_by_position[pos["id"]]
             #char = pos.get("default", "")
@@ -621,11 +802,17 @@ class LayoutBuilderApp():
             widget.altgr = self.geometry.get("altgr", {})
             widget.altgr_label = tk.Label(widget, font=(FONT, 10, "bold"), bd=0, padx=0, pady=0,
                                           cursor="hand2")
+            widget.note_label = tk.Label(widget, font=(FONT, 8, "bold"), bd=0, padx=0, pady=0,
+                                         cursor="hand2")
+            widget.homing_mark = tk.Frame(widget, bd=0, highlightthickness=0, cursor="hand2")
+            widget.homing_ids = homing_ids
             widget.key = key
             widget.is_frozen = key.is_frozen
             style_key(widget)
             widget.current_slot = slot
             slot.current_key = widget
+            # довша пауза, ніж у кнопок: дошку часто просто розглядають
+            tooltip.add(widget, lambda w=widget: self._key_tip(w), delay=1200)
 
             # Бінди подій / Binds
             widget.bind("<Button-1>", self.on_drag_start)
@@ -636,7 +823,11 @@ class LayoutBuilderApp():
             for sequence, handler in (("<Button-1>", self.on_drag_start), ("<B1-Motion>", self.on_drag_motion),
                                       ("<ButtonRelease-1>", self.on_drag_release),
                                       ("<Button-3>", self.toggle_freeze)):
+                widget.note_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
+                    widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
                 widget.altgr_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
+                    widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
+                widget.homing_mark.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
                     widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
 
     def on_drag_start(self, event):
@@ -821,6 +1012,8 @@ class LayoutBuilderApp():
             self.status_var.set(self.on_layout_changed(self.layout))
         if tab == "Редактор":
             self._update_knob_metrics()
+            if getattr(self, "heat_shown", None):
+                self._show_heat(self.heat_shown)   # розкладка змінилась — перерахувати
 
 
     # ------------------------------------------------------------------
@@ -852,6 +1045,90 @@ class LayoutBuilderApp():
     def _update_preset_button(self):
         if hasattr(self, "button_preset"):
             self.button_preset.config(text=f"Пресет: {self._current_preset() or 'свій'} ▾")
+
+    def _update_cpu_button(self):
+        self.button_cpu.config(text=f"CPU: {self.processor.cpu_percent}% ▾")
+
+    def show_cpu_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
+                       activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
+        for percent in throttle.CHOICES:
+            mark = "✓ " if percent == self.processor.cpu_percent else "    "
+            note = "  (одне ядро повністю)" if percent == 100 else ""
+            menu.add_command(label=f"{mark}{percent}%{note}", command=lambda p=percent: self.set_cpu(p))
+        b = self.button_cpu
+        menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def set_cpu(self, percent: int):
+        """Діє одразу — і на пошук, що вже йде; запам'ятовується між запусками."""
+        self.processor.set_cpu_percent(percent)
+        settings.save(cpu_percent=percent)
+        self._update_cpu_button()
+
+    # ---------------------------------------------------- статистика
+
+    def _stats_title(self, full: bool = False) -> str:
+        if self.statistic_file is stats_files.BUILTIN:
+            return "вбудована (UberText)" if full else "вбудована"
+        stem = self.statistic_file.stem
+        return str(self.statistic_file) if full else (stem if len(stem) <= 28 else stem[:27] + "…")
+
+    def _update_stats_button(self):
+        self.button_stats.config(text=f"Статистика: {self._stats_title()} ▾")
+
+    def show_stats_menu(self):
+        menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
+                       activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
+        mark = lambda on: "✓ " if on else "    "
+        menu.add_command(label=f"{mark(self.statistic_file is stats_files.BUILTIN)}Вбудована — UberText, українська",
+                         command=lambda: self.set_statistic(stats_files.BUILTIN))
+        files = stats_files.list_files()
+        if files:
+            menu.add_separator()
+        for path, meta in files:
+            ok = meta.get("language") in stats_files.OPTIMIZER_LANGS
+            label = stats_files.label(path, meta) + ("" if ok else "  (поки лише українська)")
+            menu.add_command(label=f"{mark(path == self.statistic_file)}{label}",
+                             state="normal" if ok else "disabled",
+                             command=lambda p=path: self.set_statistic(p))
+        menu.add_separator()
+        menu.add_command(label="    Вибрати файл…", command=self.on_stats_pick)
+        b = self.button_stats
+        menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def on_stats_pick(self):
+        folder = stats_files.stats_dir()
+        path = filedialog.askopenfilename(
+            parent=self.root, title="Файл статистики",
+            initialdir=str(folder if folder.is_dir() else layouts_dir()),
+            filetypes=[("Статистика (JSON)", "*.json"), ("Усі файли", "*")])
+        if path:
+            self.set_statistic(Path(path))
+
+    def set_statistic(self, path) -> bool:
+        """Інша статистика -> новий engine у фоні (як зміна ваг); вибір запам'ятовується."""
+        if self.processor.is_running:
+            self.status_var.set("Спершу зупини оптимізацію (Stop), потім міняй статистику.")
+            return False
+        if path == self.statistic_file:
+            return False
+        try:
+            if path is stats_files.BUILTIN:
+                statistic = STATISTIC
+            else:
+                lang = stats_files.language(path)
+                if lang is not None and lang not in stats_files.OPTIMIZER_LANGS:
+                    raise ValueError(f"мова файлу — {stats_files.LANG_NAMES.get(lang, lang)}; "
+                                     "оптимізатор поки працює лише з українською")
+                statistic = stats_files.load(path)
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Статистика", f"Не вдалося відкрити статистику:\n{error}")
+            return False
+        self.statistic, self.statistic_file = statistic, path
+        settings.save(statistic_file=None if path is stats_files.BUILTIN else str(path))
+        self._update_stats_button()
+        self._rebuild_weights(f"статистика «{self._stats_title()}»", head="Статистику змінено")
+        return True
 
     def show_preset_menu(self):
         menu = tk.Menu(self.root, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
@@ -923,6 +1200,12 @@ class LayoutBuilderApp():
         self.button_knobs.pack(side="left")
         self.button_preset = make_button(self.knob_bar, "Пресет: ▾", self.show_preset_menu, small=True)
         self.button_preset.pack(side="left", padx=(8, 0))
+        self.button_cpu = make_button(self.knob_bar, "", self.show_cpu_menu, small=True)
+        self.button_cpu.pack(side="left", padx=(8, 0))
+        self._update_cpu_button()
+        self.button_stats = make_button(self.knob_bar, "", self.show_stats_menu, small=True)
+        self.button_stats.pack(side="left", padx=(8, 0))
+        self._update_stats_button()
         self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
                                               self.on_knobs_reset, small=True)
         self.knob_frame = tk.Frame(self.root, bg=PANEL)
@@ -951,11 +1234,13 @@ class LayoutBuilderApp():
             else:
                 title = tk.Label(cell, text=knob.title, fg=TEXT, **label_opts)
             title.pack(anchor="w")
-            tooltip.add(title, KNOB_TIPS.get(knob.id, ""))
+            tip = KNOB_TIPS.get(knob.id, "")
+            tooltip.add(title, tip)
             metric = tk.Label(cell, fg=TEXT_DIM, anchor="w", bg=PANEL, font=(FONT, 9))
             metric.pack(anchor="w")
-            tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts).grid(
-                row=row, column=1, sticky="e")
+            tooltip.add(metric, "Як зараз у розкладці на дошці (за текстами корпусу).")
+            left = tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts)
+            left.grid(row=row, column=1, sticky="e")
             scale = tk.Scale(self.knob_frame, from_=-knobs.LIMIT, to=knobs.LIMIT, resolution=0.05,
                              orient="horizontal", showvalue=0, length=220, sliderlength=18, width=12,
                              bg=PANEL, fg=TEXT, troughcolor=SLOT, activebackground=ACCENT,
@@ -964,15 +1249,27 @@ class LayoutBuilderApp():
             scale.set(state["values"].get(knob.id, 0.0))
             scale.grid(row=row, column=2, padx=6)
             scale.bind("<ButtonRelease-1>", lambda _e, k=knob.id: self.on_knob_release(k))
-            tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts).grid(
-                row=row, column=3, sticky="w")
+            right = tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts)
+            right.grid(row=row, column=3, sticky="w")
             step_label = tk.Label(self.knob_frame, fg=ACCENT, width=14, anchor="w", **label_opts)
             step_label.grid(row=row, column=4, sticky="w", padx=(10, 12))
+            for widget in (left, right):
+                tooltip.add(widget, tip)
+            tooltip.add(scale, lambda t=tip, k=knob.id: self._knob_scale_tip(t, k))
+            tooltip.add(step_label, "Наскільки змінено вагу проти рекомендованої (посередині — як є).")
             self.knob_rows[knob.id] = SimpleNamespace(scale=scale, step=step_label, metric=metric)
             self._on_knob_move(knob.id)
         self._set_knobs_state("disabled" if self.processor.is_running else "normal")
         self._update_knob_metrics()
         self._update_preset_button()
+
+    def _knob_scale_tip(self, tip: str, knob_id: str) -> str:
+        text = tip + "\nТягни мишкою; штраф перерахується, коли відпустиш."
+        if self.processor.is_running:
+            return text + "\nЗараз недоступно: іде пошук — спершу Stop."
+        if knob_id == "closeness" and not self.closeness_var.get():
+            return text + "\nЗараз недоступно: спершу постав галочку ліворуч."
+        return text
 
     def toggle_knobs(self):
         self.knobs_open = not self.knobs_open
@@ -1039,7 +1336,7 @@ class LayoutBuilderApp():
         if changed:
             self._rebuild_weights("Ваги — рекомендовані")
 
-    def _rebuild_weights(self, what: str):
+    def _rebuild_weights(self, what: str, head: str = "Ваги змінено"):
         """Нові ваги -> новий engine (prepare_statistics ~2 с) у фоні. Розкладка
         не змінюється — лише штраф; юзер сам тисне Start. Нічого не блокує."""
         self._weights_gen += 1
@@ -1071,7 +1368,7 @@ class LayoutBuilderApp():
                 self.on_layout_changed = make_score_display(self.statistic, moves, engine=engine)
             self._set_editor_buttons()
             self._notify_layout_changed()
-            self.toasts.show(f"Ваги змінено — {what}.\n"
+            self.toasts.show(f"{head} — {what}.\n"
                              f"Штраф поточної розкладки: {self._current_score():.2f}. "
                              "Натисни Start, щоб підлаштувати розкладку.")
 
@@ -1101,8 +1398,11 @@ class LayoutBuilderApp():
     def _set_file_buttons(self, state):
         panel = self.button_panel
         for b in (panel.button_open, panel.button_save, panel.button_save_as, panel.button_screenshot,
-                  panel.button_export):
+                  panel.button_export, panel.button_train, *getattr(self, "heat_buttons", {}).values()):
             b.config(state=state)
+        if state == "disabled" and getattr(self, "heat_shown", None):
+            self.heat_latched = None   # пошук / вкладка шару — мапу знімаємо
+            self._show_heat(None)
 
     def _dialog_dir(self):
         return str(self._last_dir or layouts_dir())
@@ -1111,7 +1411,7 @@ class LayoutBuilderApp():
         self.current_file = Path(path) if path else None
         self._last_dir = self.current_file.parent if self.current_file else self._last_dir
         name = f" — {self.current_file.name}" if self.current_file else ""
-        self.root.title(f"Аналізатор розкладки{name}")
+        self.root.title(f"Оптимізатор розкладки{name}")
 
     def on_save(self):
         """Перезаписує відкритий/збережений файл; якщо його ще нема — як «Зберегти як…»."""
@@ -1255,15 +1555,18 @@ class LayoutBuilderApp():
             self.layer_view.pack(fill="both", expand=True, padx=20, pady=10,
                                  before=self.knob_bar)
             self.layer_view.show(name)
-        self.current_tab = name
+        previous, self.current_tab = self.current_tab, name
         self._style_tabs()
         self._set_editor_buttons()
         self._notify_layout_changed()
+        if (previous == "Редактор") != (name == "Редактор"):
+            self._fit_window(exact_height=True)  # дошка і шари — різної висоти
 
     def _set_layers_dump(self, dump, source):
         self.layer_view.set_dump(dump, source)
         if self.current_tab != "Редактор":
             self.layer_view.show(self.current_tab)
+        self._fit_window()  # інше джерело / шари — підпис може стати довшим
 
     def on_layers_refresh(self):
         if not self._confirm_discard():
@@ -1433,7 +1736,13 @@ class LayoutBuilderApp():
     def save_screenshot(self, path):
         """Картинка поточної розкладки «Редактора» (PNG або SVG за розширенням)."""
         title, subtitle = render.default_title(self.geometry_name, self._current_score())
-        return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle)
+        cells, footer = None, ""
+        if self.heat_shown:
+            values = self._heat_values(self.heat_shown)
+            cells, footer = heat.cells(values, self.heat_shown), heat.loads_text(self.layout.keys, values)
+            title += " · " + HEAT_TITLES[self.heat_shown]
+        return render.save(self.layout.keys, self.geometry, self.geometry_name, path, title, subtitle,
+                           heat=cells, footer=footer)
 
     def on_screenshot(self):
         initial_dir = self._dialog_dir()
@@ -1451,6 +1760,17 @@ class LayoutBuilderApp():
         self._last_dir = saved.parent
         self.status_var.set(f"Картинка: {saved}")
         self.toasts.show(f"Картинка: {saved}")
+
+    def on_train(self):
+        """Вікно «Тренування» з розкладкою, що зараз на дошці (знімок; модальне)."""
+        if self.processor.is_running:
+            return
+        from uiux.trainer import TrainerWindow
+        # найдорожчі для цієї розкладки бі/триграми — режим «Поєднання»
+        self.engine.update_layout(self.layout.keys)
+        hard = self.engine.ngram_penalty("bigrams") + self.engine.ngram_penalty("trigrams")
+        return TrainerWindow(self.root, self.layout.keys, self.geometry, self.geometry_name,
+                             self.statistic, sorted(hard, key=lambda x: -x[1]))
 
     def on_export(self):
         """Файли розкладки для Windows / Linux / macOS + README у вибрану теку
@@ -1496,20 +1816,44 @@ def _windows_setup():
         pass
 
 
+def startup_statistic():
+    """Запам'ятована статистика (settings "statistic_file"), якщо файл є і мова
+    українська; інакше — вбудована. -> (statistic, файл або None)."""
+    chosen = settings.load().get("statistic_file")
+    if chosen:
+        try:
+            if stats_files.language(chosen) in stats_files.OPTIMIZER_LANGS:
+                return stats_files.load(chosen), Path(chosen)
+        except (OSError, ValueError):
+            pass
+    return STATISTIC, stats_files.BUILTIN
+
+
 def main(smoke_ms: int | None = None):
     """Запуск GUI. smoke_ms — закрити вікно через стільки мс (перевірка
     зібраного exe в CI: вікно будується повністю і процес виходить з кодом 0)."""
     _windows_setup()
-    statistic = STATISTIC
+    statistic, statistic_file = startup_statistic()
     mode = settings.initial_mode(GEOMETRIES)  # запам'ятований режим; в exe типово «Звичайна»
     moves_config = load_moves(mode)
     root = tk.Tk()
+    # головне вікно будується сховане, поверх — інвітейшн (uiux/invite.py): старт без мигання
+    root.withdraw()
+    from uiux.invite import Invite, next_launch
+    invite = Invite(root, next_launch())
     app = LayoutBuilderApp(
         root,
         statistic=statistic,
         moves_config=moves_config,
         on_layout_changed=make_score_display(statistic, moves_config),
-        geometry_name=mode)
+        geometry_name=mode,
+        statistic_file=statistic_file)
+    root.update_idletasks()
+
+    def show():
+        root.deiconify()
+        invite.lift()            # інвітейшн лишається зверху, доки не клацнуть
+    root.after(150, show)
     if smoke_ms:
         root.after(smoke_ms, root.destroy)
     root.mainloop()

@@ -11,7 +11,7 @@
 там стояв (кома), — на AltGr найкращого хоста.
 
     python scripts/apostrophe_altgr.py LAYOUT.json [--altgr-cost 1.0] [--top 8]
-Під cpulimit: ~35 хостів x prepare_statistics.
+Під квотою CPU (systemd-run): ~35 хостів x prepare_statistics.
 """
 
 import argparse

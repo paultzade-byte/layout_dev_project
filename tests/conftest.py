@@ -1,5 +1,5 @@
-"""Спільне для тестів. Запуск — під cpulimit (CLAUDE.md):
-    cpulimit -l 60 -f -m -q -- .venv/bin/python -m pytest
+"""Спільне для тестів. Запуск — під квотою CPU (CLAUDE.md):
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m pytest
 """
 import os
 import sys
@@ -38,3 +38,22 @@ def engines(statistic):
             cache[name] = MovementScoringEngine(layout.keys, load_moves(name)).prepare_statistics(statistic)
         return cache[name]
     return get
+
+
+@pytest.fixture(autouse=True)
+def _finish_threads_and_collect():
+    """Після тесту: дочекатися фонових потоків (перерахунок ваг, пошук) і зібрати сміття
+    в головному потоці. Інакше Tk-об'єкти закритих вікон (тести створюють десятки
+    tk.Tk()) прибирає збирач сміття у фоновому потоці наступного тесту — на Windows це
+    аварія Tcl (CI 2026-11-25: «Windows fatal exception 0x80000003» у scorer з потоку
+    _rebuild_weights, далі «Can't find a usable tk.tcl»). У програмі вікно одне й живе
+    весь час — там такого нема."""
+    import gc
+    import threading
+    import time
+    yield
+    deadline = time.monotonic() + 30
+    for t in threading.enumerate():
+        if t is not threading.main_thread() and t.is_alive():
+            t.join(timeout=max(0.0, deadline - time.monotonic()))
+    gc.collect()

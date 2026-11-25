@@ -72,7 +72,7 @@ MOVES_CONFIG = load_moves(ACTIVE)
 
 with open(CONFIG_DIR / "statistic.json", "r", encoding="utf-8") as file:
     STATISTIC = json.load(file)
-# Частоти слів для hand_runs (scripts/word_counter.py). Рахуються по вибірці
+# Частоти слів для hand_runs (core/corpus.py, scripts/ngram_counter.py). Рахуються по вибірці
 # корпусу, тому масштабуються до повного корпусу, як і n-грами в statistic.json.
 word_stats_path = CONFIG_DIR / "word_stats.json"
 if word_stats_path.exists():
