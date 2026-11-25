@@ -27,6 +27,8 @@ SPLIT_GAP = 400       # зсув правої половини спліта (я�
 MARGIN = 10
 TITLE_H = 34          # смуга заголовка над клавішами
 FOOTER_H = 46         # рядок під дошкою (навантаження пальців на тепловій мапі)
+# Риска орієнтира на F і J (position "homing" у geometry.json): ширина, товщина, відступ від низу (px).
+HOMING_W, HOMING_H, HOMING_BOTTOM = 14, 3, 5
 
 # Підписи службових клавіш (role: mod). У corne_42 мітки в geometry.json
 # переплутані (WORKLOG «Наступні кроки» 4): 33 — Backspace, 36 — пробіл.
@@ -91,6 +93,7 @@ def _cells(keys, geometry: dict, geometry_name: str, heat: dict | None = None) -
             "mod": is_mod,
             "altgr": "" if is_mod else altgr.get(char, ""),
             "color": color, "ink": ink, "note": note,
+            "homing": bool(pos.get("homing")),
         })
     return out
 
@@ -156,6 +159,11 @@ def render_png(keys, geometry: dict, geometry_name: str, path, title: str = "", 
             if c["note"]:  # теплова мапа: відсоток — дрібно внизу
                 draw.text((center[0], y0 + (c["h"] - 3) * s), c["note"], font=note_font,
                           fill=c["ink"], anchor="ms")
+        if c["homing"]:  # риска під вказівний (F/J); з тепловою мапою — над відсотком
+            bottom = y0 + (c["h"] - HOMING_BOTTOM - (11 if c["note"] else 0)) * s
+            half = HOMING_W * s / 2
+            draw.rounded_rectangle((center[0] - half, bottom - HOMING_H * s, center[0] + half, bottom),
+                                   radius=HOMING_H * s / 2, fill=FROZEN_FG if c["mod"] else c["ink"])
     if footer:
         for i, line in enumerate(footer.splitlines()[:2]):
             draw.text((MARGIN * s, (board_bottom + 22 + 20 * i) * s), line, font=sub_font, fill=TEXT_DIM,
@@ -201,6 +209,10 @@ def render_svg(keys, geometry: dict, geometry_name: str, title: str = "", subtit
         if c["note"]:
             parts.append(f'<text x="{cx}" y="{y + c["h"] - 3}" font-family="{SVG_FONT}" font-size="10" '
                          f'text-anchor="middle" fill="{c["ink"]}">{escape(c["note"])}</text>')
+        if c["homing"]:
+            bottom = y + c["h"] - HOMING_BOTTOM - (11 if c["note"] else 0)
+            parts.append(f'<rect x="{cx - HOMING_W / 2}" y="{bottom - HOMING_H}" width="{HOMING_W}" '
+                         f'height="{HOMING_H}" rx="{HOMING_H / 2}" fill="{FROZEN_FG if c["mod"] else c["ink"]}"/>')
     if footer:
         for i, line in enumerate(footer.splitlines()[:2]):
             parts.append(f'<text x="{MARGIN}" y="{board_bottom + 22 + 20 * i}" font-family="{SVG_FONT}" '

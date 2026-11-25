@@ -20,6 +20,7 @@ from tkinter import filedialog, messagebox
 from config import settings
 from core import trainer
 from uiux import tooltip
+from uiux import render
 from uiux.render import key_cells
 from uiux.toast import Toasts
 from uiux.theme import (ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, FINGER_COLORS, FONT, KEY_TEXT,
@@ -185,7 +186,8 @@ class TrainerWindow:
         self.board.pack(padx=16, pady=(0, 8))
         self._draw_board()
         tooltip.add(self.board, "Розкладка з дошки головного вікна. Синім — клавіша, яку натиснути "
-                                "зараз; сірі — літери, яких ще нема у вправах.")
+                                "зараз; сірі — літери, яких ще нема у вправах. Риски — F і J "
+                                "(на справжній клавіатурі там пухирці): тут лежать вказівні.")
 
         bottom = tk.Frame(w, bg=BG)
         bottom.pack(fill="x", padx=16, pady=(0, 14))
@@ -268,6 +270,10 @@ class TrainerWindow:
             alt = self.geometry.get("altgr", {}).get(ch, "")
             if alt:
                 b.create_text(x1 - small, y0 + small + 1, text=alt, fill=KEY_TEXT, font=(FONT, small))
+            if pos.get("homing"):  # риска під вказівний (F/J), як на справжній клавіатурі
+                hw, hh, hb = render.HOMING_W * s / 2, max(2, render.HOMING_H * s), render.HOMING_BOTTOM * s
+                b.create_rectangle((x0 + x1) / 2 - hw, y1 - hb - hh, (x0 + x1) / 2 + hw, y1 - hb,
+                                   fill=KEY_TEXT, outline="", width=0)
             self.board_keys[pos["id"]] = (rect, ch, pos.get("finger", ""))
         # ширина тексту — як схема (але не вужча за MIN_TEXT_PX)
         self.text_px = max(width, MIN_TEXT_PX)

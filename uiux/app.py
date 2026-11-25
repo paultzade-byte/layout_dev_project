@@ -90,6 +90,16 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
             note.place(relx=0.5, rely=1.0, y=-2, anchor="s")
         else:
             note.place_forget()
+    # риска орієнтира (F/J, geometry "homing") — належить місцю, не літері:
+    # після перетягування клавіша з новим position_id перемальовується
+    homing = getattr(widget, "homing_mark", None)
+    if homing is not None:
+        if key.position_id in getattr(widget, "homing_ids", ()):
+            homing.config(bg=fg)
+            homing.place(relx=0.5, rely=1.0, y=-(render.HOMING_BOTTOM + (11 if cell is not None else 0)),
+                         anchor="s", width=render.HOMING_W, height=render.HOMING_H)
+        else:
+            homing.place_forget()
 
 
 def make_button(parent, text, command, small=False, color=None):
@@ -504,6 +514,8 @@ class LayoutBuilderApp():
         extra = widget.altgr.get(key.char)
         if extra:
             text += f" З AltGr — «{extra}»."
+        if key.position_id in widget.homing_ids:
+            text += "\nРиска — як пухирець на F/J справжньої клавіатури: тут лежить вказівний."
         if self.processor.is_running:
             return text + "\nІде пошук — дошка заблокована, спершу Stop."
         if widget.is_frozen:
@@ -778,6 +790,7 @@ class LayoutBuilderApp():
     def populate_initial_keys(self):
         """Автоматична прив'язка літер до гріда
         Прив'язує кожен tkinter-віджет до реального доменного Key."""
+        homing_ids = {p["id"] for p in self.geometry["positions"] if p.get("homing")}
         for pos, slot in zip(self.geometry["positions"], self.slots):
             key = self.keys_by_position[pos["id"]]
             #char = pos.get("default", "")
@@ -791,6 +804,8 @@ class LayoutBuilderApp():
                                           cursor="hand2")
             widget.note_label = tk.Label(widget, font=(FONT, 8, "bold"), bd=0, padx=0, pady=0,
                                          cursor="hand2")
+            widget.homing_mark = tk.Frame(widget, bd=0, highlightthickness=0, cursor="hand2")
+            widget.homing_ids = homing_ids
             widget.key = key
             widget.is_frozen = key.is_frozen
             style_key(widget)
@@ -811,6 +826,8 @@ class LayoutBuilderApp():
                 widget.note_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
                     widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
                 widget.altgr_label.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
+                    widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
+                widget.homing_mark.bind(sequence, lambda e, h=handler: h(SimpleNamespace(
                     widget=e.widget.master, x_root=e.x_root, y_root=e.y_root)))
 
     def on_drag_start(self, event):
