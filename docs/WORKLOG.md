@@ -554,6 +554,10 @@
   вікон -> «Windows fatal exception 0x80000003», далі «Can't find a usable tk.tcl». Фікс — autouse-фікстура
   в tests/conftest.py (дочекатися потоків + gc у головному); у тренажері tkfont.Font -> `tk.call("font", …)`.
   Друга — зелена, run 45568797742, zip ~/Documents/ukr-layout/build_2026-11-25/ukr-layout-windows.zip.
+- **Кінець сесії.** Автору — короткий опис алгоритмів пошуку (SA із сумішшю мутацій, калібрування
+  температури, рестарт/reheat, `_polish`, delta-оцінка, multi-start, повзунки впливу) для пересилання.
+  Відкрите: руками перевірити Shift/AltGr тренажера на Windows і Shift на Corne, чи плашка прикриває
+  мигання на реальному WM; більше цитат (автор — пізніше); фідбек тестерів зі збірки 2026-11-25.
 
 ## Сесія 2026-11-24 (ніч) — pre-release для тестерів, тренажер частина 1 (гілка feat/optimizer-speed)
 
