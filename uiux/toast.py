@@ -9,7 +9,7 @@
 
 import tkinter as tk
 
-from uiux.theme import DROP_BLOCKED, FONT, FROZEN_FG, KEY_TEXT
+from uiux.theme import DROP_BLOCKED, FONT, FROZEN_FG, KEY_TEXT, px
 
 COLORS = {"info": FROZEN_FG, "error": DROP_BLOCKED}
 GAP = 6
@@ -25,10 +25,10 @@ class Toasts:
         bg = COLORS.get(kind, COLORS["info"])
         frame = tk.Frame(self.root, bg=bg, cursor="hand2")
         label = tk.Label(frame, text=text, bg=bg, fg=KEY_TEXT, font=(FONT, 10, "bold"),
-                         justify="left", anchor="w", wraplength=440, padx=12, pady=8)
+                         justify="left", anchor="w", wraplength=px(440), padx=px(12), pady=px(8))
         label.pack(side="left")
-        close = tk.Label(frame, text="✕", bg=bg, fg=KEY_TEXT, font=(FONT, 10, "bold"), padx=8)
-        close.pack(side="right", anchor="n", pady=6)
+        close = tk.Label(frame, text="✕", bg=bg, fg=KEY_TEXT, font=(FONT, 10, "bold"), padx=px(8))
+        close.pack(side="right", anchor="n", pady=px(6))
         for widget in (frame, label, close):
             widget.bind("<Button-1>", lambda _e, f=frame: self.close(f))
         self.items.append(frame)

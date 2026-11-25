@@ -7,6 +7,8 @@ outline — колір рамки (2 px; None — без рамки), вимкн
 
 import tkinter as tk
 
+from uiux.theme import px
+
 _OWN = ("text", "command", "font", "bg", "fg", "activebackground", "disabledforeground",
         "padx", "pady", "state", "radius", "outline")
 
@@ -44,18 +46,19 @@ class RoundButton(tk.Canvas):
         o = self._o
         # міряємо через tk-команди: об'єкти tkfont.Font, створені на кожне малювання,
         # прибираються вже після знищення інтерпретатора і валять процес (segfault)
-        w = int(self.tk.call("font", "measure", o["font"], o["text"])) + 2 * o["padx"]
-        h = int(self.tk.call("font", "metrics", o["font"], "-linespace")) + 2 * o["pady"]
+        w = int(self.tk.call("font", "measure", o["font"], o["text"])) + 2 * px(o["padx"])
+        h = int(self.tk.call("font", "metrics", o["font"], "-linespace")) + 2 * px(o["pady"])
         super().configure(width=w, height=h)
         self.delete("all")
         normal = o["state"] == "normal"
         fill = o["activebackground"] if (self._hover and normal) else o["bg"]
         if o["outline"]:
             line = o["outline"] if normal else o["disabledforeground"]
-            self.create_polygon(_rounded(1, 1, w - 1, h - 1, min(o["radius"], h // 2)), smooth=True,
-                                fill=fill, outline=line, width=2)
+            b = px(2)
+            self.create_polygon(_rounded(b / 2, b / 2, w - b / 2, h - b / 2, min(px(o["radius"]), h // 2)),
+                                smooth=True, fill=fill, outline=line, width=b)
         else:
-            self.create_polygon(_rounded(0, 0, w, h, min(o["radius"], h // 2)), smooth=True, fill=fill, outline="")
+            self.create_polygon(_rounded(0, 0, w, h, min(px(o["radius"]), h // 2)), smooth=True, fill=fill, outline="")
         self.create_text(w / 2, h / 2, text=o["text"], font=o["font"],
                          fill=o["fg"] if normal else o["disabledforeground"])
         super().configure(cursor="hand2" if normal else "")

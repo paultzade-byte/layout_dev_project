@@ -48,6 +48,33 @@ def blend(color: str, base: str, share: float) -> str:
 FONT = {"win32": "Segoe UI", "darwin": "Helvetica Neue"}.get(sys.platform, "Ubuntu")
 KEY_FONT = (FONT, 17, "bold")
 
+# Масштаб інтерфейсу. Шрифти Tk задано в пунктах — їх Tk сам збільшує на екрані з
+# масштабом Windows 125–200% (апка DPI-aware, див. app._windows_setup). Розміри в
+# пікселях (клавіші, відступи, кнопки) — ні, тож без цього множника текст вилазив
+# за клавіші. init_ui_scale() — раз після tk.Tk(); px() — для всіх пікселів інтерфейсу.
+# Картинки (render.py) — без множника: там свій масштаб.
+_UI_SCALE = 1.0
+
+
+def init_ui_scale(root) -> float:
+    """Множник = DPI екрана / 96 (1.0 на звичайному екрані), від 1 до 3, крок 0.05."""
+    global _UI_SCALE
+    try:
+        dpi_scale = float(root.tk.call("tk", "scaling")) * 72 / 96
+    except Exception:
+        dpi_scale = 1.0
+    _UI_SCALE = min(3.0, max(1.0, round(dpi_scale * 20) / 20))
+    return _UI_SCALE
+
+
+def ui_scale() -> float:
+    return _UI_SCALE
+
+
+def px(n: float) -> int:
+    """Пікселі інтерфейсу з урахуванням масштабу екрана."""
+    return int(round(n * _UI_SCALE))
+
 
 def set_window_icon(root, name: str) -> None:
     """Іконка вікна Tk (заголовок, панель задач): packaging/icons/<name>.png;
