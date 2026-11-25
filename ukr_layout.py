@@ -26,7 +26,7 @@ def _report_crash(text: str) -> None:
         from tkinter import messagebox
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("Аналізатор розкладки — помилка",
+        messagebox.showerror("Оптимізатор розкладки — помилка",
                              text.strip().splitlines()[-1] + where)
         root.destroy()
     except Exception:

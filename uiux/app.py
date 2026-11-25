@@ -225,7 +225,7 @@ class LayoutBuilderApp():
         statistic_file=None,
     ):
         self.root = root
-        self.root.title("Аналізатор розкладки")
+        self.root.title("Оптимізатор розкладки")
         set_window_icon(self.root, "ukr-layout")
         self.width = 900
         self.heigh = 470
@@ -1387,7 +1387,7 @@ class LayoutBuilderApp():
         self.current_file = Path(path) if path else None
         self._last_dir = self.current_file.parent if self.current_file else self._last_dir
         name = f" — {self.current_file.name}" if self.current_file else ""
-        self.root.title(f"Аналізатор розкладки{name}")
+        self.root.title(f"Оптимізатор розкладки{name}")
 
     def on_save(self):
         """Перезаписує відкритий/збережений файл; якщо його ще нема — як «Зберегти як…»."""
