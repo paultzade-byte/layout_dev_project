@@ -1453,3 +1453,10 @@ origin (з upstream); на GitHub лишились тільки `main` і `fix/a
 Ad-hoc скрипти: штучні біграми/триграми/слова через
 `MovementScoringEngine(...).prepare_statistics({...})` на конкретних
 position_id; GUI — `root.after(...)` сценарій Start→Reheat→Stop.
+
+### 2026-11-25, пізніше — риски на F/J (ANSI)
+
+Автор плутався через сходинкові ряди → риски орієнтира на F і J (`"homing": true` у
+geometry.json, id 8 і 22 `generic_105_alpha`): GUI (належать місцю, не літері; з тепловою
+мапою — над відсотком; тултіп), тренажер (схема + тултіп), render PNG/SVG. Corne — без рисок.
+Коміт 13d4c82, тести 93. CI зелений run 45596507713, zip ~/Documents/ukr-layout/build_2026-11-25b/.
