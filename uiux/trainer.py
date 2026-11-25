@@ -4,7 +4,7 @@
 
 Логіка (тексти, рівні, перекладач, статистика) — core/trainer.py. Режими «Слова» і
 «Поєднання» (hard_ngrams — найдорожчі для розкладки бі/триграми з engine головного
-вікна); «Класика» (цитати цілком) — частина 3.
+вікна) і «Класика» (цитата цілком; автор і твір — у підказці над текстом).
 Налаштування (переклад, режим, «Сам підвищуй», рівень на кожну геометрію) — settings.json;
 статистика по літерах — trainer_stats.json поруч.
 """
@@ -27,11 +27,14 @@ from uiux.widgets import RoundButton
 
 BOARD_SCALE = 0.55
 MODES = (("words", "Слова", "Слова з цитат української класики (поки мало літер — і псевдослова "
-                            "з них). Слова з новою літерою трапляються частіше."),
+                            "з них). Слова з новою літерою трапляються частіше, а зі слабкими "
+                            "(див. «Слабкі літери») — теж частіше."),
          ("ngrams", "Поєднання", "Найважчі для цієї розкладки пари й трійки літер (ті, що найбільше "
                                  "додають до штрафу): по кілька слів поспіль на кожне поєднання. "
                                  "Лише з відкритих літер."),
-         ("quotes", "Класика", "Скоро: цілі цитати Франка, Лесі Українки, Коцюбинського, Стефаника…"))
+         ("quotes", "Класика", "Цілі цитати української класики (Франко, Леся Українка, Коцюбинський, "
+                               "Стефаник, Нечуй-Левицький…) — усі літери, малими, без розділових. "
+                               "Хто й звідки — наведи мишу на текст."))
 
 
 def _button(parent, text, command, small=True):
@@ -46,7 +49,9 @@ class TrainerWindow:
         self.geometry, self.geometry_name = geometry, geometry_name
         self.chars = {k.position_id: k.char for k in keys}
         self.rng = random.Random()
-        self.source = trainer.WordSource(trainer.quote_words(trainer.load_quotes()),
+        self.quotes = trainer.load_quotes()
+        self.quote = None
+        self.source = trainer.WordSource(trainer.quote_words(self.quotes),
                                          statistic.get("bigrams", {}), self.rng)
         self.order = trainer.make_order(self.chars, geometry, statistic.get("unigrams", {}))
         self.levels = trainer.level_count(self.order)
@@ -56,7 +61,7 @@ class TrainerWindow:
         self.level = min(saved.get("trainer_levels", {}).get(geometry_name, 0), self.levels - 1)
         self.hard_ngrams = hard_ngrams or []
         self.mode = saved.get("trainer_mode", "words")
-        if self.mode not in ("words", "ngrams") or (self.mode == "ngrams" and not self.hard_ngrams):
+        if self.mode not in ("words", "ngrams", "quotes") or (self.mode == "ngrams" and not self.hard_ngrams):
             self.mode = "words"
         self.auto_level = saved.get("trainer_auto_level", True)
         self.done_lines = []        # (cpm, accuracy) завершених рядків цієї сесії
@@ -90,10 +95,9 @@ class TrainerWindow:
         for mode, title, tip in MODES:
             b = _button(top, title, lambda m=mode: self._set_mode(m))
             b.pack(side="left", padx=(0, 6))
-            if mode == "quotes" or (mode == "ngrams" and not self.hard_ngrams):
+            if mode == "ngrams" and not self.hard_ngrams:
                 b.config(state="disabled")
-            tooltip.add(b, tip if mode != "quotes" else "Скоро: цілі цитати Франка, Лесі Українки, "
-                                                         "Коцюбинського, Стефаника…")
+            tooltip.add(b, tip)
             self.mode_buttons[mode] = b
 
         self.button_translate = _button(top, "", self._toggle_translate)
@@ -132,8 +136,7 @@ class TrainerWindow:
         self.text.tag_configure("cursor", background=ACCENT, foreground=KEY_TEXT)
         self.text.tag_configure("cursor_wrong", background=DROP_BLOCKED, foreground=KEY_TEXT)
         self.text.bind("<Button-1>", lambda e: "break")
-        tooltip.add(self.text, "Друкуй підсвічену літеру. Помилка — літера червоніє, курсор чекає "
-                               "правильну. Рядок закінчився — одразу наступний.")
+        tooltip.add(self.text, self._text_tip)
 
         cells = key_cells(self.geometry, self.geometry_name)
         s = BOARD_SCALE
@@ -202,6 +205,12 @@ class TrainerWindow:
         settings.save(trainer_translate=self.translate)
         self._update_translate_button()
 
+    def _text_tip(self):
+        if self.mode == "quotes" and self.quote:
+            return f"{self.quote['author']} — «{self.quote['work']}»"
+        return ("Друкуй підсвічену літеру. Помилка — літера червоніє, курсор чекає "
+                "правильну. Рядок закінчився — одразу наступний.")
+
     def _update_auto_button(self):
         self.button_auto.config(text="Сам підвищуй: так" if self.auto_level else "Сам підвищуй: ні")
 
@@ -264,16 +273,27 @@ class TrainerWindow:
         self._merge_session()
         self.allowed = trainer.letters_at(self.order, self.level)
         self.focus = self.allowed[-1] if self.level > 0 else None
+        quote = (trainer.pick_quote(self.quotes, self.order, self.rng, self.quote)
+                 if self.mode == "quotes" else None)
+        self.scale.config(state="disabled" if quote else "normal")
+        self.text.config(height=3 if quote else 2)
         n, total = len(self.allowed), len(self.order)
         targets = trainer.hard_targets(self.hard_ngrams, self.allowed) if self.mode == "ngrams" else []
-        if targets:
+        if quote:
+            self.quote, self.allowed, self.focus = quote, list(self.order), None
+            text = trainer.quote_text(quote)
+            n, info = total, " · цитата: усі літери"
+        elif targets:
             text = self.source.ngram_line(targets, self.allowed)
             info = " · " + " ".join(g for g, _ in targets[:6]) + ("…" if len(targets) > 6 else "")
         else:
-            text = self.source.line(self.allowed, self.focus)
+            weak = [ch for ch, _, _ in trainer.weak_letters(self.stats, set(self.allowed), trainer.WEAK_TOP)]
+            text = self.source.line(self.allowed, self.focus, weak=weak)
             info = f" · нова: «{self.focus}»" if self.focus else " · домашній ряд"
             if self.mode == "ngrams":
                 info += " · важких поєднань з цих літер нема"
+            elif self.mode == "quotes":
+                info += " · цитат, що набираються цією розкладкою, нема"
         self.session = trainer.Session(text)
         self._merged = False
         self.letters_label.config(text=f"{n} з {total}{info}")
@@ -341,8 +361,9 @@ class TrainerWindow:
         if s.done:
             line = (s.cpm(time.monotonic()), s.accuracy())
             self.done_lines.append(line)
-            self.level_lines.append(line)
-            if self.auto_level and self.level < self.levels - 1 and trainer.should_level_up(self.level_lines):
+            if self.mode != "quotes":                # цитата — усі літери, рівень не міряє
+                self.level_lines.append(line)
+            if self.mode != "quotes" and self.auto_level and self.level < self.levels - 1 and trainer.should_level_up(self.level_lines):
                 self.scale.set(self.level + 1)       # -> _on_level -> новий рядок
                 self.win.update_idletasks()
                 self._on_level(self.level + 1)

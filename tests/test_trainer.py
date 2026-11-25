@@ -118,6 +118,20 @@ def test_hard_ngrams_lines():
     assert few and all(set(g) <= set("олнзср") for g, _ in few)
 
 
+def test_classics_and_weak_weighting():
+    quotes = T.load_quotes()
+    rng = random.Random(1)
+    q = T.pick_quote(quotes, T.ALPHABET, rng)
+    text = T.quote_text(q)
+    assert set(text) <= set(T.ALPHABET) | {" "} and "  " not in text and not text.startswith("'")
+    assert T.pick_quote(quotes, T.ALPHABET, rng, last=q) is not q
+    assert T.pick_quote(quotes, "абв", rng) is None
+    src = T.WordSource(T.quote_words(quotes), STATISTIC["bigrams"], random.Random(2))
+    allowed = list(T.ALPHABET)
+    count = lambda weak: sum(line.count("ш") for line in (src.line(allowed, weak=weak) for _ in range(40)))
+    assert count(["ш"]) > count([])
+
+
 tk = pytest.importorskip("tkinter")
 needs_display = pytest.mark.skipif(not os.environ.get("DISPLAY") and os.name != "nt",
                                    reason="немає дисплея (xvfb-run)")
@@ -152,6 +166,10 @@ def test_trainer_window_types_through_translator(tmp_path, monkeypatch):
         assert len(tw.allowed) == len(T.letters_at(tw.order, 0)) + 2 * T.STEP
         tw._set_mode("ngrams")
         assert tw.hard_ngrams and any(g in tw.session.text for g, _ in T.hard_targets(tw.hard_ngrams, tw.allowed))
+        tw._set_mode("quotes")
+        assert tw.quote and tw.session.text == T.quote_text(tw.quote) and str(tw.scale["state"]) == "disabled"
+        assert tw.quote["author"] in tw._text_tip()
+        tw._set_mode("ngrams")
         tw.close()
         from config import settings
         assert settings.load()["trainer_levels"]["generic_105_alpha"] == 2

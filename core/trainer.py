@@ -3,7 +3,9 @@
 Без Tk — вікно в uiux/trainer.py. Частина 1 (2026-11-24): режим «Слова».
 Частина 2 (2026-11-25): режим «Поєднання» (найдорожчі для розкладки біграми й
 триграми — MovementScoringEngine.ngram_penalty), статистика по літерах між
-сесіями (trainer_stats.json у теці налаштувань), «Сам підвищуй» (should_level_up).
+сесіями (trainer_stats.json у теці налаштувань), «Сам підвищуй» (should_level_up);
+слова зі слабкими літерами — частіше. Частина 3: «Класика» — цитата цілком (pick_quote),
+малими літерами без розділових, як і решта вправ; автор і твір — у підказці.
 
 Слова — лише з цитат класики (config/quotes_uk.json), окремого словника нема.
 Поки відкритих літер мало і справжніх слів з них майже не складеш, вправа
@@ -38,6 +40,8 @@ ALPHABET = "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя'"
 STEP = 2                 # скільки літер додає кожен рівень
 LINE_CHARS = 55          # довжина рядка вправи (приблизно)
 FOCUS_WEIGHT = 4.0       # у скільки разів частіше слова з новою літерою
+WEAK_WEIGHT = 2.0        # ... і зі слабкою (статистика по літерах)
+WEAK_TOP = 3             # скільки найслабших літер підсилювати
 MIN_REAL_WORDS = 12
 MIN_ELAPSED_S = 1.0      # раніше швидкість не показуємо (з двох натискань — сміття)
 PAUSE_S = 3.0            # довша пауза між натисканнями — не рахуємо в час літери
@@ -68,6 +72,19 @@ def normalize(text: str) -> str:
     text = text.lower().translate(_APOSTROPHES)
     text = "".join(ch if ch in ALPHABET else " " for ch in text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def quote_text(quote: dict) -> str:
+    """Цитата для «Класики»: normalize, апостроф лишається лише між літерами."""
+    return re.sub(r"(?<![^\W\d_])'|'(?![^\W\d_])", "", normalize(quote["text"])).replace("  ", " ").strip()
+
+
+def pick_quote(quotes: list[dict], letters, rng: random.Random, last: dict | None = None) -> dict | None:
+    """Випадкова цитата, яку можна набрати літерами розкладки (не та сама, що щойно)."""
+    ok = [q for q in quotes if set(quote_text(q)) <= set(letters) | {" "}]
+    if len(ok) > 1 and last in ok:
+        ok.remove(last)
+    return rng.choice(ok) if ok else None
 
 
 def quote_words(quotes: list[dict]) -> Counter:
@@ -148,10 +165,13 @@ class WordSource:
         return word
 
     def line(self, allowed: list[str] | set[str], focus: str | None = None,
-             chars: int = LINE_CHARS) -> str:
+             chars: int = LINE_CHARS, weak=()) -> str:
+        """weak — слабкі літери: слова з ними у WEAK_WEIGHT разів частіше."""
         allowed = set(allowed)
         real = self._real(allowed)
-        weighted = [(w, n * (FOCUS_WEIGHT if focus and focus in w else 1.0)) for w, n in real]
+        weak = set(weak)
+        weighted = [(w, n * (FOCUS_WEIGHT if focus and focus in w else 1.0)
+                     * (WEAK_WEIGHT if weak & set(w) else 1.0)) for w, n in real]
         out, length, last = [], 0, None
         while length < chars:
             use_real = weighted and (len(weighted) >= MIN_REAL_WORDS or self.rng.random() < 0.3)
