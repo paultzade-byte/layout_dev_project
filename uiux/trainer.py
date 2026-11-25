@@ -14,7 +14,6 @@ from __future__ import annotations
 import random
 import time
 import tkinter as tk
-import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
@@ -289,15 +288,19 @@ class TrainerWindow:
 
     def _fit_text(self):
         """Шрифт, ширина (як схема) і висота тексту — під поточний рядок, без прокрутки."""
-        font = tkfont.Font(root=self.win, family=FONT, size=self.text_size)
+        # міряємо командами Tk, не tkfont.Font: такі об'єкти, зібрані після закриття вікна,
+        # валять процес (див. uiux/widgets.py)
+        font = (FONT, self.text_size)
+        measure = lambda t: int(self.win.tk.call("font", "measure", font, t))
         width_px = self.text_px - 2 * TEXT_PAD_X - 4          # 4 — запас на внутрішні відступи Tk
         lines, cur = 1, 0
         for word in self.session.text.split(" "):
-            if cur and cur + font.measure(word) > width_px:
+            if cur and cur + measure(word) > width_px:
                 lines, cur = lines + 1, 0
-            cur += font.measure(word + " ")
+            cur += measure(word + " ")
         lines = max(2, lines)
-        height = 2 * TEXT_PAD_Y + lines * font.metrics("linespace") + (lines - 1) * TEXT_SPACING + 4
+        linespace = int(self.win.tk.call("font", "metrics", font, "-linespace"))
+        height = 2 * TEXT_PAD_Y + lines * linespace + (lines - 1) * TEXT_SPACING + 4
         self.text.config(font=(FONT, self.text_size))
         self.text_box.config(width=self.text_px, height=height)
         self.text_lines = lines
