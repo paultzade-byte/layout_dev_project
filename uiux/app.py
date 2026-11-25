@@ -43,7 +43,7 @@ SCORE_SCALE = 1e8
 
 from uiux.theme import (  # noqa: E402  (тема спільна з uiux/render.py)
     ACCENT, BG, BUTTON, BUTTON_HOVER, DROP_BLOCKED, DROP_OK, FINGER_COLORS, FONT, FROZEN_BG, FROZEN_FG,
-    KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM, set_window_icon,
+    GROUP_COLORS, KEY_FONT, KEY_TEXT, PANEL, SLOT, TEXT, TEXT_DIM, blend, set_window_icon,
 )
 
 
@@ -92,11 +92,13 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
             note.place_forget()
 
 
-def make_button(parent, text, command, small=False):
-    """Кнопка апки: заокруглена (uiux.widgets.RoundButton), hover — сама."""
+def make_button(parent, text, command, small=False, color=None):
+    """Кнопка апки: заокруглена (uiux.widgets.RoundButton), hover — сама.
+    color — кнопка групи: рамка і текст цього кольору, hover — його відтінок."""
     return RoundButton(
         parent, text=text, command=command, font=(FONT, 9 if small else 11, "bold"),
-        bg=BUTTON, fg=TEXT, activebackground=BUTTON_HOVER, disabledforeground=TEXT_DIM,
+        bg=BUTTON, fg=color or TEXT, outline=color,
+        activebackground=blend(color, BUTTON, 0.25) if color else BUTTON_HOVER, disabledforeground=TEXT_DIM,
         padx=8 if small else 16, pady=3 if small else 6, radius=6 if small else 8,
     )
 
@@ -179,30 +181,32 @@ class ButtonPanel:
 
          # клавіатура: шари <-> розкладка на екрані (scripts/zmk/keyboard_sync.py)
          self.keyboard_frame = left
-         self.button_kb_write = make_button(left, "На клаву", self.logic.on_keyboard_write)
-         self.button_kb_read = make_button(left, "З клави", self.logic.on_keyboard_read)
-         self.button_start = make_button(mid, "Start", self.logic.toggle_optimization)
+         self.button_kb_write = make_button(left, "На клаву", self.logic.on_keyboard_write, color=GROUP_COLORS["keyboard"])
+         self.button_kb_read = make_button(left, "З клави", self.logic.on_keyboard_read, color=GROUP_COLORS["keyboard"])
+         self.button_start = make_button(mid, "Start", self.logic.toggle_optimization, color=GROUP_COLORS["run"])
          # тренажер друку на розкладці з дошки (uiux/trainer.py), модальне вікно
-         self.button_train = make_button(mid, "Тренування", self.logic.on_train)
+         self.button_train = make_button(mid, "Тренування", self.logic.on_train, color=GROUP_COLORS["train"])
          self.button_reheat = make_button(
              mid, "Reheat",
-             lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None
-         )
+             lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None,
+             color=GROUP_COLORS["run"])
          # файли: розкладка (json) і картинка — завжди через діалог, юзер бачить куди
-         self.button_open = make_button(right, "Відкрити…", self.logic.on_open)
-         self.button_save = make_button(right, "Зберегти", self.logic.on_save)
-         self.button_save_as = make_button(right, "Зберегти як…", self.logic.on_save_as)
-         self.button_screenshot = make_button(right, "Скрін", self.logic.on_screenshot)
+         self.button_open = make_button(right, "Відкрити…", self.logic.on_open, color=GROUP_COLORS["open"])
+         self.button_save = make_button(right, "Зберегти", self.logic.on_save, color=GROUP_COLORS["save"])
+         self.button_save_as = make_button(right, "Зберегти як…", self.logic.on_save_as, color=GROUP_COLORS["save"])
+         self.button_screenshot = make_button(right, "Скрін", self.logic.on_screenshot, color=GROUP_COLORS["picture"])
          # експорт в ОС (.klc / xkb / .keylayout) — лише «Звичайна» (core/export.py)
-         self.button_export = make_button(right, "Експорт…", self.logic.on_export)
+         self.button_export = make_button(right, "Експорт…", self.logic.on_export, color=GROUP_COLORS["picture"])
+         # групи по 1–2 кнопки одного кольору: усередині групи 6 px, між групами 18
          for a, b in ((self.button_kb_write, self.button_kb_read), (self.button_start, self.button_reheat)):
-             a.pack(side="left", padx=(0, 8))
+             a.pack(side="left", padx=(0, 6))
              b.pack(side="left")
-         for b in (self.button_open, self.button_save, self.button_save_as):
-             b.pack(side="left", padx=(0, 8))
-         self.button_screenshot.pack(side="left", padx=(8, 0))
-         self.button_export.pack(side="left", padx=(8, 0))
-         self.button_train.pack(side="left", padx=(16, 0))
+         self.button_open.pack(side="left")
+         self.button_save.pack(side="left", padx=(18, 6))
+         self.button_save_as.pack(side="left")
+         self.button_screenshot.pack(side="left", padx=(18, 6))
+         self.button_export.pack(side="left")
+         self.button_train.pack(side="left", padx=(18, 0))
 
          # drop-down with a list of keyboard matrices
          # combo = ttk.Combobox(self.button_frame, values=options, state="readonly")

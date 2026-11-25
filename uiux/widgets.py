@@ -2,12 +2,13 @@
 
 Підтримує те, чим апка користується з tk.Button: command, text, font, bg, fg,
 activebackground, disabledforeground, padx, pady, state; config()/cget()/["state"].
+outline — колір рамки (2 px; None — без рамки), вимкнена кнопка — рамка disabledforeground.
 """
 
 import tkinter as tk
 
 _OWN = ("text", "command", "font", "bg", "fg", "activebackground", "disabledforeground",
-        "padx", "pady", "state", "radius")
+        "padx", "pady", "state", "radius", "outline")
 
 
 def _rounded(x1, y1, x2, y2, r):
@@ -18,12 +19,12 @@ def _rounded(x1, y1, x2, y2, r):
 class RoundButton(tk.Canvas):
     def __init__(self, parent, text="", command=None, font=("TkDefaultFont", 10), bg="#2c313c",
                  fg="#ffffff", activebackground=None, disabledforeground="#888888",
-                 padx=16, pady=6, radius=8, parent_bg=None):
+                 padx=16, pady=6, radius=8, parent_bg=None, outline=None):
         super().__init__(parent, highlightthickness=0, bd=0, cursor="hand2",
                          bg=parent_bg or parent.cget("bg"))
         self._o = dict(text=text, command=command, font=font, bg=bg, fg=fg,
                        activebackground=activebackground or bg, disabledforeground=disabledforeground,
-                       padx=padx, pady=pady, state="normal", radius=radius)
+                       padx=padx, pady=pady, state="normal", radius=radius, outline=outline)
         self._hover = False
         self.bind("<Enter>", lambda e: self._set_hover(True))
         self.bind("<Leave>", lambda e: self._set_hover(False))
@@ -49,7 +50,12 @@ class RoundButton(tk.Canvas):
         self.delete("all")
         normal = o["state"] == "normal"
         fill = o["activebackground"] if (self._hover and normal) else o["bg"]
-        self.create_polygon(_rounded(0, 0, w, h, min(o["radius"], h // 2)), smooth=True, fill=fill, outline="")
+        if o["outline"]:
+            line = o["outline"] if normal else o["disabledforeground"]
+            self.create_polygon(_rounded(1, 1, w - 1, h - 1, min(o["radius"], h // 2)), smooth=True,
+                                fill=fill, outline=line, width=2)
+        else:
+            self.create_polygon(_rounded(0, 0, w, h, min(o["radius"], h // 2)), smooth=True, fill=fill, outline="")
         self.create_text(w / 2, h / 2, text=o["text"], font=o["font"],
                          fill=o["fg"] if normal else o["disabledforeground"])
         super().configure(cursor="hand2" if normal else "")
