@@ -31,7 +31,8 @@ def read_meta(path) -> dict | None:
             data = json.load(f)
     except (OSError, ValueError):
         return None
-    if not isinstance(data, dict) or not all(k in data for k in NGRAM_KEYS) or "meta" not in data:
+    if not isinstance(data, dict) or not all(k in data for k in NGRAM_KEYS) \
+            or not isinstance(data.get("meta"), dict):
         return None
     return data["meta"]
 
@@ -49,11 +50,18 @@ def load(path) -> dict:
     """Статистика у форматі STATISTIC (n-грами + words, масштабовані до корпусу)."""
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("це не файл статистики (очікується об'єкт JSON)")
     missing = [k for k in NGRAM_KEYS if k not in data]
     if missing:
         raise ValueError(f"це не файл статистики (немає {', '.join(missing)})")
+    if not all(isinstance(data[k], dict) for k in NGRAM_KEYS):
+        raise ValueError("це не файл статистики (n-грами мають бути об'єктами)")
+    if not isinstance(data.get("words") or {}, dict):
+        raise ValueError("це не файл статистики (words має бути об'єктом)")
     stat = {k: data[k] for k in NGRAM_KEYS}
-    meta = data.get("meta") or {}
+    meta = data.get("meta")
+    meta = meta if isinstance(meta, dict) else {}
     if data.get("words"):
         scale = 1.0 / (meta.get("sample_fraction") or 1.0)
         stat["words"] = {w: n * scale for w, n in data["words"].items()}

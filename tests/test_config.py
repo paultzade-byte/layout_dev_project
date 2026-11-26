@@ -61,3 +61,26 @@ def test_start_layout_keeps_char_set(geometry_name):
     from core.layout_factory import build_layout
     chars = sorted(k.char for k in start_layout(geometry_name).keys)
     assert chars == sorted(k.char for k in build_layout(geometry_config(geometry_name)).keys)
+
+
+@pytest.mark.parametrize("meta", [["uk"], "uk", 5])
+def test_stats_file_with_bad_meta_does_not_break_start(tmp_path, monkeypatch, meta):
+    """QA 2026-11-26: meta не-об'єкт -> AttributeError у startup_statistic і меню «Статистика»."""
+    import json
+    from config import settings, stats_files
+    from uiux import app as A
+    bad = tmp_path / "ukr_bad.json"
+    bad.write_text(json.dumps({**{k: {} for k in stats_files.NGRAM_KEYS}, "meta": meta}), encoding="utf-8")
+    assert stats_files.read_meta(bad) is None and stats_files.language(bad) is None
+    assert stats_files.load(bad)["unigrams"] == {}
+    old = settings.load().get("statistic_file")
+    try:
+        settings.save(statistic_file=str(bad))
+        statistic, path = A.startup_statistic()
+        assert path in (None, bad)
+    finally:
+        settings.save(statistic_file=old)
+    broken = tmp_path / "ukr_broken.json"
+    broken.write_text(json.dumps({**{k: [] for k in stats_files.NGRAM_KEYS}, "meta": {}}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        stats_files.load(broken)

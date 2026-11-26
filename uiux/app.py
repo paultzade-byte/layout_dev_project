@@ -1214,7 +1214,7 @@ class LayoutBuilderApp():
                     raise ValueError(f"мова файлу — {stats_files.LANG_NAMES.get(lang, lang)}; "
                                      "оптимізатор поки працює лише з українською")
                 statistic = stats_files.load(path)
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, TypeError, AttributeError) as error:
             messagebox.showerror("Статистика", f"Не вдалося відкрити статистику:\n{error}")
             return False
         self.statistic, self.statistic_file = statistic, path
@@ -1940,8 +1940,8 @@ def startup_statistic():
         try:
             if stats_files.language(chosen) in stats_files.OPTIMIZER_LANGS:
                 return stats_files.load(chosen), Path(chosen)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass   # зіпсований файл не має валити старт — беремо вбудовану
     return STATISTIC, stats_files.BUILTIN
 
 
