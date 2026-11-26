@@ -321,8 +321,8 @@ class TrainerWindow:
         self.text_lines = lines
 
     def _text_tip(self):
-        if self.mode == "quotes" and self.quote:
-            return f"{self.quote['author']} — «{self.quote['work']}»"
+        if self.mode == "quotes" and self.quote and trainer.quote_source(self.quote):
+            return trainer.quote_source(self.quote)
         if self.mode == "own" and self.own_chunks:
             return f"{Path(self.own_file).name} — уривок {self.own_idx + 1} з {len(self.own_chunks)}"
         return ("Друкуй підсвічену літеру. Помилка — літера червоніє, курсор чекає "

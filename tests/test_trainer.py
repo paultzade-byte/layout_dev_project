@@ -437,3 +437,20 @@ def test_load_stats_drops_broken_records(tmp_path, monkeypatch):
     s.type("а", 1.0); s.type("б", 1.2)
     T.merge_stats(stats, s)
     assert stats["а"]["hits"] == 31
+
+
+def test_load_quotes_other_structure_and_broken_quotes(tmp_path):
+    """QA 2026-11-26: файл цитат [] чи null -> AttributeError; цитати без тексту не відкидались,
+    без author / work -> KeyError у тултіпах."""
+    import json
+    path = tmp_path / "q.json"
+    for data in ([], None, {"quotes": None}, {"quotes": {"text": "а"}}, "рядок"):
+        path.write_text(json.dumps(data), encoding="utf-8")
+        assert T.load_quotes(path) == []
+    path.write_text(json.dumps({"quotes": [
+        {"text": "Без автора."}, {"author": "Хтось", "work": 5, "text": "Твір числом."},
+        {"author": "Без тексту"}, {"text": 7}, {"text": "  "}, None, "рядок",
+        {"author": "А", "work": "Б", "text": "Повна."}]}), encoding="utf-8")
+    quotes = T.load_quotes(path)
+    assert [q["text"] for q in quotes] == ["Без автора.", "Твір числом.", "Повна."]
+    assert [T.quote_source(q) for q in quotes] == ["", "Хтось", "А — «Б»"]

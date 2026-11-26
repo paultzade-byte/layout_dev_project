@@ -162,3 +162,34 @@ def test_search_window_double_click_and_stale_row_tip(tmp_path, monkeypatch):
         tw.close()
     finally:
         root.destroy()
+
+
+@needs_display
+def test_tooltips_of_quote_without_author_and_work(tmp_path, monkeypatch):
+    """QA 2026-11-26: цитата без author / work -> KeyError у тултіпі тексту і рядка пошуку."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    from uiux.quote_search import QuoteSearch
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        tw = ui.on_train()
+        root.update()
+        bare = {"text": "Лисиця бігла лісом."}
+        tw.quotes = [bare, {"author": "Іван Франко", "text": "Лис Микита."}]
+        tw._set_mode("quotes")
+        tw.quote = bare
+        assert tw._text_tip()                       # загальна підказка замість падіння
+        tw.quote = tw.quotes[1]
+        assert tw._text_tip() == "Іван Франко"
+        qs = QuoteSearch(tw)
+        root.update()
+        assert qs.shown == tw.quotes
+        assert "Іван Франко" in qs._row_tip(1) and "«" not in qs._row_tip(1)
+        assert isinstance(qs._row_tip(0), str)
+        qs.close()
+        tw.close()
+    finally:
+        root.destroy()

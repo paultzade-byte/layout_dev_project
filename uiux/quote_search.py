@@ -309,12 +309,12 @@ class QuoteSearch:
         if not 0 <= i < len(self.shown):
             return ""
         q = self.shown[i]
-        tip = f"{q['author']} — «{q['work']}»"
+        parts = [trainer.quote_source(q)]
         if i in self.truncated:
-            tip += "\n\n" + " ".join(q["text"].split())
+            parts.append(" ".join(q["text"].split()))
         if self._blocked(i):
-            tip += "\n\n" + self._blocked_text(i) + "."
-        return tip
+            parts.append(self._blocked_text(i) + ".")
+        return "\n\n".join(p for p in parts if p)
 
     # ------------------------------------------------------------------
     def choose(self):

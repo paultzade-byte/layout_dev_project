@@ -78,7 +78,24 @@ def load_quotes(path: Path | str = QUOTES_FILE) -> list[dict]:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    return [q for q in data.get("quotes", []) if q.get("text")]
+    quotes = data.get("quotes") if isinstance(data, dict) else None
+    if not isinstance(quotes, list):
+        return []
+    out = []
+    for q in quotes:   # биті цитати (не dict, без тексту) — відкидаємо; author / work — рядки
+        if isinstance(q, dict) and isinstance(q.get("text"), str) and q["text"].strip():
+            out.append({**q, "author": _str_or_empty(q.get("author")), "work": _str_or_empty(q.get("work"))})
+    return out
+
+
+def _str_or_empty(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def quote_source(quote: dict) -> str:
+    """Підпис цитати для тултіпа: «автор — «твір»» (без порожніх частин)."""
+    author, work = quote.get("author", ""), quote.get("work", "")
+    return " — ".join(part for part in (author, f"«{work}»" if work else "") if part)
 
 
 def normalize(text: str) -> str:
