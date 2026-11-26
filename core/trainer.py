@@ -115,6 +115,14 @@ def read_text_file(path: Path | str) -> str:
     """Текст .txt: UTF-8 (з BOM чи без), інакше cp1251 (старі Windows-файли)."""
     with open(path, "rb") as f:
         raw = f.read(OWN_MAX_BYTES)
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as e:
+        if len(raw) == OWN_MAX_BYTES and e.start >= len(raw) - 3:
+            try:   # межа OWN_MAX_BYTES розрізала останню літеру — це все ще UTF-8
+                return raw[:e.start].decode("utf-8-sig")
+            except UnicodeDecodeError:
+                pass
     for enc in ("utf-8-sig", "cp1251"):
         try:
             return raw.decode(enc)

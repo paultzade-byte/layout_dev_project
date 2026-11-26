@@ -408,3 +408,14 @@ def test_weak_letters_count_misses_too():
     weak = T.weak_letters(stats)
     assert [ch for ch, _, _ in weak] == ["а", "б"]
     assert weak[0][1] == pytest.approx(20.0)
+
+
+def test_own_text_over_limit_cut_mid_letter_stays_utf8(tmp_path, monkeypatch):
+    """QA 2026-11-26: межа OWN_MAX_BYTES розрізала літеру -> utf-8 падав і текст читався як cp1251."""
+    monkeypatch.setattr(T, "OWN_MAX_BYTES", 101)
+    path = tmp_path / "big.txt"
+    path.write_text("ї" * 200, encoding="utf-8")       # 2 байти на літеру: 101 ріже посередині
+    assert T.read_text_file(path) == "ї" * 50
+    old = tmp_path / "old.txt"
+    old.write_bytes("Старий файл".encode("cp1251"))
+    assert T.read_text_file(old) == "Старий файл"
