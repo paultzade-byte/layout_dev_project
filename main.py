@@ -3,7 +3,10 @@
     python main.py [--geometry corne_42|generic_105_alpha] [--iterations N]
                    [--seed S] [--out LAYOUT.json]
 
-Важкі прогони — під cpulimit (див. CLAUDE.md). --out пише у форматі Rec>>.
+Важкі прогони — під квотою CPU через cgroup (див. CLAUDE.md):
+    systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 \
+      env OPENBLAS_NUM_THREADS=1 .venv/bin/python main.py ...
+--out пише у форматі Rec>>.
 GUI: python -m uiux.app
 """
 
