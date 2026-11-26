@@ -67,7 +67,7 @@ _REQUIRED_MOVES_SCHEMA = {
     "base_effort": {
         "row_multiplier": ("top", "home_row", "bottom", "other"),
         "finger_multiplier": ("pinky", "ring", "middle", "index", "thumb"),
-        "column_multiplier": ("home_col", "col_index", "col_pinky"),
+        "column_multiplier": ("home_col", "col_index", "col_pinky", "other"),
     },
     # None = числовий лист; tuple = вкладена секція з числовими листами
     "same_finger": {

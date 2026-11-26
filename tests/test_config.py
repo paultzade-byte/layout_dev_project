@@ -84,3 +84,11 @@ def test_stats_file_with_bad_meta_does_not_break_start(tmp_path, monkeypatch, me
     broken.write_text(json.dumps({**{k: [] for k in stats_files.NGRAM_KEYS}, "meta": {}}), encoding="utf-8")
     with pytest.raises(ValueError):
         stats_files.load(broken)
+
+
+def test_schema_requires_column_multiplier_other():
+    """QA 2026-11-26: engine читає column_multiplier.other, а схема — ні -> сирий KeyError."""
+    moves = load_moves("corne_42")
+    del moves["base_effort"]["column_multiplier"]["other"]
+    with pytest.raises(ValueError, match="column_multiplier.other"):
+        validate_moves_config(moves)
