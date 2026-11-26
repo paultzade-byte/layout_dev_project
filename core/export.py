@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import unicodedata
 from datetime import date
 from pathlib import Path
@@ -88,12 +89,29 @@ def keymap(chars: dict[int, str], geometry: dict) -> dict[str, list]:
     missing = set(altgr) - set(seen)
     if missing:
         raise ValueError(f"AltGr-символи для літер, яких нема на розкладці: {sorted(missing)}")
+    # без полів key (напр. corne_42) лишився б сирий KeyError десь у klc_text
+    absent = set(WIN_KEYS) - set(out)
+    if absent:
+        raise ValueError(f"геометрія описує не всі фізичні клавіші (поле key; бракує, напр., "
+                         f"{min(absent)}) — експорт лише для звичайної клавіатури (generic_105_alpha)")
     return out
 
 
 def load_chars(path) -> dict[int, str]:
-    with open(path, "r", encoding="utf-8") as file:
-        return {d["position_id"]: d["char"] for d in json.load(file)}
+    """{position_id: символ} з JSON розкладки (формат «Зберегти»); биті файли -> ValueError."""
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: файл не в UTF-8 ({error})") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: битий JSON ({error})") from error
+    if not isinstance(data, list) or not all(
+            isinstance(d, dict) and type(d.get("position_id")) is int   # bool — теж int, тож type()
+            and isinstance(d.get("char", 0), (str, type(None))) for d in data):
+        raise ValueError(f"{path}: не розкладка — очікується список "
+                         '{"position_id": ціле, "char": рядок}')
+    return {d["position_id"]: d["char"] for d in data}
 
 
 def chars_from_keys(keys) -> dict[int, str]:
@@ -533,7 +551,13 @@ def main(argv=None):
     parser.add_argument("--geometry", default="generic_105_alpha")
     parser.add_argument("--name", default=DEFAULT_NAME)
     args = parser.parse_args(argv)
-    for path in export_all(load_chars(args.layout), geometry_config(args.geometry), args.out_dir, args.name):
+    try:
+        paths = export_all(load_chars(args.layout), geometry_config(args.geometry), args.out_dir, args.name)
+    except (OSError, ValueError, KeyError) as error:
+        # поганий ввід — зрозуміле повідомлення і код 1, а не traceback
+        message = error.args[0] if isinstance(error, KeyError) and error.args else error
+        sys.exit(f"помилка: {message}")
+    for path in paths:
         print("записано", path)
 
 

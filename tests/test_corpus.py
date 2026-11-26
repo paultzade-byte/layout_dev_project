@@ -150,3 +150,29 @@ def test_corpus_without_letters_writes_nothing(tmp_path, content):
                           "--out", str(tmp_path / "out")], capture_output=True, text=True)
     assert run.returncode != 0 and "жодної літери" in run.stderr
     assert not (tmp_path / "out" / "statistic.json").exists()
+
+
+def test_cli_out_not_writable_clear_error(tmp_path):
+    """QA 2026-11-26: тека --out без права на запис -> traceback PermissionError
+    (і лише після всього підрахунку)."""
+    import os, subprocess, sys
+    from pathlib import Path
+    if os.geteuid() == 0:
+        pytest.skip("root пише куди завгодно")
+    src = tmp_path / "uk.txt"
+    src.write_text(TEXT_UK, encoding="utf-8")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        root = Path(__file__).resolve().parents[1]
+        run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(src), "--lang", "uk",
+                              "--out", str(locked / "out")], capture_output=True, text=True)
+    finally:
+        locked.chmod(0o700)
+    assert run.returncode != 0 and "помилка:" in run.stderr
+    assert "Traceback" not in run.stderr
+    # вихід ще до підрахунку (немає .txt) — тека --out не створюється
+    run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(tmp_path / "nothing"),
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert run.returncode != 0 and not (tmp_path / "out").exists()

@@ -12,6 +12,7 @@ GUI: python -m uiux.app
 
 import argparse
 import json
+import sys
 import time
 
 from config.main_config import DEFAULT_GEOMETRY, GEOMETRIES, MUTATOR_CONFIG, STATISTIC, geometry_config, load_moves
@@ -41,6 +42,9 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--out", help="куди записати розкладку (формат Rec>>)")
     args = parser.parse_args(argv)
+    if args.iterations < 1:
+        # інакше ValueError з run_optimization — сирим traceback
+        sys.exit(f"помилка: --iterations має бути не менше 1, а не {args.iterations}")
 
     moves = load_moves(args.geometry)
     layout = build_layout(geometry_config(args.geometry))
@@ -57,8 +61,11 @@ def main(argv=None):
     print(grid(best))
     if args.out:
         data = [{"position_id": k.position_id, "char": k.char, "is_frozen": k.is_frozen} for k in best.keys]
-        with open(args.out, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        try:
+            with open(args.out, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except OSError as error:
+            sys.exit(f"помилка: не вдалося записати {args.out}: {error}")
         print(f"записано: {args.out}")
     return best, score
 

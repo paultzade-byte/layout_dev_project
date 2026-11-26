@@ -15,3 +15,11 @@ def test_docstring_recommends_cgroup_quota():
     from pathlib import Path
     assert "cpulimit" not in Path(main.__file__).read_text(encoding="utf-8")
     assert "systemd-run --user --scope -q -p CPUQuota=60% nice -n 10" in main.__doc__
+
+
+def test_zero_iterations_clear_error():
+    """QA 2026-11-26: --iterations 0 давав сирий traceback ValueError з run_optimization."""
+    import pytest
+    with pytest.raises(SystemExit) as exit_info:
+        main.main(["--geometry", "generic_105_alpha", "--iterations", "0"])
+    assert str(exit_info.value.code).startswith("помилка: --iterations")
