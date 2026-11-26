@@ -568,3 +568,51 @@ def test_editor_tab_keeps_start_off_while_weights_rebuild():
         assert ui.button_panel.button_start.cget("state") == "normal"
     finally:
         root.destroy()
+
+
+def test_worker_never_calls_tk_after_window_closed():
+    """QA 2026-11-26: воркер кликав root.after з потоку -> закрили вікно під час пошуку ->
+    RuntimeError у потоці. Тепер усе з потоків іде через чергу (_from_worker)."""
+    import threading
+    from uiux import app as A
+    errors = []
+    old_hook = threading.excepthook
+    threading.excepthook = lambda a: errors.append(repr(a.exc_value))
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        ui.toggle_optimization()
+        _wait(root, lambda: "ітерація" in ui.status_var.get())   # прогрес доходить до UI
+        processor = ui.processor
+        root.destroy()
+        time.sleep(1.0)                                          # воркер ще шле прогрес
+        processor.stop()
+        processor._thread.join(30)
+        assert not processor._thread.is_alive()
+        assert errors == []
+    finally:
+        threading.excepthook = old_hook
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+
+def test_search_stop_returns_result_through_queue():
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        moves = A.load_moves("generic_105_alpha")
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, moves,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, moves),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        ui.toggle_optimization()
+        _wait(root, lambda: "ітерація" in ui.status_var.get())
+        ui.toggle_optimization()                                  # Stop
+        _wait(root, lambda: ui.button_panel.button_start.cget("text") == "Start")
+        assert not ui.processor.is_running and "Оптимізую" not in ui.status_var.get()
+    finally:
+        root.destroy()

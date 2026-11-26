@@ -9,6 +9,7 @@ import threading
 import time
 from types import SimpleNamespace
 import copy
+import queue
 
 from config.main_config import (MOVES_CONFIG, STATISTIC, ACTIVE, GEOMETRIES, GEOMETRY_TITLES, geometry_config,
                                 load_moves, start_layout)
@@ -293,6 +294,10 @@ class LayoutBuilderApp():
         self.toasts = Toasts(self.root)  # неблокувальні жовті сповіщення
         self._weights_gen = 0            # номер перерахунку ваг (старі результати відкидаються)
         self._weights_busy = False       # іде перерахунок -> Start вимкнено (і вкладки його не вмикають)
+        # виклики з фонових потоків: tkinter чіпати там не можна (і root.after теж —
+        # RuntimeError, коли mainloop уже нема) -> черга, яку розбирає _pump_worker_calls
+        self._worker_calls = queue.SimpleQueue()
+        self.root.after(50, self._pump_worker_calls)
 
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
@@ -795,18 +800,36 @@ class LayoutBuilderApp():
                 on_done=self._on_done,
                 on_error=self._on_failed,
             )
-            self.root.after(100, lambda p=self.processor: self._watch_failure(p))
         else:
             # кнопки і score оновить _update_layout, коли воркер віддасть результат
             self.processor.stop()
             self.status_var.set("Зупиняю...")
 
+    def _from_worker(self, fn, kind: str = "call"):
+        """Потокобезпечно: fn() виконається в UI-потоці. kind="progress" — з кількох
+        поспіль виконається лише останній."""
+        self._worker_calls.put((kind, fn))
+
+    def _pump_worker_calls(self):
+        calls = []
+        try:
+            while True:
+                calls.append(self._worker_calls.get_nowait())
+        except queue.Empty:
+            pass
+        for i, (kind, fn) in enumerate(calls):
+            if kind == "progress" and i + 1 < len(calls) and calls[i + 1][0] == "progress":
+                continue
+            try:
+                fn()
+            except Exception:  # noqa: BLE001 — один збій не має зупинити насос
+                self.root.report_callback_exception(*sys.exc_info())
+        self.root.after(50, self._pump_worker_calls)
+
     def _on_progress(self, layout, score, current_iteration):
-        # викликається з робочого потоку -> завжди через root.after
-        self.root.after(
-            0,
-            lambda: self.status_var.set(f"Оптимізую... ітерація {current_iteration}, штраф {score / SCORE_SCALE:.2f}")
-        )
+        # з робочого потоку
+        text = f"Оптимізую... ітерація {current_iteration}, штраф {score / SCORE_SCALE:.2f}"
+        self._from_worker(lambda: self.status_var.set(text), kind="progress")
 
     def _update_layout(self, result_layout: Layout):
         self.layout = result_layout
@@ -820,20 +843,10 @@ class LayoutBuilderApp():
         self._notify_layout_changed()
 
     def _on_done(self, result_layout: Layout):
-        update = lambda: self._update_layout(result_layout)
-        self.root.after(0, update)
+        self._from_worker(lambda: self._update_layout(result_layout))
 
     def _on_failed(self, error: Exception):
-        # з потоку воркера tkinter чіпати не можна -> забере _watch_failure
-        self._search_error = error
-
-    def _watch_failure(self, processor):
-        running = processor.is_running   # до помилки: див. порядок у воркері
-        error, self._search_error = getattr(self, "_search_error", None), None
-        if error is not None:
-            self._search_failed(error)
-        elif running:
-            self.root.after(100, lambda: self._watch_failure(processor))
+        self._from_worker(lambda: self._search_failed(error))
 
     def _search_failed(self, error: Exception):
         """Пошук упав у воркері: назад у стан простою + плашка з причиною."""
@@ -1710,9 +1723,9 @@ class LayoutBuilderApp():
             try:
                 result = work()
             except Exception as e:  # noqa: BLE001 — показати автору будь-яку помилку
-                self.root.after(0, lambda e=e: self._keyboard_failed(e))
+                self._from_worker(lambda e=e: self._keyboard_failed(e))
                 return
-            self.root.after(0, lambda: done(result))
+            self._from_worker(lambda: done(result))
         threading.Thread(target=run, daemon=True).start()
 
     def _keyboard_failed(self, error):
