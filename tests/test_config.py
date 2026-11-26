@@ -92,3 +92,17 @@ def test_schema_requires_column_multiplier_other():
     del moves["base_effort"]["column_multiplier"]["other"]
     with pytest.raises(ValueError, match="column_multiplier.other"):
         validate_moves_config(moves)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"),
+                                 pytest.param(10**400, id="10**400")])
+def test_schema_rejects_non_finite_weights(bad):
+    """QA 2026-11-26: NaN / inf у вагах проходили validate_moves_config."""
+    moves = load_moves("corne_42")
+    moves["base_effort"]["row_multiplier"]["top"] = bad
+    with pytest.raises(ValueError, match="row_multiplier.top"):
+        validate_moves_config(moves)
+    moves = load_moves("corne_42")
+    moves["hand"]["left_mult"] = bad
+    with pytest.raises(ValueError, match="left_mult"):
+        validate_moves_config(moves)
