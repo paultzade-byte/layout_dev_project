@@ -115,3 +115,22 @@ def test_build_layout_non_dict_position(bad):
     geometry = {**geometry, "positions": [*geometry["positions"], bad]}
     with pytest.raises(ValueError, match="invalid geometry position unknown"):
         build_layout(geometry)
+
+
+@pytest.mark.parametrize("bad", [["corne_42"], {"a": 1}, 5, True])
+def test_settings_bad_types_fall_back_to_defaults(tmp_path, monkeypatch, bad):
+    """QA 2026-11-26: "mode" — список у settings.json -> TypeError unhashable на старті;
+    cpu_percent 25.0 / true — не з меню; save(Path(...)) -> TypeError."""
+    from pathlib import Path
+    from config import settings
+    from core import throttle
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    monkeypatch.delenv("LAYOUT_GEOMETRY", raising=False)
+    settings.save(mode=bad, cpu_percent=bad)
+    assert settings.initial_mode(GEOMETRIES) in GEOMETRIES
+    assert settings.cpu_percent() == throttle.DEFAULT
+    settings.save(cpu_percent=50.0)
+    assert settings.cpu_percent() == throttle.DEFAULT and type(settings.cpu_percent()) is int
+    settings.save(cpu_percent=50, stats_out=Path("/x/y"))
+    assert settings.cpu_percent() == 50
+    assert settings.load()["stats_out"] == str(Path("/x/y"))

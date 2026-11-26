@@ -51,3 +51,23 @@ def test_empty_folder_disables_start(tmp_path):
         assert "виберіть теку" in app._start_tip()
     finally:
         root.destroy()
+
+
+@pytest.mark.parametrize("bad", [True, 5, ["a"], {"a": 1}, "", "50", 50.0])
+def test_bad_saved_settings_use_defaults(tmp_path, monkeypatch, bad):
+    """QA 2026-11-26: stats_corpus / stats_out не рядком -> Path(True) і TypeError на старті
+    ukr-stats; stats_cpu рядком -> TypeError при Старт. Неправильні значення — типові."""
+    from config import settings
+    from config.stats_files import stats_dir
+    from uiux import stats_app as S
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    settings.save(stats_corpus=bad, stats_out=bad, stats_cpu=bad)
+    root = tk.Tk()
+    try:
+        app = S.StatsApp(root)
+        root.update()
+        if not (isinstance(bad, str) and bad):    # рядок — це шлях, хай і дивний
+            assert app.corpus_dir is None and app.out_dir == stats_dir()
+        assert app.cpu == 25 and type(app.cpu) is int
+    finally:
+        root.destroy()
