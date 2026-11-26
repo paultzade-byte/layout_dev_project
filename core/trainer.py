@@ -384,9 +384,9 @@ def weak_letters(stats: dict, letters=None, n: int = 5) -> list[tuple[str, float
         if letters is not None and ch not in letters:
             continue
         total = rec.get("hits", 0) + rec.get("misses", 0)
-        if rec.get("hits", 0) < MIN_SAMPLES or ch == " ":
+        if total < MIN_SAMPLES or ch == " ":
             continue
-        acc = 100.0 * rec["hits"] / total
+        acc = 100.0 * rec.get("hits", 0) / total
         ms = rec["ms"] / rec["timed"] if rec.get("timed") else None
         out.append((ch, acc, ms))
     slow = sorted(ms for _, _, ms in out if ms is not None)

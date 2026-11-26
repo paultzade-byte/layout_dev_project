@@ -397,3 +397,14 @@ def test_auto_level_up_raises_by_one(tmp_path, monkeypatch):
         tw.close()
     finally:
         root.destroy()
+
+
+def test_weak_letters_count_misses_too():
+    """QA 2026-11-26: відбір ішов за hits < MIN_SAMPLES -> літера з 5 влучаннями і 20
+    помилками (найслабша) випадала."""
+    stats = {"а": {"hits": 5, "misses": 20, "ms": 0, "timed": 0},
+             "б": {"hits": T.MIN_SAMPLES, "misses": 0, "ms": 0, "timed": 0},
+             "в": {"hits": 2, "misses": 2, "ms": 0, "timed": 0}}
+    weak = T.weak_letters(stats)
+    assert [ch for ch, _, _ in weak] == ["а", "б"]
+    assert weak[0][1] == pytest.approx(20.0)
