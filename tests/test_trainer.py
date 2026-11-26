@@ -295,6 +295,53 @@ def test_trainer_settings_keep_quote_and_own_place(tmp_path, monkeypatch):
         root.destroy()
 
 
+@needs_display
+def test_own_text_follows_checks_changed_in_other_mode_and_reopen(tmp_path, monkeypatch):
+    """«Великі» / «Розділові», змінені в іншому режимі, діють і на «Свій текст» (а не старі
+    уривки); місце в тексті — те саме, і після повторного відкриття тренажера."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        tw = ui.on_train()
+        root.update()
+        own = tmp_path / "own.txt"
+        own.write_text("Свій текст для тренування, ось! Ще речення тут. " * 40, encoding="utf-8")
+        monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kw: str(own))
+        tw._set_mode("own")
+        for _ in range(4):
+            tw._new_line(advance=True)
+        letters = lambda chunks, i: sum(ch.isalpha() for c in chunks[:i] for ch in c)
+        start = letters(tw.own_chunks, tw.own_idx)
+        tw._set_mode("quotes")
+        tw.check_caps.invoke(); tw.check_punct.invoke(); root.update()
+        tw._set_mode("own")
+        assert tw.own_chunks == T.text_chunks(T.read_text_file(own), True, True)
+        assert tw.session.text == tw.own_chunks[tw.own_idx]
+        i = tw.own_idx
+        assert letters(tw.own_chunks, i) <= start < letters(tw.own_chunks, i + 1)
+        tw.close()
+        root.update()
+        tw = ui.on_train()                              # знову відкрили — той самий уривок
+        root.update()
+        assert tw.mode == "own" and tw.own_idx == i and tw.session.text == tw.own_chunks[i]
+        tw.close()
+    finally:
+        root.destroy()
+
+
+def test_same_place_edge_cases():
+    chunks = ["аб вг", "-", "де", "єж"]
+    assert T.same_place([], 0, chunks) == 0 and T.same_place(chunks, 0, []) == 0
+    assert T.same_place(chunks, 1, ["абвг", "деєж"]) == 1        # уривок без літер -> де наступна
+    assert T.same_place(chunks, 1, ["абвгд", "еєж"]) == 0        # ... а «д» — ще в першому
+    assert T.same_place(chunks, 3, ["абвгдеєж"]) == 0
+    assert T.same_place(chunks, 99, ["аб", "вг"]) == 1           # індекс за межами -> останній
+
+
 def test_same_place_maps_chunk_by_letters():
     text = "Перше речення тут. Друге, довше речення! Третє? " * 30
     plain, punct = T.text_chunks(text), T.text_chunks(text, punct=True)

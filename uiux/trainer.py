@@ -242,7 +242,7 @@ class TrainerWindow:
     def _check(self, parent, text, var, key, tip):
         def changed():
             settings.save(**{key: var.get()})
-            if self.mode == "own" and self.own_chunks:
+            if self.own_chunks:                         # і з «Класики»: інакше «Свій текст» лишиться старим
                 old, idx = self.own_chunks, self.own_idx
                 if self._load_own(self.own_file):       # уривки інші — лишаємось на тому ж місці тексту
                     self.own_idx = trainer.same_place(old, idx, self.own_chunks)
