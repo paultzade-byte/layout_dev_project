@@ -226,6 +226,86 @@ def test_trainer_window_types_through_translator(tmp_path, monkeypatch):
         root.destroy()
 
 
+@needs_display
+def test_trainer_settings_keep_quote_and_own_place(tmp_path, monkeypatch):
+    """«Великі» / «Розділові», «− +», переклад, рівень — та сама цитата в новому вигляді з початку;
+    нова — лише «Інший рядок» / дописана / вхід у «Класику»; у «Своєму тексті» — те саме місце."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        tw = ui.on_train()
+        root.update()
+        tw._set_mode("quotes")
+        quote = tw.quote
+        assert quote
+
+        def same(caps, punct):
+            assert tw.quote is quote and tw.caps.get() is caps and tw.punct.get() is punct
+            assert tw.session.text == T.quote_text(quote, caps, punct) and tw.session.pos == 0
+
+        tw.session.type(tw.session.text[0], 0.0)        # почали набір — зміна вигляду починає з нуля
+        tw.check_caps.invoke(); root.update()
+        same(True, False)
+        tw.check_punct.invoke(); root.update()
+        same(True, True)
+        tw.check_caps.invoke(); root.update()
+        same(False, True)
+        tw._resize("text", +1); tw._resize("board", -1); tw._resize("text", -1); tw._resize("board", +1)
+        root.update()
+        same(False, True)
+        tw._toggle_translate(); tw._toggle_translate(); root.update()
+        same(False, True)
+        tw._toggle_auto(); tw._toggle_auto()
+        tw.scale.set(1); tw._on_level(1); root.update()
+        same(False, True)
+        tw._set_mode("quotes")                           # повторний клік по «Класиці»
+        same(False, True)
+        tw._new_line(advance=True)                       # «Інший рядок»
+        assert tw.quote is not quote and tw.session.text == T.quote_text(tw.quote, False, True)
+        quote = tw.quote
+        for ch in tw.session.text:                       # дописали цитату -> нова
+            tw.session.type(ch, 0.0)
+        tw._new_line(advance=True)
+        assert tw.quote is not quote
+        quote = tw.quote
+        tw._set_mode("words"); tw._set_mode("quotes")    # вхід у «Класику» з іншого режиму
+        assert tw.quote is not quote
+
+        own = tmp_path / "own.txt"
+        own.write_text("Свій текст для тренування, ось! Ще речення тут. " * 40, encoding="utf-8")
+        monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kw: str(own))
+        tw._set_mode("own")
+        for _ in range(5):
+            tw._new_line(advance=True)
+        letters = lambda chunks, i: sum(ch.isalpha() for c in chunks[:i] for ch in c)
+        for check in (tw.check_punct, tw.check_caps, tw.check_punct):
+            start = letters(tw.own_chunks, tw.own_idx)
+            check.invoke(); root.update()
+            assert tw.session.text == tw.own_chunks[tw.own_idx] and tw.session.pos == 0
+            i = tw.own_idx                               # уривок, де те саме місце тексту
+            assert i > 0 and letters(tw.own_chunks, i) <= start < letters(tw.own_chunks, i + 1)
+        from config import settings
+        assert settings.load()["trainer_own_pos"][str(own)] == tw.own_idx
+        tw.close()
+    finally:
+        root.destroy()
+
+
+def test_same_place_maps_chunk_by_letters():
+    text = "Перше речення тут. Друге, довше речення! Третє? " * 30
+    plain, punct = T.text_chunks(text), T.text_chunks(text, punct=True)
+    letters = lambda chunks, i: sum(ch.isalpha() for c in chunks[:i] for ch in c)
+    assert len(plain) != len(punct)                     # межі уривків різні
+    for old, new in ((plain, punct), (punct, plain)):
+        for i in range(len(old)):                       # новий уривок містить початок старого
+            j, start = T.same_place(old, i, new), letters(old, i)
+            assert letters(new, j) <= start < letters(new, j + 1)
+
+
 def test_comma_and_period_unlock_by_level_and_follow_words():
     geometry, chars = geometry_config("generic_105_alpha"), _chars("generic_105_alpha")
     order = T.make_order(chars, geometry, STATISTIC["unigrams"])

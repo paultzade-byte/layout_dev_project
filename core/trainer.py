@@ -144,6 +144,18 @@ def text_chunks(text: str, caps: bool = False, punct: bool = False, size: int = 
     return out
 
 
+def same_place(old: list[str], idx: int, new: list[str]) -> int:
+    """Номер уривка в new, де той самий початок тексту, що й old[idx] (рахуємо літери:
+    «Великі» / «Розділові» міняють межі уривків, але не літери)."""
+    before = sum(ch.isalpha() for c in old[:idx] for ch in c)
+    seen = 0
+    for i, c in enumerate(new):
+        seen += sum(ch.isalpha() for ch in c)
+        if seen > before:
+            return i
+    return max(0, len(new) - 1)
+
+
 def pick_quote(quotes: list[dict], letters, rng: random.Random, last: dict | None = None) -> dict | None:
     """Випадкова цитата, яку можна набрати літерами розкладки (не та сама, що щойно)."""
     ok = [q for q in quotes if set(quote_text(q)) <= set(letters) | {" "}]   # перевірка — за літерами

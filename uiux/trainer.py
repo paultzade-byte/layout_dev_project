@@ -241,10 +241,14 @@ class TrainerWindow:
     def _check(self, parent, text, var, key, tip):
         def changed():
             settings.save(**{key: var.get()})
-            if self.mode == "own":
-                self._load_own(self.own_file)
+            if self.mode == "own" and self.own_chunks:
+                old, idx = self.own_chunks, self.own_idx
+                if self._load_own(self.own_file):       # уривки інші — лишаємось на тому ж місці тексту
+                    self.own_idx = trainer.same_place(old, idx, self.own_chunks)
+                    pos = {**settings.load().get("trainer_own_pos", {}), self.own_file: self.own_idx}
+                    settings.save(trainer_own_pos=pos)
             if self.mode in TEXT_MODES:
-                self._new_line()
+                self._new_line(keep_quote=True)      # та сама цитата, лише в новому вигляді
         c = tk.Checkbutton(parent, text=text, variable=var, command=changed, bg=BG, fg=TEXT,
                            selectcolor=PANEL, activebackground=BG, activeforeground=TEXT,
                            disabledforeground=TEXT_DIM, highlightthickness=0, bd=0, font=(FONT, 10))
@@ -377,11 +381,12 @@ class TrainerWindow:
     def _set_mode(self, mode):
         if mode == "own" and (self.mode == "own" or not self.own_chunks) and not self._choose_own():
             return                              # файл не вибрано — режим не міняємо
+        keep = mode == self.mode                # повторний клік по «Класиці» цитату не міняє
         self.mode = mode
         settings.save(trainer_mode=mode)
         self._update_mode_buttons()
         self._update_checks()
-        self._new_line()
+        self._new_line(keep_quote=keep)
 
     def _reset_stats(self):
         if not messagebox.askyesno("Статистика", "Забути статистику по літерах для цієї клавіатури?",
@@ -418,11 +423,13 @@ class TrainerWindow:
         levels = {**settings.load().get("trainer_levels", {}), self.geometry_name: level}
         settings.save(trainer_levels=levels)
         if hasattr(self, "session"):
-            self._new_line()
+            self._new_line(keep_quote=True)
 
     # ------------------------------------------------------------------
-    def _new_line(self, advance: bool = False):
-        """advance — до наступного уривка «Свого тексту» (рядок дописано чи «Інший рядок»)."""
+    def _new_line(self, advance: bool = False, keep_quote: bool = False):
+        """advance — до наступного уривка «Свого тексту» (рядок дописано чи «Інший рядок»).
+        keep_quote — у «Класиці» лишити поточну цитату (змінено лише вигляд: «Великі»,
+        «Розділові», рівень…): той самий текст у новому вигляді, набір — з початку."""
         self._merge_session()
         if advance and self.mode == "own" and self.own_chunks:
             self.own_idx += 1
@@ -433,8 +440,10 @@ class TrainerWindow:
             settings.save(trainer_own_pos=pos)
         self.allowed = trainer.letters_at(self.order, self.level)
         self.focus = self.allowed[-1] if self.level > 0 else None
-        quote = (trainer.pick_quote(self.quotes, self.order, self.rng, self.quote)
-                 if self.mode == "quotes" else None)
+        quote = None
+        if self.mode == "quotes":
+            quote = (self.quote if keep_quote and self.quote
+                     else trainer.pick_quote(self.quotes, self.order, self.rng, self.quote))
         own = self.mode == "own" and bool(self.own_chunks)
         self.scale.config(state="disabled" if quote or own else "normal")
         n, total = len(self.allowed), len(self.order)
