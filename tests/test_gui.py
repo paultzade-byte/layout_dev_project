@@ -500,3 +500,23 @@ def test_saved_layout_is_next_session_start(tmp_path, monkeypatch):
     finally:
         settings.save(start_files=old)
         root.destroy()
+
+
+def test_start_with_all_frozen_returns_to_idle():
+    """QA 2026-11-26: рухомих літер < 2 -> ValueError у воркері; GUI висів на «Оптимізую...»."""
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        for key in ui.layout.keys:
+            key.is_frozen = True
+        ui.toggle_optimization()
+        _wait(root, lambda: not ui.processor.is_running and ui.toasts.items)
+        root.update()
+        assert ui.button_panel.button_start.cget("text") == "Start"
+        assert "Оптимізую" not in ui.status_var.get()
+        assert "менше двох" in ui.toasts.items[-1].winfo_children()[0].cget("text")
+    finally:
+        root.destroy()

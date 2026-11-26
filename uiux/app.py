@@ -789,7 +789,9 @@ class LayoutBuilderApp():
                 self.layout,
                 on_progress=self._on_progress,
                 on_done=self._on_done,
+                on_error=self._on_failed,
             )
+            self.root.after(100, lambda p=self.processor: self._watch_failure(p))
         else:
             # кнопки і score оновить _update_layout, коли воркер віддасть результат
             self.processor.stop()
@@ -816,6 +818,31 @@ class LayoutBuilderApp():
     def _on_done(self, result_layout: Layout):
         update = lambda: self._update_layout(result_layout)
         self.root.after(0, update)
+
+    def _on_failed(self, error: Exception):
+        # з потоку воркера tkinter чіпати не можна -> забере _watch_failure
+        self._search_error = error
+
+    def _watch_failure(self, processor):
+        running = processor.is_running   # до помилки: див. порядок у воркері
+        error, self._search_error = getattr(self, "_search_error", None), None
+        if error is not None:
+            self._search_failed(error)
+        elif running:
+            self.root.after(100, lambda: self._watch_failure(processor))
+
+    def _search_failed(self, error: Exception):
+        """Пошук упав у воркері: назад у стан простою + плашка з причиною."""
+        self._update_layout(self.layout)
+        movable = sum(1 for k in self.layout.keys
+                      if not k.is_frozen and k.char and len(k.char) == 1)
+        if movable < 2:
+            text = ("Нічого оптимізувати: рухомих літер менше двох.\n"
+                    "Розморозь хоча б дві клавіші (ПКМ).")
+        else:
+            text = f"Оптимізація зупинилась з помилкою: {error}"
+        self.status_var.set(text.splitlines()[0])
+        self.toasts.show(text, kind="error")
 
     def redraw_keys(self):
         """Перемальовує клавіші на дошці згідно з поточним self.layout після оптимізації."""
