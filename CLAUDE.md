@@ -61,7 +61,9 @@
   впливу (`core/knobs.py`, панель «Детальніше ▸»), що множать групи ваг з
   moves-файлу. Інфо-повідомлення — `uiux/toast.py` (жовті плашки, не модальні). Інвітейшн при вході
   (кампанія «Пізнай себе», одна фраза на день: лічильник — дні з запуском, `next_launch`) — `uiux/invite.py`, з `main()`. Кольори груп
-  нижніх кнопок — `theme.GROUP_COLORS`. `uiux/processors.py` — оптимізація в окремому потоці.
+  нижніх кнопок — `theme.GROUP_COLORS`. `uiux/processors.py` — оптимізація в окремому потоці
+  (`on_error` — якщо воркер упав; tkinter з потоку не чіпати — опитування з головного, як `_watch_failure`).
+  Поки фоном перераховуються ваги (`_weights_busy`), Start/Reheat вимкнені.
 - `config/moves.yaml` — усі ваги штрафів (з коментарями) для спліта
   (`corne_42`); `config/moves_standard.yaml` — для звичайної клавіатури
   (`generic_105_alpha`). Відповідність — `MOVES_FILES` у `main_config.py`.
@@ -130,7 +132,7 @@ python ukr_layout.py          # GUI через точку входу exe (--smok
 systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m PyInstaller \
   --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
 ```
-Тести (`tests/`, разом ~70 с; GUI-тест потребує дисплея):
+Тести (`tests/`, разом ~2 хв, 113 тестів; GUI-тест потребує дисплея):
 ```bash
 systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 \
   xvfb-run -a env OPENBLAS_NUM_THREADS=1 .venv/bin/python -m pytest -q -p no:cacheprovider
