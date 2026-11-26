@@ -298,6 +298,9 @@ def count_corpus(files, lang_code: str, cpu_share: float = 0.25,
         pool.terminate()
         pool.join()
 
+    if not chars[:len(alpha.lang.letters)].any():
+        raise ValueError(f"у корпусі немає жодної літери мови «{lang_code}» — "
+                         "перевір файли й мову; нічого не записано")
     min_count = max(2, round(int(chars.sum()) * MIN_NGRAM_SHARE))
     for arr in (bi, tri, skip):
         arr[arr <= min_count] = 0

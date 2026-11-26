@@ -50,7 +50,11 @@ def main(argv=None):
               f"{p.elapsed / 60:.1f} хв", end="", flush=True)
 
     t0 = time.perf_counter()
-    result = corpus.count_corpus(files, lang, args.cpu / 100, progress)
+    try:
+        result = corpus.count_corpus(files, lang, args.cpu / 100, progress)
+    except ValueError as e:
+        print()
+        sys.exit(f"помилка: {e}")
     print()
     for path in corpus.write_outputs(result, args.out):
         print("записано", path)

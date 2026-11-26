@@ -133,3 +133,20 @@ def test_cp1251_corpus_is_refused(tmp_path):
                           "--out", str(tmp_path / "out")], capture_output=True, text=True)
     assert run.returncode != 0 and "UTF-8" in run.stderr
     assert not (tmp_path / "out" / "statistic.json").exists()
+
+
+@pytest.mark.parametrize("content", ["", "12345 !!! ... \n", "only latin words here"])
+def test_corpus_without_letters_writes_nothing(tmp_path, content):
+    """QA 2026-11-26: порожній корпус (чи без літер мови) записував порожній statistic.json;
+    з --out config — поверх вбудованої статистики."""
+    import subprocess, sys
+    from pathlib import Path
+    src = tmp_path / "empty.txt"
+    src.write_text(content, encoding="utf-8")
+    with pytest.raises(ValueError, match="жодної літери"):
+        corpus.count_corpus([src], "uk", 1.0)
+    root = Path(__file__).resolve().parents[1]
+    run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(src), "--lang", "uk",
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert run.returncode != 0 and "жодної літери" in run.stderr
+    assert not (tmp_path / "out" / "statistic.json").exists()
