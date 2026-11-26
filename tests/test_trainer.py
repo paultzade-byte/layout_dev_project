@@ -41,8 +41,10 @@ def test_lines_use_only_unlocked_letters_and_focus():
     for _ in range(20):
         line = src.line(allowed, "к")
         assert set(line) <= set(allowed) | {" "} and len(line) >= T.LINE_CHARS - 10
-    many = [src.line(allowed, "к") for _ in range(30)]
-    assert sum(line.count("к") for line in many) > sum(line.count("т") for line in many)
+    # фокус підсилює нову літеру (порівняння з тим самим набором без фокуса — не залежить від словника)
+    focused = sum(src.line(allowed, "к").count("к") for _ in range(40))
+    plain = sum(src.line(allowed).count("к") for _ in range(40))
+    assert focused > plain * 1.3
 
 
 def test_translator_physical_keys():
