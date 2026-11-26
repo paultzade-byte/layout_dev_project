@@ -59,11 +59,14 @@ LANGUAGES = {
 # ' 22 435, ’ 7 610, ‘ 689, ʼ 101, ` 70 — між двома літерами). Зводимо до "'"
 # лише між літерами: ‘лапки’ навколо слова лишаються лапками (-> пробіл).
 APOSTROPHE_VARIANTS = "’‘ʼ`´ʹʻ′＇‛"
-_APOSTROPHE_RE = re.compile(rf"(?<=[^\W\d_])[{APOSTROPHE_VARIANTS}](?=[^\W\d_])")
+# «літера» — без апострофів: ʼ ʹ ʻ у Unicode — літери-модифікатори (Lm) і інакше
+# рахувалися б межею слова. Кілька апострофів підряд (п’’ять, пʼ’ять, п'’ять) -> один "'".
+_LETTER = rf"[^\W\d_{APOSTROPHE_VARIANTS}]"
+_APOSTROPHE_RE = re.compile(rf"(?<={_LETTER})['{APOSTROPHE_VARIANTS}]+(?={_LETTER})")
 
 
 def normalize_apostrophes(text: str) -> str:
-    """’ ‘ ʼ ` ´ … між двома літерами -> "'"."""
+    """’ ‘ ʼ ` ´ … (одна чи кілька підряд) між двома літерами -> "'"."""
     return _APOSTROPHE_RE.sub("'", text)
 
 

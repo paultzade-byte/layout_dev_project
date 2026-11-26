@@ -189,3 +189,13 @@ def test_two_char_chunk_gives_bigram():
     assert tri.sum() == 0 and skip.sum() == 0
     bi, tri, skip = corpus.ngram_counts(alpha.to_ids("абв"), alpha.size)
     assert bi.sum() == 2 and tri.sum() == 1 and skip.sum() == 1
+
+
+def test_repeated_and_mixed_apostrophes_become_one():
+    """QA 2026-11-26: «п’’ять» лишалось як є, а ʼ (U+02BC, Lm) вважався літерою, тож
+    «пʼ’ять» давало «пʼ'ять». Тепер послідовність апострофів між літерами -> один "'"."""
+    norm = corpus.normalize_apostrophes
+    for text in ("п’’ять", "пʼ’ять", "п'’ять", "п’ʼ`ять", "пʼʼять", "п''ять"):
+        assert norm(text) == "п'ять", text
+    assert norm("ʼп’ять’") == "ʼп'ять’"          # на краях слова — не між літерами
+    assert norm("5’’ять п’’ 7") == "5’’ять п’’ 7"
