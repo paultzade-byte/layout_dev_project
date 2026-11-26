@@ -323,8 +323,9 @@ class LayoutBuilderApp():
         # перемикач режиму — у самому верху, щоб його бачив будь-хто
         self.mode_bar = tk.Frame(self.root, bg=BG)
         self.mode_bar.pack(fill="x", padx=px(20), pady=(px(12), 0))
-        tk.Label(self.mode_bar, text="Клавіатура:", bg=BG, fg=TEXT_DIM,
-                 font=(FONT, 11, "bold")).pack(side="left", padx=(px(2), px(8)))
+        self.mode_label = tk.Label(self.mode_bar, text="Клавіатура:", bg=BG, fg=TEXT_DIM,
+                                   font=(FONT, 11, "bold"))
+        self.mode_label.pack(side="left", padx=(px(2), px(8)))
         self.mode_buttons = {}
         for name in GEOMETRIES_ORDER:
             b = make_button(self.mode_bar, GEOMETRY_TITLES.get(name, name), lambda n=name: self.on_mode(n))
@@ -414,6 +415,8 @@ class LayoutBuilderApp():
         """Підказки до кнопок верхнього ряду, панелі повзунків і нижнього ряду."""
         p = self.button_panel
         tips = {
+            self.mode_label: "Для якої клавіатури шукати розкладку: у кожної свої клавіші, "
+                             "штрафи й збережені файли.",
             self.mode_buttons.get("generic_105_alpha"):
                 "Звичайна клавіатура (рядами сходинками, як на ноутбуці чи ПК).",
             self.mode_buttons.get("corne_42"): "Розділена клавіатура Corne (42 клавіші).",

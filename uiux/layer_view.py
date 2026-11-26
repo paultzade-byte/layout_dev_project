@@ -20,6 +20,8 @@ import draw_layers as dl  # noqa: E402
 import layers_html as lh  # noqa: E402
 from studio import TAP_PARAM, _norm  # noqa: E402
 
+from uiux import tooltip  # noqa: E402
+
 DUMPS = ROOT / "config" / "zmk"
 
 # кольори шарів — темна палітра артефакту
@@ -128,6 +130,7 @@ class LayerView(tk.Frame):
         self.canvas.bind("<Button-3>", self._revert_at)
         self.canvas.bind("<Motion>", self._hover)
         self.canvas.bind("<Leave>", lambda e: self.caption_hint(None))
+        self.tip = tooltip.add(self.canvas, self._tip_text)
         self._hover_pos = None
         self.about = ""
         self.dump = None      # робоча копія (з незаписаними змінами)
@@ -285,6 +288,7 @@ class LayerView(tk.Frame):
             self._drag_motion(event)
 
     def _drag_start(self, event):
+        self.tip._hide()   # <ButtonPress-1/3> точніша за <ButtonPress> тултіпа — ховаємо самі
         pos = self._pos_at(event.x, event.y)
         if pos is None or not self.editable():
             return
@@ -309,6 +313,7 @@ class LayerView(tk.Frame):
             self.swap(src, target, whole=bool(event.state & 0x0001))  # Shift
 
     def _revert_at(self, event):
+        self.tip._hide()   # <ButtonPress-1/3> точніша за <ButtonPress> тултіпа — ховаємо самі
         pos = self._pos_at(event.x, event.y)
         if pos is not None and self.editable():
             self.revert(pos)
@@ -318,6 +323,16 @@ class LayerView(tk.Frame):
                "ПКМ — скасувати обмін" if self.editable(layer_name) else "лише перегляд — кирилиця редагується в «Редакторі»")
         return (f"{lh.ABOUT.get(layer_name, '')}  ({how})\n"
                 f"Як увімкнути: {merged_activators(layer_name, self.dump)}")
+
+    def _tip_text(self):
+        if self.dump is None:
+            return "Шари клавіатури Corne. Дампу ще нема — натисни «⟳ з клави»."
+        if self.editable():
+            return (f"Шар {self.layer_name}: перетягни клавішу на іншу — обмін тапами, "
+                    "Shift+перетягни — клавішами цілком, права кнопка — скасувати обмін.\n"
+                    "Під дошкою — назва клавіші під курсором.")
+        return (f"Шар {self.layer_name}: лише перегляд — кирилиця редагується в «Редакторі».\n"
+                "Під дошкою — назва клавіші під курсором.")
 
     def fit(self, width):
         """Ширина панелі -> потрібна висота: клавіші + найдовший підпис з усіх

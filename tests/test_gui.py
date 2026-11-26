@@ -616,3 +616,34 @@ def test_search_stop_returns_result_through_queue():
         assert not ui.processor.is_running and "Оптимізую" not in ui.status_var.get()
     finally:
         root.destroy()
+
+
+def test_keyboard_label_and_layer_board_have_tooltips(tmp_path, monkeypatch):
+    """QA 2026-11-26: без тултіпа були мітка «Клавіатура:» і дошка вкладок шарів."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("corne_42"), geometry_name="corne_42")
+        root.update()
+        assert ui.mode_label.cget("text") == "Клавіатура:" and ui.mode_label.bind("<Enter>")
+        ui.mode_label.event_generate("<Enter>")
+        root.after(A.tooltip.DELAY_MS + 100, root.quit)
+        root.mainloop()
+        shown = [w for w in root.winfo_children() if isinstance(w, tk.Label) and w.winfo_manager() == "place"
+                 and "клавіатур" in w.cget("text")]
+        assert shown
+        lv = ui.layer_view
+        assert lv.canvas.bind("<Enter>")
+        assert "Дампу ще нема" in lv._tip_text() if lv.dump is None else lv._tip_text()
+        if lv.dump is not None:
+            for name in A.layer_view.lh.ORDER:
+                ui.show_tab(name)
+                assert name in lv._tip_text()
+            ui.show_tab("Редактор")
+        lv.tip._show()
+        assert lv.tip._tip is not None
+        lv._drag_start(type("E", (), {"x": -100, "y": -100})())   # клік ховає підказку
+        assert lv.tip._tip is None
+    finally:
+        root.destroy()
