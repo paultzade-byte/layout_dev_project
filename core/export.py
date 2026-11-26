@@ -518,7 +518,8 @@ def export_all(chars: dict[int, str], geometry: dict, out_dir, name: str = DEFAU
         paths.append(path)
     altgr = ", ".join(f"{k} → {v}" for k, v in geometry.get("altgr", {}).items()) or "—"
     readme = out / "README.txt"
-    readme.write_text(README.format(name=name, line="=" * (len(name) + 18), altgr=altgr,
+    name = _one_line_name(name)   # перенос у назві ламав би заголовок і підкреслення
+    readme.write_text(README.format(name=name, line="=" * (len(name) + len(" — як встановити")), altgr=altgr,
                                     stem=FILE_STEM, kbd="ukropt"), encoding="utf-8")
     paths.append(readme)
     return paths

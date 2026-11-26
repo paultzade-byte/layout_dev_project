@@ -119,3 +119,15 @@ def test_name_is_escaped_in_every_format(km, tmp_path):
     assert xkb.splitlines()[0].startswith("// A & <B> 'C' / 'D' E F — ")
     assert "    name[Group1] = \"A & <B> 'C' / 'D' E F\";\n" in xkb
     assert export.xkb_text(km, "\n") == export.xkb_text(km)   # порожня -> типова назва
+
+
+def test_readme_underline_matches_title(chars, tmp_path):
+    """QA 2026-11-26: підкреслення заголовка README було на 2 символи довше за заголовок."""
+    export.export_all(chars, geometry_config(GEOMETRY), tmp_path, name="Моя")
+    title, line = (tmp_path / "README.txt").read_text(encoding="utf-8").splitlines()[:2]
+    assert title == "Моя — як встановити"
+    assert line == "=" * len(title)
+    export.export_all(chars, geometry_config(GEOMETRY), tmp_path, name="Моя\nдруга")
+    title, line = (tmp_path / "README.txt").read_text(encoding="utf-8").splitlines()[:2]
+    assert title == "Моя друга — як встановити"
+    assert line == "=" * len(title)
