@@ -3,7 +3,7 @@
     invite = Invite(root, launch)     # launch — номер запуску (settings.json `launch_count`)
 
 Показується першою, поки головне вікно будується сховане (main у uiux/app.py), —
-прикриває його мигання на старті. Закривається кліком (або Esc / Enter / пробіл).
+прикриває його мигання на старті. Закривається кліком (або Esc / Enter / пробіл), сама — за CLOSE_MS (поки над нею курсор — ні).
 Тексти й етапи — від автора (2026-11-25); на плашці лише «Гасло дня» і фраза (автор: «забагато
 тексту»), етапи — для довідки в коді.
 """
@@ -13,10 +13,12 @@ from __future__ import annotations
 import tkinter as tk
 
 from uiux.theme import FONT, KEY_TEXT, px
+from uiux.toast import auto_close
 
 BG = "#fbe9be"            # м'який жовтий
 BORDER = "#e0c27a"
 DIM = "#7a6a45"
+CLOSE_MS = 5000          # автор (2026-11-26): не закрили кліком — зникає сама
 
 CAMPAIGN = "Кампанія «Пізнай себе»"
 # (з якого запуску, етап, фраза); діє до наступного запису
@@ -99,6 +101,7 @@ class Invite:
             w.focus_force()
         except tk.TclError:
             pass
+        auto_close(w, CLOSE_MS, self.close)
 
     @property
     def alive(self) -> bool:

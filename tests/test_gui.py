@@ -453,3 +453,19 @@ def test_statistic_menu_switch_and_remember(tmp_path, monkeypatch):
         assert settings.load()["statistic_file"] is None
     finally:
         root.destroy()
+
+
+def test_toast_timeout_capped_and_hover_keeps(monkeypatch):
+    """Плашки — не довше MAX_MS (навіть із ms=12000); курсор над плашкою — не зникає."""
+    from uiux import toast
+    calls = []
+    monkeypatch.setattr(toast, "auto_close", lambda w, ms, close: calls.append(ms))
+    root = tk.Tk()
+    try:
+        t = toast.Toasts(root)
+        t.show("довгий\nтекст", ms=12000)
+        t.show("коротко", ms=1000)
+        t.show("типово")
+        assert calls == [toast.MAX_MS, 1000, toast.MAX_MS]
+    finally:
+        root.destroy()

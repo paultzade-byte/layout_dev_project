@@ -35,3 +35,31 @@ def test_invite_closes_on_click():
         assert not inv.alive
     finally:
         root.destroy()
+
+
+@pytest.mark.skipif(not os.environ.get("DISPLAY") and os.name != "nt", reason="немає дисплея (xvfb-run)")
+def test_invite_closes_itself_unless_hovered(monkeypatch):
+    """Не закрили кліком — зникає сама за CLOSE_MS; поки над нею курсор — ні."""
+    import time
+    from uiux import toast
+    monkeypatch.setattr(I, "CLOSE_MS", 50)
+    monkeypatch.setattr(toast, "AFTER_HOVER_MS", 50)
+    hovered = {"on": True}
+    monkeypatch.setattr(toast, "_hovered", lambda w: hovered["on"])
+    root = tk.Tk()
+    root.withdraw()
+
+    def spin(sec):
+        end = time.time() + sec
+        while time.time() < end:
+            root.update()
+            time.sleep(0.01)
+    try:
+        inv = I.Invite(root, 1)
+        spin(0.4)
+        assert inv.alive                  # курсор над плашкою — тримається
+        hovered["on"] = False
+        spin(0.6)
+        assert not inv.alive
+    finally:
+        root.destroy()
