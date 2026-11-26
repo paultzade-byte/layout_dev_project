@@ -590,6 +590,11 @@ def test_nav_prev_restart_next(tmp_path, monkeypatch):
         root.destroy()
 
 
+def tw_sizes():
+    from uiux.trainer import TEXT_SIZES
+    return TEXT_SIZES
+
+
 @needs_display
 def test_window_does_not_jump(tmp_path, monkeypatch):
     """Вікно з'являється одразу на місці, а в «Класиці» висота тексту не міняється від цитати
@@ -615,6 +620,13 @@ def test_window_does_not_jump(tmp_path, monkeypatch):
         longest = max(tw._count_lines(T.quote_text(q, False, False)) for q in tw.quotes
                       if not T.missing_letters(q, tw.order))
         assert tw.text_lines == max(2, longest)
+        # кожен розмір тексту — швидко (було ~20 с: міряли шрифтом, якого ще не мав віджет)
+        import time
+        for step in [+1] * len(tw_sizes()) + [-1] * len(tw_sizes()):
+            t = time.perf_counter()
+            tw._resize("text", step)
+            root.update()
+            assert time.perf_counter() - t < 2
         tw.close()
     finally:
         root.destroy()

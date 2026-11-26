@@ -338,11 +338,13 @@ class TrainerWindow:
         текст режиму (усі цитати, усі уривки свого тексту; у «Словах» — найдовший рядок,
         відколи відкрито вікно), щоб схема під текстом не стрибала від рядка до рядка."""
         font = (FONT, self.text_size)
+        # спершу шрифт віджету: поки (FONT, size) ніким не вживаний, Tk шукає його заново на
+        # кожен «font measure» — і 199 цитат на новому розмірі міряються ~20 с замість мілісекунд
+        self.text.config(font=font)
         lines = max(2, self._count_lines(self.session.text), self._reserved_lines())
         self._sticky_lines[self._layout_key()] = lines
         linespace = int(self.win.tk.call("font", "metrics", font, "-linespace"))
         height = 2 * px(TEXT_PAD_Y) + lines * linespace + (lines - 1) * px(TEXT_SPACING) + px(4)
-        self.text.config(font=(FONT, self.text_size))
         self.text_box.config(width=self.text_px, height=height)
         self.text_lines = lines
 
