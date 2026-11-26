@@ -164,6 +164,31 @@ def pick_quote(quotes: list[dict], letters, rng: random.Random, last: dict | Non
     return rng.choice(ok) if ok else None
 
 
+def missing_letters(quote: dict, letters) -> str:
+    """Літери цитати, яких нема серед letters (як фільтр у pick_quote); "" — набирається."""
+    return "".join(sorted(set(quote_text(quote)) - set(letters) - {" "}))
+
+
+def _search_words(text: str) -> list[str]:
+    """Слова для пошуку: normalize + без апострофів («п’ять» = «п'ять» = «пять»)."""
+    return normalize(text).replace("'", "").split()
+
+
+def search_quotes(quotes: list[dict], query: str) -> list[dict]:
+    """Цитати, де КОЖНЕ слово запиту — початок якогось слова тексту, автора чи твору
+    («ліс» знайде «лісова», «лісі»; «франко лис» — лише Франкові з «лис…»). Регістр і
+    апострофи не важать. Порожній запит — усі. Порядок — як у quotes."""
+    words = _search_words(query)
+    if not words:
+        return list(quotes)
+    found = []
+    for q in quotes:
+        hay = _search_words(" ".join((q.get("text", ""), q.get("author", ""), q.get("work", ""))))
+        if all(any(h.startswith(w) for h in hay) for w in words):
+            found.append(q)
+    return found
+
+
 def quote_words(quotes: list[dict]) -> Counter:
     words = Counter()
     for q in quotes:

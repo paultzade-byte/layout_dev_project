@@ -19,7 +19,7 @@ from tkinter import filedialog, messagebox
 
 from config import settings
 from core import trainer
-from uiux import tooltip
+from uiux import quote_search, tooltip
 from uiux import render
 from uiux.render import key_cells
 from uiux.toast import Toasts
@@ -120,6 +120,7 @@ class TrainerWindow:
                 b.config(state="disabled")
             tooltip.add(b, tip)
             self.mode_buttons[mode] = b
+        quote_search.search_button(top, lambda: quote_search.QuoteSearch(self)).pack(side="left", padx=(px(6), 0))
 
         self.button_translate = _button(top, "", self._toggle_translate)
         self.button_translate.pack(side="right")
@@ -387,6 +388,15 @@ class TrainerWindow:
         self._update_mode_buttons()
         self._update_checks()
         self._new_line(keep_quote=keep)
+
+    def _select_quote(self, quote):
+        """Цитата з пошуку (uiux/quote_search.py) — друкувати саме її, у «Класиці»."""
+        self.mode = "quotes"
+        settings.save(trainer_mode=self.mode)
+        self._update_mode_buttons()
+        self._update_checks()
+        self.quote = quote
+        self._new_line(keep_quote=True)
 
     def _reset_stats(self):
         if not messagebox.askyesno("Статистика", "Забути статистику по літерах для цієї клавіатури?",
