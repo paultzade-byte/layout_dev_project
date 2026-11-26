@@ -48,6 +48,9 @@
 - `core/layout_factory.py` — `build_layout(geometry)`.
 - `uiux/app.py` — Tkinter: drag&drop, freeze (ПКМ), Start/Stop, Reheat,
   «Відкрити… / Зберегти / Зберегти як…», «Скрін»; `set_geometry(name)` перемикає геометрію в рантаймі.
+  Збережений файл стає стартовим для режиму наступного запуску (settings `start_files`,
+  `_session_start_layout`); «↺ За замовчуванням» — завжди вбудована `start_layout`.
+  Пресети повзунків — всередині панелі «Детальніше» (видалення — підменю «Видалити пресет ▸»).
 - `core/export.py` — експорт розкладки в ОС: `.klc` (MSKLC), xkb, `.keylayout`
   + README; кнопка «Експорт…» (лише «Звичайна»), CLI
   `python -m core.export LAYOUT.json OUT_DIR`. Фізичні клавіші — `key` у geometry.json.
