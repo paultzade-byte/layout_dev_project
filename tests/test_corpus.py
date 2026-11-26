@@ -199,3 +199,20 @@ def test_repeated_and_mixed_apostrophes_become_one():
         assert norm(text) == "п'ять", text
     assert norm("ʼп’ять’") == "ʼп'ять’"          # на краях слова — не між літерами
     assert norm("5’’ять п’’ 7") == "5’’ять п’’ 7"
+
+
+def test_statistic_files_with_same_name_prefix_do_not_overwrite(tmp_path):
+    """QA 2026-11-26: назва корпусу в імені файлу обрізається до 40 символів — два корпуси
+    з однаковим початком назви за один день перезаписували один одного."""
+    from config import stats_files
+    (tmp_path / "uk.txt").write_text(TEXT_UK * 30, encoding="utf-8")
+    result = corpus.count_corpus([tmp_path / "uk.txt"], "uk", 1.0)
+    out, base = tmp_path / "stats", "н" * 40
+    a = corpus.write_statistic_file(result, out, base + "_перший")
+    b = corpus.write_statistic_file(result, out, base + "_другий")
+    c = corpus.write_statistic_file(result, out, base + "_третій")
+    assert len({a, b, c}) == 3 and b.name == a.stem + "_2.json" and c.name == a.stem + "_3.json"
+    assert [stats_files.read_meta(p)["corpus"] for p in (a, b, c)] == \
+        [base + "_перший", base + "_другий", base + "_третій"]
+    assert corpus.write_statistic_file(result, out, base + "_другий") == b   # той самий — перезапис
+    assert len(list(out.glob("*.json"))) == 3

@@ -351,15 +351,28 @@ def statistic_file_name(lang_code: str, corpus_name: str, day: str | None = None
     return f"{LANGUAGES[lang_code].tag}_{safe}_{day or date.today().isoformat()}.json"
 
 
+def statistic_file_path(out_dir, lang_code: str, corpus_name: str) -> Path:
+    """Куди write_statistic_file запише файл сьогодні. Той самий корпус — той самий
+    файл (перезапис). Назва корпусу в імені обрізана до 40 символів: інший корпус
+    з тим самим початком назви не затирає чужий файл, а отримує суфікс _2, _3…"""
+    from config.stats_files import read_meta
+    first = Path(out_dir) / statistic_file_name(lang_code, corpus_name)
+    path, n = first, 1
+    while path.exists() and (read_meta(path) or {}).get("corpus") != corpus_name:
+        n += 1
+        path = first.with_name(f"{first.stem}_{n}{first.suffix}")
+    return path
+
+
 def write_statistic_file(result: dict, out_dir, corpus_name: str) -> Path:
     """Один файл: n-грами + words + meta (мова, корпус, дата). Такі файли
     оптимізатор показує в меню «Статистика ▾» (config/stats_files.py).
-    Той самий день і корпус — файл перезаписується."""
+    Ім'я — statistic_file_path (той самий день і корпус — перезапис)."""
     from datetime import datetime
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {**result["meta"], "corpus": corpus_name, "created": datetime.now().isoformat(timespec="minutes")}
-    path = out_dir / statistic_file_name(meta["language"], corpus_name)
+    path = statistic_file_path(out_dir, meta["language"], corpus_name)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"meta": meta, **result["statistic"], "words": result["words"]}, f, ensure_ascii=False)
     return path

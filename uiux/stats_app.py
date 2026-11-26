@@ -154,7 +154,9 @@ class StatsApp:
 
     def _out_name(self) -> str:
         lang = self._lang_code() or "uk"
-        return corpus.statistic_file_name(lang, self.corpus_dir.name if self.corpus_dir else "тексти")
+        # те саме ім'я, що дасть write_statistic_file (з суфіксом _2, _3…, якщо зайнято)
+        return corpus.statistic_file_path(self.out_dir, lang,
+                                          self.corpus_dir.name if self.corpus_dir else "тексти").name
 
     def _lang_code(self) -> str | None:
         return self.detected if self.lang == AUTO else self.lang

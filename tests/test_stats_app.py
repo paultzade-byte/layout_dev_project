@@ -71,3 +71,26 @@ def test_bad_saved_settings_use_defaults(tmp_path, monkeypatch, bad):
         assert app.cpu == 25 and type(app.cpu) is int
     finally:
         root.destroy()
+
+
+def test_start_tip_shows_suffixed_name(tmp_path):
+    """QA 2026-11-26: тултіп «Старт» показував ім'я без суфікса _2, хоча файл іншого
+    корпусу з тим самим початком назви вже є і запис піде в …_2.json."""
+    from core import corpus
+    from uiux import stats_app as S
+    base = "н" * 40
+    src = tmp_path / (base + "_другий")
+    src.mkdir()
+    (src / "a.txt").write_text("Їжак з'їв ґрунт, єнот пʼє воду. " * 50, encoding="utf-8")
+    result = corpus.count_corpus([src / "a.txt"], "uk", 1.0)
+    first = corpus.write_statistic_file(result, tmp_path / "out", base + "_перший")
+    root = tk.Tk()
+    try:
+        app = S.StatsApp(root, str(src))
+        app.out_dir = tmp_path / "out"
+        root.update()
+        expected = first.stem + "_2.json"
+        assert expected in app._start_tip() and app._out_name() == expected
+        assert corpus.write_statistic_file(result, app.out_dir, src.name).name == expected
+    finally:
+        root.destroy()
