@@ -549,9 +549,10 @@ class TrainerWindow:
             if self.mode not in TEXT_MODES:          # цитата / свій текст — усі літери, рівень не міряє
                 self.level_lines.append(line)
             if self.mode not in TEXT_MODES and self.auto_level and self.level < self.levels - 1 and trainer.should_level_up(self.level_lines):
-                self.scale.set(self.level + 1)       # -> _on_level -> новий рядок
+                level = self.level + 1
+                self.scale.set(level)                # може сам викликати _on_level
                 self.win.update_idletasks()
-                self._on_level(self.level + 1)
+                self._on_level(level)                # повторний виклик з тим самим рівнем — no-op
                 self.toasts.show(f"Рівень вище: нова літера «{self.allowed[-1]}»"
                                  if self.focus else "Рівень вище")
                 return "break"

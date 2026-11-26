@@ -370,3 +370,30 @@ def test_comma_and_period_unlock_by_level_and_follow_words():
 def test_key_outputs_light_shifted_and_altgr():
     assert T.key_outputs(".", {}) == {".", ":"}
     assert T.key_outputs("г", {"г": "ґ"}) == {"г", "ґ"}
+
+
+@needs_display
+def test_auto_level_up_raises_by_one(tmp_path, monkeypatch):
+    """QA 2026-11-26: «Сам підвищуй» піднімав на +2 (scale.set уже викликає _on_level)."""
+    import tkinter as tk
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        tw = ui.on_train()
+        root.update()
+        tw._set_mode("words")
+        tw.translate, tw.auto_level = False, True
+        monkeypatch.setattr(T, "should_level_up", lambda lines: True)
+        start = tw.level
+        for ch in tw.session.text:
+            tw._on_key(SimpleNamespace(keysym="x", keycode=0, char=ch, state=0))
+        root.update()
+        assert tw.level == start + 1
+        assert int(float(tw.scale.get())) == start + 1
+        tw.close()
+    finally:
+        root.destroy()
