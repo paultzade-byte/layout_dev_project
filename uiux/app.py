@@ -126,13 +126,19 @@ OTHER_KEYBOARD = "це розкладка для іншої клавіатури
 
 
 def layout_data_problem(data, layout) -> str | None:
-    """Чи підходить файл розкладки до layout: ті самі позиції й той самий
-    набір літер (інакше — розкладка іншої клавіатури або зіпсований файл)."""
+    """Чи підходить файл розкладки до layout: ті самі позиції (не позиції іншої
+    геометрії) й той самий набір літер (інакше — розкладка іншої клавіатури або
+    зіпсований файл)."""
     if not isinstance(data, list) or not all(isinstance(d, dict) for d in data):
         return "очікується список клавіш"
     ids = {k.position_id for k in layout.keys}
     file_ids = {d["position_id"] for d in data}
     if not file_ids <= ids:
+        return OTHER_KEYBOARD
+    # позиції Corne — підмножина ANSI: файл, що точно збігається з позиціями іншої
+    # геометрії, — розкладка для неї (старі неповні файли цього режиму сюди не потрапляють)
+    if file_ids != ids and any(file_ids == {q["id"] for q in g.get("positions", [])}
+                               for g in GEOMETRIES.values()):
         return OTHER_KEYBOARD
     letters = lambda chars: sorted(c for c in chars if len(c) == 1)
     here = letters(k.char for k in layout.keys if k.position_id in file_ids)

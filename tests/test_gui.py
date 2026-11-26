@@ -647,3 +647,29 @@ def test_keyboard_label_and_layer_board_have_tooltips(tmp_path, monkeypatch):
         assert lv.tip._tip is None
     finally:
         root.destroy()
+
+
+def test_corne_file_in_standard_mode_is_other_keyboard(tmp_path, monkeypatch):
+    """QA 2026-11-26: файл Corne у режимі «Звичайна» відхилявся як «набір символів не
+    збігається», а не «розкладка для іншої клавіатури» (позиції Corne — підмножина ANSI)."""
+    import json
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from config.main_config import CONFIG_DIR
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        corne = json.loads((CONFIG_DIR / "layout_seed5.json").read_text(encoding="utf-8"))
+        assert len(corne) == len(A.geometry_config("corne_42")["positions"])
+        assert "іншої клавіатури" in ui.layout_file_problem(corne)
+        own = json.loads((CONFIG_DIR / "layout_standard_A.json").read_text(encoding="utf-8"))
+        assert ui.layout_file_problem(own) is None
+        old = own[:38]                     # старий файл режиму з меншою кількістю позицій
+        assert A.layout_data_problem(old, ui.layout) != A.OTHER_KEYBOARD
+        assert ui.set_geometry("corne_42")
+        assert ui.layout_file_problem(corne) is None
+        assert "іншої клавіатури" in ui.layout_file_problem(own)
+    finally:
+        root.destroy()
