@@ -509,3 +509,36 @@ def test_bad_saved_level_and_own_pos_fall_back(tmp_path, monkeypatch):
         tw.close()
     finally:
         root.destroy()
+
+
+def test_translator_caps_lock_like_os():
+    """QA 2026-11-26: Caps Lock у «перекладати» ігнорувався (перевірявся лише Shift).
+    Caps — як Shift для літер (Shift+Caps — мала), цифри й розділові — без змін; на AltGr —
+    лише якщо там теж літера (як .klc / xkb з експорту)."""
+    geometry = geometry_config("generic_105_alpha")
+    chars = _chars("generic_105_alpha")
+    for windowing, code in (("x11", 0), ("win32", 1)):
+        tr = T.Translator(chars, geometry, windowing)
+        caps, shift = T.LOCK_MASK, T.SHIFT_MASK
+        altgr = 0x80 if windowing == "x11" else 0x20000 | 0x4
+        letter_key = next(k for k, l in tr.levels.items() if l[0].isalpha() and not l[2])
+        letter = tr.levels[letter_key][0]
+        press = lambda key, state: tr.translate(T._ROWS[key][code], "?", state)
+        assert press(letter_key, caps) == letter.upper()
+        assert press(letter_key, caps | shift) == letter
+        assert press("AE01", caps) == tr.levels["AE01"][0]          # цифра — без Shift
+        assert press("AE01", caps | shift) == tr.levels["AE01"][1]
+        other = next(k for k, l in tr.levels.items() if not l[0].isalpha() and not k.startswith("AE"))
+        assert press(other, caps) == tr.levels[other][0]          # розділовий — як без Caps
+        alt_key = next(k for k, l in tr.levels.items() if l[0].isalpha() and l[2] and l[2].isalpha())
+        assert press(alt_key, caps | altgr) == tr.levels[alt_key][3]
+        assert press(alt_key, caps | shift | altgr) == tr.levels[alt_key][2]
+    # macOS: keyMapSelect «anyShift caps?» — Shift+Caps дає Shift-мапу (велику), як і система
+    mac = T.Translator(chars, geometry, "aqua")
+    by_char = lambda key, state: mac.translate(0, T._ROWS[key][2], state)
+    letter_key = next(k for k, l in mac.levels.items() if l[0].isalpha() and T.BY_CHAR[T._ROWS[k][2]] == k)
+    letter = mac.levels[letter_key][0]
+    assert by_char(letter_key, T.LOCK_MASK) == letter.upper()
+    assert by_char(letter_key, T.LOCK_MASK | T.SHIFT_MASK) == letter.upper()
+    assert by_char(letter_key, T.SHIFT_MASK) == letter.upper() and by_char(letter_key, 0) == letter
+    assert by_char("AE01", T.LOCK_MASK) == mac.levels["AE01"][0]

@@ -68,6 +68,7 @@ PUNCT_FOCUS = 0.30                     # ... якщо це нова (у фоку
 _PUNCT_MAP = str.maketrans({"—": "-", "–": "-", "‑": "-", "„": '"', "“": '"', "”": '"', "«": '"',
                             "»": '"', "…": "..."})
 SHIFT_MASK = 0x01         # біт Shift у event.state (X11 і Windows)
+LOCK_MASK = 0x02          # біт Caps Lock у event.state (X11 і Windows)
 
 
 # ----------------------------------------------------------------------
@@ -520,7 +521,7 @@ class Translator:
         return table.get(keycode) or BY_CHAR.get(char)
 
     def translate(self, keycode: int, char: str, state: int) -> str | None:
-        """Символ нової розкладки для натискання (з урахуванням Shift і AltGr)
+        """Символ нової розкладки для натискання (з урахуванням Shift, Caps Lock і AltGr)
         або None (клавіша без символу: Shift, Ctrl…)."""
         if char == " " or keycode == SPACE_KEYCODE.get(self.windowing):
             return " "
@@ -528,9 +529,25 @@ class Translator:
         levels = self.levels.get(key) if key else None
         if not levels:
             return None
-        level = (1 if state & SHIFT_MASK else 0) + (2 if state & ALTGR_MASK.get(self.windowing, 0) else 0)
+        shift = bool(state & SHIFT_MASK)
+        altgr = bool(state & ALTGR_MASK.get(self.windowing, 0))
+        if state & LOCK_MASK and _caps_applies(levels, altgr):
+            if self.windowing == "aqua":      # macOS (і наш .keylayout): Shift+Caps — теж велика
+                shift = shift or not altgr    # на Option-рівнях Caps не діє
+            else:
+                shift = not shift             # Caps — як Shift для літер (Shift+Caps — мала)
+        level = (1 if shift else 0) + (2 if altgr else 0)
         ch = levels[level] or (levels[level - 1] if level == 3 else None)
         return ch or None
+
+
+def _caps_applies(levels: list, altgr: bool) -> bool:
+    """Чи діє Caps Lock на клавішу — як в експорті (.klc: прапорці 1 / 4, xkb: *_ALPHABETIC):
+    на літерну клавішу; на рівні AltGr — лише якщо й там літера (ї -> Ї)."""
+    base = levels[0] or ""
+    if not base.isalpha():
+        return False
+    return not altgr or bool(levels[2] and levels[2].isalpha())
 
 
 def as_is(char: str) -> str | None:
