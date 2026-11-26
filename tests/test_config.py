@@ -134,3 +134,20 @@ def test_settings_bad_types_fall_back_to_defaults(tmp_path, monkeypatch, bad):
     settings.save(cpu_percent=50, stats_out=Path("/x/y"))
     assert settings.cpu_percent() == 50
     assert settings.load()["stats_out"] == str(Path("/x/y"))
+
+
+@pytest.mark.parametrize("bad", [True, 1, ["x.json"], {"p": 1}])
+def test_statistic_file_not_a_string_uses_builtin(tmp_path, monkeypatch, bad):
+    """QA 2026-11-26: "statistic_file": true -> open(True) відкривав fd 1 (stdout), with його
+    закривав, і процес виходив з кодом 120. Шлях — лише рядок, інакше вбудована статистика."""
+    import os
+    from config import settings, stats_files
+    from config.main_config import STATISTIC
+    from uiux import app as A
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    settings.save(statistic_file=bad)
+    assert A.startup_statistic() == (STATISTIC, stats_files.BUILTIN)
+    assert stats_files.read_meta(bad) is None and stats_files.language(bad) is None
+    with pytest.raises(ValueError):
+        stats_files.load(bad)
+    os.fstat(1)   # stdout живий

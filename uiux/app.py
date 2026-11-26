@@ -1949,7 +1949,8 @@ def startup_statistic():
     """Запам'ятована статистика (settings "statistic_file"), якщо файл є і мова
     українська; інакше — вбудована. -> (statistic, файл або None)."""
     chosen = settings.load().get("statistic_file")
-    if chosen:
+    # лише рядок: true у файлі -> open(True) відкрив би і закрив stdout (вихід з кодом 120)
+    if isinstance(chosen, str) and chosen:
         try:
             if stats_files.language(chosen) in stats_files.OPTIMIZER_LANGS:
                 return stats_files.load(chosen), Path(chosen)

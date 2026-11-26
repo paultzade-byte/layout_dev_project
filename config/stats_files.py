@@ -9,6 +9,7 @@ ukr_<корпус>_<дата>.json (див. core/corpus.write_statistic_file).
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from config.paths import layouts_dir
@@ -24,8 +25,15 @@ def stats_dir() -> Path:
     return layouts_dir() / "статистика"
 
 
+def _is_path(path) -> bool:
+    """Шлях — лише рядок або Path: open(True) / open(5) відкрили б дескриптор (stdout…)."""
+    return isinstance(path, (str, os.PathLike)) and bool(str(path))
+
+
 def read_meta(path) -> dict | None:
     """meta файлу статистики або None, якщо це не файл статистики."""
+    if not _is_path(path):
+        return None
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
@@ -48,6 +56,8 @@ def list_files(folder: Path | None = None) -> list[tuple[Path, dict]]:
 
 def load(path) -> dict:
     """Статистика у форматі STATISTIC (n-грами + words, масштабовані до корпусу)."""
+    if not _is_path(path):
+        raise ValueError(f"це не шлях до файлу статистики: {path!r}")
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data, dict):
