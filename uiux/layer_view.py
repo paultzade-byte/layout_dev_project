@@ -130,7 +130,7 @@ class LayerView(tk.Frame):
         self.canvas.bind("<Button-3>", self._revert_at)
         self.canvas.bind("<Motion>", self._hover)
         self.canvas.bind("<Leave>", lambda e: self.caption_hint(None))
-        self.tip = tooltip.add(self.canvas, self._tip_text)
+        self.tip = tooltip.add(self.canvas, self._tip_text, at_pointer=True)
         self._hover_pos = None
         self.about = ""
         self.dump = None      # робоча копія (з незаписаними змінами)

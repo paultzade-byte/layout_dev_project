@@ -542,3 +542,49 @@ def test_translator_caps_lock_like_os():
     assert by_char(letter_key, T.LOCK_MASK | T.SHIFT_MASK) == letter.upper()
     assert by_char(letter_key, T.SHIFT_MASK) == letter.upper() and by_char(letter_key, 0) == letter
     assert by_char("AE01", T.LOCK_MASK) == mac.levels["AE01"][0]
+
+
+@needs_display
+def test_nav_prev_restart_next(tmp_path, monkeypatch):
+    """← ↻ →: «Класика» ходить по історії цитат, ↻ — той самий текст з початку в усіх режимах."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        tw = ui.on_train()
+        root.update()
+        tw._set_mode("quotes")
+        q1 = tw.quote
+        assert tw.button_prev.cget("state") == "disabled"
+        tw._go(+1); q2 = tw.quote
+        tw._go(+1); q3 = tw.quote
+        assert q1 is not q2 and q2 is not q3
+        assert tw.button_prev.cget("state") == "normal"
+        tw._go(-1); assert tw.quote is q2
+        tw._go(-1); assert tw.quote is q1 and tw.button_prev.cget("state") == "disabled"
+        tw._go(-1); assert tw.quote is q1                 # далі назад нема
+        tw._go(+1); assert tw.quote is q2                 # вперед — по історії
+        tw.session.type(tw.session.text[0], 0.0)
+        tw._go(0); assert tw.quote is q2 and tw.session.pos == 0
+        tw._go(+1); tw._go(+1); assert tw.quote is not q3 or len(tw.quote_hist) == 4
+
+        tw._set_mode("words")
+        text = tw.session.text
+        tw.session.type(text[0], 0.0)
+        tw._go(0); assert tw.session.text == text and tw.session.pos == 0
+        tw._go(-1); assert tw.session.text == text        # у «Словах» назад нема
+        tw._go(+1); assert tw.session.text != text
+
+        own = tmp_path / "own.txt"
+        own.write_text("Свій текст для тренування, ось! Ще речення тут. " * 40, encoding="utf-8")
+        monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kw: str(own))
+        tw._set_mode("own")
+        tw._go(+1); tw._go(+1); assert tw.own_idx == 2
+        tw._go(-1); assert tw.own_idx == 1 and tw.session.text == tw.own_chunks[1]
+        tw._go(0); assert tw.own_idx == 1
+        tw.close()
+    finally:
+        root.destroy()

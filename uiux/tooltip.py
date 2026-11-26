@@ -7,6 +7,8 @@
 
 text — рядок або функція без аргументів (для віджетів, чий зміст міняється:
 клавіші дошки, кнопки, що бувають недоступні); порожній текст — без підказки.
+at_pointer — під курсором, а не під віджетом: для великих (дошка шарів, схема
+тренажера), де «під віджетом» — далеко від миші.
 """
 
 import tkinter as tk
@@ -19,8 +21,8 @@ BORDER = "#4a5263"
 
 
 class Tooltip:
-    def __init__(self, widget: tk.Widget, text, delay: int = DELAY_MS):
-        self.widget, self.text, self.delay = widget, text, delay
+    def __init__(self, widget: tk.Widget, text, delay: int = DELAY_MS, at_pointer: bool = False):
+        self.widget, self.text, self.delay, self.at_pointer = widget, text, delay, at_pointer
         self._job = None
         self._tip = None
         # add="+": не перебиваємо hover самої кнопки (RoundButton)
@@ -53,10 +55,17 @@ class Tooltip:
                              highlightthickness=1, highlightbackground=BORDER)
         root.update_idletasks()
         w, h = self._tip.winfo_reqwidth(), self._tip.winfo_reqheight()
-        x = self.widget.winfo_rootx() - root.winfo_rootx()
-        y = self.widget.winfo_rooty() - root.winfo_rooty() + self.widget.winfo_height() + 4
-        if y + h > root.winfo_height():          # знизу не влазить — над віджетом
-            y = self.widget.winfo_rooty() - root.winfo_rooty() - h - 4
+        if self.at_pointer:
+            px_, py_ = self.widget.winfo_pointerxy()
+            x = px_ - root.winfo_rootx() + px(12)
+            y = py_ - root.winfo_rooty() + px(20)
+            if y + h > root.winfo_height():      # знизу не влазить — над курсором
+                y = py_ - root.winfo_rooty() - h - px(8)
+        else:
+            x = self.widget.winfo_rootx() - root.winfo_rootx()
+            y = self.widget.winfo_rooty() - root.winfo_rooty() + self.widget.winfo_height() + 4
+            if y + h > root.winfo_height():      # знизу не влазить — над віджетом
+                y = self.widget.winfo_rooty() - root.winfo_rooty() - h - 4
         x = max(4, min(x, root.winfo_width() - w - 4))
         self._tip.place(x=x, y=max(4, y))
         self._tip.lift()
@@ -68,5 +77,5 @@ class Tooltip:
             self._tip = None
 
 
-def add(widget: tk.Widget, text, delay: int = DELAY_MS) -> Tooltip:
-    return Tooltip(widget, text, delay)
+def add(widget: tk.Widget, text, delay: int = DELAY_MS, at_pointer: bool = False) -> Tooltip:
+    return Tooltip(widget, text, delay, at_pointer)

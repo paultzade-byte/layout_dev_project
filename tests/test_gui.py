@@ -641,8 +641,12 @@ def test_keyboard_label_and_layer_board_have_tooltips(tmp_path, monkeypatch):
                 ui.show_tab(name)
                 assert name in lv._tip_text()
             ui.show_tab("Редактор")
+        # QA: біля курсора, а не під усією дошкою (курсор підставний — справжню мишу не рухаємо)
+        lv.canvas.winfo_pointerxy = lambda: (root.winfo_rootx() + 200, root.winfo_rooty() + 150)
         lv.tip._show()
         assert lv.tip._tip is not None
+        info = lv.tip._tip.place_info()
+        assert int(info["y"]) == 150 + A.px(20) and int(info["x"]) == 200 + A.px(12)
         lv._drag_start(type("E", (), {"x": -100, "y": -100})())   # клік ховає підказку
         assert lv.tip._tip is None
     finally:

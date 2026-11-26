@@ -73,6 +73,8 @@ class TrainerWindow:
         self.rng = random.Random()
         self.quotes = trainer.load_quotes()
         self.quote = None
+        self.quote_hist: list[dict] = []   # цитати «Класики» в порядку показу (для ← →)
+        self.quote_at = -1                 # поточна в quote_hist
         self.source = trainer.WordSource(trainer.quote_words(self.quotes),
                                          statistic.get("bigrams", {}), self.rng)
         self.order = trainer.make_order(self.chars, geometry, statistic.get("unigrams", {}))
@@ -199,12 +201,25 @@ class TrainerWindow:
         self.text.bind("<Button-1>", lambda e: "break")
         tooltip.add(self.text, self._text_tip)
 
+        nav = tk.Frame(w, bg=BG)                 # ← ↻ → посередині, під текстом
+        nav.pack(pady=(0, px(8)))
+        self.button_prev = _button(nav, "←", lambda: self._go(-1), small=False)
+        self.button_prev.pack(side="left")
+        tooltip.add(self.button_prev, self._prev_tip)
+        again_same = _button(nav, "↻", lambda: self._go(0), small=False)
+        again_same.pack(side="left", padx=px(8))
+        tooltip.add(again_same, "Почати цей самий рядок заново (набране й помилки скидаються).")
+        self.button_next = _button(nav, "→", lambda: self._go(+1), small=False)
+        self.button_next.pack(side="left")
+        tooltip.add(self.button_next, self._next_tip)
+
         self.board = tk.Canvas(w, bg=BG, highlightthickness=0)
         self.board.pack(padx=px(16), pady=(0, px(8)))
         self._draw_board()
         tooltip.add(self.board, "Розкладка з дошки головного вікна. Синім — клавіша, яку натиснути "
                                 "зараз; сірі — літери, яких ще нема у вправах. Риски — F і J "
-                                "(на справжній клавіатурі там пухирці): тут лежать вказівні.")
+                                "(на справжній клавіатурі там пухирці): тут лежать вказівні.",
+                    at_pointer=True)
 
         bottom = tk.Frame(w, bg=BG)
         bottom.pack(fill="x", padx=px(16), pady=(0, px(14)))
@@ -221,7 +236,7 @@ class TrainerWindow:
         close = _button(bottom, "Закрити", self.close, small=False)
         close.pack(side="right")
         tooltip.add(close, "Закрити тренування (Esc). Рівень і переклад запам'ятовуються.")
-        again = _button(bottom, "Інший рядок", lambda: self._new_line(advance=True), small=False)
+        again = _button(bottom, "Інший рядок", lambda: self._go(+1), small=False)
         again.pack(side="right", padx=(0, px(8)))
         tooltip.add(again, "Пропустити цей рядок і взяти новий.")
         reset = _button(bottom, "Скинути статистику", self._reset_stats, small=False)
@@ -411,6 +426,54 @@ class TrainerWindow:
         self.quote = quote
         self._new_line(keep_quote=True)
 
+    def _go(self, step: int):
+        """← (step −1) / ↻ (0) / → (+1). «Класика» — по історії показаних цитат (далі за
+        останню — нова випадкова), «Свій текст» — по уривках, «Слова»/«Поєднання» — ←
+        нема, → — новий рядок. ↻ — той самий текст з початку в будь-якому режимі."""
+        if step == 0:
+            self._new_line(keep_quote=True, same_text=True)
+        elif self.mode == "quotes" and 0 <= self.quote_at + step < len(self.quote_hist):
+            self.quote_at += step
+            self.quote = self.quote_hist[self.quote_at]
+            self._new_line(keep_quote=True)
+        elif step < 0 and self.mode == "own" and self.own_chunks:
+            if self.own_idx > 0:
+                self.own_idx -= 1
+                settings.save(trainer_own_pos={**_saved_dict("trainer_own_pos"), self.own_file: self.own_idx})
+                self._new_line()
+        elif step > 0:
+            self._new_line(advance=True)
+
+    def _can_prev(self) -> bool:
+        if self.mode == "quotes":
+            return self.quote_at > 0
+        return self.mode == "own" and bool(self.own_chunks) and self.own_idx > 0
+
+    def _prev_tip(self):
+        if self.mode == "quotes":
+            return ("Попередня цитата." if self._can_prev()
+                    else "Попередня цитата — це перша, яку показано в цьому вікні.")
+        if self.mode == "own":
+            return "Попередній уривок тексту." if self._can_prev() else "Це перший уривок тексту."
+        return "Назад — лише в «Класиці» та «Своєму тексті»; тут рядки щоразу нові."
+
+    def _next_tip(self):
+        if self.mode == "quotes":
+            return ("Наступна цитата (вперед після «←»)." if self.quote_at < len(self.quote_hist) - 1
+                    else "Наступна цитата — нова випадкова.")
+        if self.mode == "own":
+            return "Наступний уривок тексту."
+        return "Новий рядок."
+
+    def _remember_quote(self, quote):
+        """Нова показана цитата -> історія (як у браузері: після «←» гілку вперед замінює)."""
+        if quote is None or (0 <= self.quote_at < len(self.quote_hist) and self.quote_hist[self.quote_at] is quote):
+            return
+        self.quote_hist = self.quote_hist[:self.quote_at + 1] + [quote]
+        if len(self.quote_hist) > 200:
+            self.quote_hist = self.quote_hist[-200:]
+        self.quote_at = len(self.quote_hist) - 1
+
     def _reset_stats(self):
         if not messagebox.askyesno("Статистика", "Забути статистику по літерах для цієї клавіатури?",
                                    parent=self.win):
@@ -449,10 +512,12 @@ class TrainerWindow:
             self._new_line(keep_quote=True)
 
     # ------------------------------------------------------------------
-    def _new_line(self, advance: bool = False, keep_quote: bool = False):
+    def _new_line(self, advance: bool = False, keep_quote: bool = False, same_text: bool = False):
         """advance — до наступного уривка «Свого тексту» (рядок дописано чи «Інший рядок»).
         keep_quote — у «Класиці» лишити поточну цитату (змінено лише вигляд: «Великі»,
-        «Розділові», рівень…): той самий текст у новому вигляді, набір — з початку."""
+        «Розділові», рівень…): той самий текст у новому вигляді, набір — з початку.
+        same_text — «Слова»/«Поєднання»: той самий рядок з початку (↻)."""
+        old_text = self.session.text if same_text and hasattr(self, "session") else None
         self._merge_session()
         if advance and self.mode == "own" and self.own_chunks:
             self.own_idx += 1
@@ -477,14 +542,15 @@ class TrainerWindow:
             n, info = total, f" · {Path(self.own_file).name}: {self.own_idx + 1} з {len(self.own_chunks)}"
         elif quote:
             self.quote, self.allowed, self.focus = quote, list(self.order), None
+            self._remember_quote(quote)
             text = trainer.quote_text(quote, self.caps.get(), self.punct.get())
             n, info = total, " · цитата: усі літери"
         elif targets:
-            text = self.source.ngram_line(targets, self.allowed)
+            text = old_text or self.source.ngram_line(targets, self.allowed)
             info = " · " + " ".join(g for g, _ in targets[:6]) + ("…" if len(targets) > 6 else "")
         else:
             weak = [ch for ch, _, _ in trainer.weak_letters(self.stats, set(self.allowed), trainer.WEAK_TOP)]
-            text = self.source.line(self.allowed, self.focus, weak=weak)
+            text = old_text or self.source.line(self.allowed, self.focus, weak=weak)
             info = f" · нова: «{self.focus}»" if self.focus else " · домашній ряд"
             if self.mode == "ngrams":
                 info += " · важких поєднань з цих літер нема"
@@ -498,6 +564,7 @@ class TrainerWindow:
         self._render()
         self._show_stats()
         self._show_weak()
+        self.button_prev.config(state="normal" if self._can_prev() else "disabled")
 
     def _paint_board(self):
         nxt = self.session.text[self.session.pos] if not self.session.done else ""
@@ -569,7 +636,7 @@ class TrainerWindow:
                 self.toasts.show(f"Рівень вище: нова літера «{self.allowed[-1]}»"
                                  if self.focus else "Рівень вище")
                 return "break"
-            self._new_line(advance=True)
+            self._go(+1)
             return "break"
         self._paint_board()
         self._render()
