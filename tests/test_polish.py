@@ -50,3 +50,23 @@ def test_polish_keeps_frozen_keys():
     opt.best_score = opt._load(layout)
     opt._polish(layout)
     assert {k.position_id: k.char for k in layout.keys if k.is_frozen} == frozen
+
+
+def test_bad_run_arguments_keep_previous_best():
+    """QA 2026-11-26: run_optimization з iterations < 1 або без рухомих клавіш
+    перезаписував best_score/current_score до перевірки аргументів."""
+    import copy
+
+    import pytest
+
+    opt, layout = _optimizer()
+    opt.best_layout = copy.deepcopy(layout)
+    opt.best_score = opt.current_score = -123.0   # «результат попереднього прогону»
+    with pytest.raises(ValueError):
+        opt.run_optimization(layout, iterations=0)
+    frozen = copy.deepcopy(layout)
+    for key in frozen.keys:
+        key.is_frozen = True
+    with pytest.raises(ValueError):
+        opt.run_optimization(frozen, iterations=10)
+    assert opt.best_score == opt.current_score == -123.0
