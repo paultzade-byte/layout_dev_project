@@ -1,6 +1,6 @@
 """Інвітейшн при вході: м'яка жовта плашка — сіре «Гасло дня» і фраза кампанії «Пізнай себе».
 
-    invite = Invite(root, launch)     # launch — номер запуску (settings.json `launch_count`)
+    invite = Invite(root, launch)     # launch — номер дня з запуском (next_launch, settings.json)
 
 Показується першою, поки головне вікно будується сховане (main у uiux/app.py), —
 прикриває його мигання на старті. Закривається кліком (або Esc / Enter / пробіл), сама — за CLOSE_MS (поки над нею курсор — ні).
@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from datetime import date
 
 from uiux.theme import FONT, KEY_TEXT, px
 from uiux.toast import auto_close
@@ -51,7 +52,7 @@ PHRASES = [
 
 
 def phrase(launch: int) -> tuple[str, str]:
-    """(етап, фраза) для номера запуску (з 1)."""
+    """(етап, фраза) для номера дня з запуском (з 1)."""
     stage, text = PHRASES[0][1:]
     for start, s, t in PHRASES:
         if launch >= start:
@@ -59,11 +60,17 @@ def phrase(launch: int) -> tuple[str, str]:
     return stage, text
 
 
-def next_launch() -> int:
-    """Номер цього запуску (+1 до запам'ятованого в settings.json)."""
+def next_launch(today: date | None = None) -> int:
+    """Номер гасла: скільки різних днів програму запускали (settings.json `launch_count` +
+    `launch_date`). Автор (2026-11-26): гасло дня — одне на день; повторні запуски того самого
+    дня лічильник не міняють, дні без запусків — теж (наступний запуск = наступне гасло)."""
     from config import settings
-    n = int(settings.load().get("launch_count", 0)) + 1
-    settings.save(launch_count=n)
+    today = (today or date.today()).isoformat()
+    data = settings.load()
+    n = int(data.get("launch_count", 0))
+    if data.get("launch_date") != today or n == 0:
+        n += 1
+        settings.save(launch_count=n, launch_date=today)
     return n
 
 

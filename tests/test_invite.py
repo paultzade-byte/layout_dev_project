@@ -1,4 +1,4 @@
-"""Інвітейшн при вході: фраза за номером запуску, лічильник, вікно закривається кліком."""
+"""Інвітейшн при вході: фраза за номером дня з запуском, лічильник, вікно закривається кліком."""
 import os
 
 import pytest
@@ -17,7 +17,11 @@ def test_phrases_by_launch():
 
 def test_launch_counter(tmp_path, monkeypatch):
     monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
-    assert [I.next_launch() for _ in range(3)] == [1, 2, 3]
+    from datetime import date
+    d1, d2, d5 = date(2026, 11, 26), date(2026, 11, 27), date(2026, 11, 30)
+    assert [I.next_launch(d1) for _ in range(3)] == [1, 1, 1]      # 3 запуски за день — одне гасло
+    assert I.next_launch(d2) == 2 and I.next_launch(d2) == 2         # наступний день — наступне
+    assert I.next_launch(d5) == 3                                    # дні без запусків не рахуються
 
 
 tk = pytest.importorskip("tkinter")
