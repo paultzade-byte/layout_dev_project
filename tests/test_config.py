@@ -106,3 +106,12 @@ def test_schema_rejects_non_finite_weights(bad):
     moves["hand"]["left_mult"] = bad
     with pytest.raises(ValueError, match="left_mult"):
         validate_moves_config(moves)
+
+
+@pytest.mark.parametrize("bad", [None, 5, "x"])
+def test_build_layout_non_dict_position(bad):
+    """QA 2026-11-26: null у positions -> AttributeError з обробника помилки замість ValueError."""
+    geometry = geometry_config("corne_42")
+    geometry = {**geometry, "positions": [*geometry["positions"], bad]}
+    with pytest.raises(ValueError, match="invalid geometry position unknown"):
+        build_layout(geometry)
