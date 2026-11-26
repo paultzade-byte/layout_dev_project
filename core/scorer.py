@@ -197,9 +197,6 @@ class MovementScoringEngine:
         self.chars = list(dict.fromkeys(key.char for key in layout_keys if key.char))
         self.char_to_idx = {c: i for i, c in enumerate(self.chars)}
         n = len(self.chars)
-        print("n(layout_keys with char):", len(self.chars))
-        print("n(unique chars):", len(self.char_to_idx))
-        print("dup chars:", [c for c in self.chars if self.chars.count(c) > 1])
 
         # Геометрія фізичних позицій (не змінюється). Позиції нумеруються
         # щільно 0..P-1 у порядку layout_keys.

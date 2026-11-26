@@ -1493,8 +1493,6 @@ class LayoutBuilderApp():
         state_by_position = {
             p["position_id"]: (p["char"], p["is_frozen"]) for p in data
         }
-        print("recorded ids:", sorted(state_by_position.keys()))
-        print("layout ids:", sorted(k.position_id for k in self.layout.keys))
         # rewrite the layout
         for key in self.layout.keys:
             if key.position_id in state_by_position:
@@ -1509,7 +1507,6 @@ class LayoutBuilderApp():
             key = widget.key
             widget.is_frozen = key.is_frozen
             style_key(widget)
-        print("post-recall chars:", {k.position_id: (k.char, k.is_frozen) for k in self.layout.keys})
         self._notify_layout_changed()
 
     # ------------------------------------------------------------------
