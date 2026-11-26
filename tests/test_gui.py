@@ -544,3 +544,27 @@ def test_open_layout_without_is_frozen(tmp_path, monkeypatch):
         assert not any(k.is_frozen for k in ui.layout.keys if k.position_id in (data[a]["position_id"], data[b]["position_id"]))
     finally:
         root.destroy()
+
+
+def test_editor_tab_keeps_start_off_while_weights_rebuild():
+    """QA 2026-11-26 (Corne): під час фонового _rebuild_weights вкладка «Редактор»
+    знову вмикала Start, а done() потім підміняв processor під живим пошуком."""
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.MOVES_CONFIG,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
+                                geometry_name="corne_42")
+        root.update()
+        if not ui._zmk_mode():
+            pytest.skip("немає вкладок шарів")
+        engine = ui.engine
+        ui._rebuild_weights("тест")
+        ui.show_tab("Редактор")
+        assert ui.button_panel.button_start.cget("state") == "disabled"
+        ui.toggle_optimization()                      # напр. гаряча клавіша — теж ні
+        assert not ui.processor.is_running
+        _wait(root, lambda: ui.engine is not engine)
+        assert ui.button_panel.button_start.cget("state") == "normal"
+    finally:
+        root.destroy()

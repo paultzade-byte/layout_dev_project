@@ -292,6 +292,7 @@ class LayoutBuilderApp():
         self.root.configure(bg=BG)
         self.toasts = Toasts(self.root)  # неблокувальні жовті сповіщення
         self._weights_gen = 0            # номер перерахунку ваг (старі результати відкидаються)
+        self._weights_busy = False       # іде перерахунок -> Start вимкнено (і вкладки його не вмикають)
 
         # the real domain object -- drag/drop mutates this directly, so
         # whatever the UI shows is exactly what a headless run would score
@@ -605,6 +606,7 @@ class LayoutBuilderApp():
         self.build_grid()
         self.populate_initial_keys()
         self._weights_gen += 1  # перерахунок ваг попереднього режиму вже не потрібен
+        self._weights_busy = False
         self.processor = OptimizationProcessor(self.statistic, self.moves)
         self._build_engine()
         if self.on_layout_changed is not None:
@@ -779,6 +781,8 @@ class LayoutBuilderApp():
     # Start / Stop
     # ------------------------------------------------------------------
     def toggle_optimization(self):
+        if not self.processor.is_running and self._weights_busy:
+            return  # ще рахуються нові ваги: done() підмінить processor
         if not self.processor.is_running:
             self.button_panel.button_start.config(text="Stop")
             self._set_file_buttons("disabled")
@@ -1441,6 +1445,7 @@ class LayoutBuilderApp():
         gen, name = self._weights_gen, self.geometry_name
         moves = self._effective_moves()
         snapshot = [copy.copy(k) for k in self.layout.keys]
+        self._weights_busy = True
         self.button_panel.button_start.config(state="disabled")
         self.status_var.set("Перераховую штраф за новими вагами…")
 
@@ -1459,7 +1464,11 @@ class LayoutBuilderApp():
 
         def done(engine):
             if gen != self._weights_gen or name != self.geometry_name:
-                return  # прийшли новіші ваги або інший режим
+                return  # прийшли новіші ваги або інший режим (той сам скине _weights_busy)
+            if self.processor.is_running:   # не підміняти processor під живим пошуком
+                self.root.after(100, lambda: done(engine))
+                return
+            self._weights_busy = False
             self.moves, self.engine = moves, engine
             self.processor = OptimizationProcessor(self.statistic, moves)
             if self.on_layout_changed is not None:
@@ -1614,8 +1623,9 @@ class LayoutBuilderApp():
         if self.processor.is_running:
             return
         state = "normal" if self.current_tab == "Редактор" else "disabled"
+        run_state = "disabled" if self._weights_busy else state
         for b in (self.button_panel.button_start, self.button_panel.button_reheat):
-            b.config(state=state)
+            b.config(state=run_state)
         self._set_file_buttons(state)
         self.button_reset_layer.config(state="normal" if self.layer_view.editable(self.current_tab)
                                        and self.current_tab != "Редактор" else "disabled")
