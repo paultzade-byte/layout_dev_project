@@ -81,6 +81,21 @@ def detect_language(files: list[Path], sample_bytes: int = 1_000_000) -> str | N
     return hits.most_common(1)[0][0]
 
 
+def check_utf8(files, sample_bytes: int = 1 << 16) -> None:
+    """ValueError, якщо початок якогось файлу — не UTF-8 (напр. cp1251): інакше
+    decode(errors="ignore") мовчки викинув би всю кирилицю і статистика була б порожня."""
+    for path in map(Path, files):
+        with open(path, "rb") as f:
+            raw = f.read(sample_bytes)
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            if len(raw) == sample_bytes and e.start >= len(raw) - 3:
+                continue  # вибірка розрізала останню літеру — це не помилка кодування
+            raise ValueError(f"{path.name}: файл не в UTF-8 (може, cp1251?) — "
+                             "збережи його в кодуванні UTF-8") from None
+
+
 def find_corpus_files(paths) -> list[Path]:
     """Усі .txt у вибраних теках (з підтеками) і вибрані .txt-файли."""
     out = []
@@ -249,6 +264,7 @@ def count_corpus(files, lang_code: str, cpu_share: float = 0.25,
     files = [Path(f) for f in files]
     if not files:
         raise ValueError("немає .txt файлів")
+    check_utf8(files)
     alpha = Alphabet(LANGUAGES[lang_code])
     tasks = build_tasks(files)
     total_bytes = sum(e - s for _, s, e in tasks)

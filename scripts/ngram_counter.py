@@ -34,6 +34,10 @@ def main(argv=None):
     files = corpus.find_corpus_files(args.paths)
     if not files:
         sys.exit("немає файлів .txt")
+    try:
+        corpus.check_utf8(files)
+    except ValueError as e:
+        sys.exit(f"помилка: {e}")
     lang = corpus.detect_language(files) if args.lang == "auto" else args.lang
     if lang is None:
         sys.exit("мову не визначено — вкажіть --lang")

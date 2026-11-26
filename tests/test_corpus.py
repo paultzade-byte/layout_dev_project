@@ -114,3 +114,22 @@ def test_windows_line_endings_same_as_unix(tmp_path):
     a = corpus.count_corpus([unix], "uk", 1.0)
     b = corpus.count_corpus([win], "uk", 1.0)
     assert a["statistic"] == b["statistic"] and a["words"] == b["words"]
+
+
+def test_cp1251_corpus_is_refused(tmp_path):
+    """QA 2026-11-26: cp1251 + decode(errors="ignore") -> статистика без жодної літери, rc=0."""
+    import subprocess, sys
+    from pathlib import Path
+    bad = tmp_path / "cp.txt"
+    bad.write_bytes(TEXT_UK.replace("ʼ", "'").replace("’", "'").replace("‘", "'").encode("cp1251"))
+    with pytest.raises(ValueError, match="UTF-8"):
+        corpus.count_corpus([bad], "uk", 1.0)
+    # UTF-8, розрізаний межею вибірки посеред літери, — не помилка
+    cut = tmp_path / "cut.txt"
+    cut.write_bytes(b"a" * 9 + "ї".encode())
+    corpus.check_utf8([cut], sample_bytes=10)
+    root = Path(__file__).resolve().parents[1]
+    run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(bad), "--lang", "uk",
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert run.returncode != 0 and "UTF-8" in run.stderr
+    assert not (tmp_path / "out" / "statistic.json").exists()
