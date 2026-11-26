@@ -133,7 +133,7 @@ python ukr_layout.py          # GUI через точку входу exe (--smok
 systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 .venv/bin/python -m PyInstaller \
   --noconfirm --distpath dist --workpath build packaging/ukr_layout.spec
 ```
-Тести (`tests/`, разом ~2 хв, 125 тестів; GUI-тест потребує дисплея):
+Тести (`tests/`, разом ~2,5 хв, 172 тести; GUI-тест потребує дисплея):
 ```bash
 systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 \
   xvfb-run -a env OPENBLAS_NUM_THREADS=1 .venv/bin/python -m pytest -q -p no:cacheprovider
@@ -146,6 +146,8 @@ systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 \
   своєму git worktree, паралельно; потім кожен ретестить на баги диф ІНШОГО. Злиття, повний прогін тестів
   і коміт — основна сесія. Тести субагентів — лише цільові файли, по черзі: `flock` на спільний lock-файл +
   квота CPU (див. нижче). Субагенти не пушать і не чіпають `config/recorded_layout.json` та чужі незакомічені зміни.
+  `git stash` у worktree НЕ використовувати (стек спільний для всіх worktree — субагенти вже підхоплювали
+  чужий stash); перевірка «тест без фіксу» — через `git show HEAD:шлях` у тимчасову копію.
 - Обмеження CPU (60% — побажання автора) — **через cgroup, не cpulimit** (з 2026-11-19):
   `systemd-run --user --scope -q -p CPUQuota=60% nice -n 10 env OPENBLAS_NUM_THREADS=1 .venv/bin/python ...`
   Квоту тримає ядро для всієї групи (дочірні процеси й потоки теж), процес
