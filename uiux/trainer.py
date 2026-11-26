@@ -33,6 +33,7 @@ BOARD_SCALES = (0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.8, 0.9, 1.0)   # «Схема
 BOARD_SCALE = 0.65
 MIN_TEXT_PX = 560           # текст не вужчий за це, інакше — по ширині схеми
 TEXT_PAD_X, TEXT_PAD_Y, TEXT_SPACING = 14, 12, 6
+MAX_RESERVE_CHUNKS = 300    # «Свій текст»: висоту рамки міряємо по стількох перших уривках
 MODES = (("words", "Слова", "Слова з цитат української класики (поки мало літер — і псевдослова "
                             "з них). Слова з новою літерою трапляються частіше, а зі слабкими "
                             "(див. «Слабкі літери») — теж частіше."),
@@ -104,8 +105,10 @@ class TrainerWindow:
         self.level_lines = []       # ... лише на поточному рівні (для «Сам підвищуй»)
         self.stats = trainer.load_stats(geometry_name)
         self._merged = True         # поточну сесію вже додано до статистики
+        self._sticky_lines = {}     # _layout_key() -> висота тексту в рядках (без стрибків)
 
         self.win = tk.Toplevel(root)
+        self.win.withdraw()                   # показати вже зібраним і на місці — без стрибка
         self.win.title("Тренування")
         self.win.configure(bg=BG)
         self.win.resizable(False, False)
@@ -118,6 +121,7 @@ class TrainerWindow:
         self.win.protocol("WM_DELETE_WINDOW", self.close)
         self._new_line()
         self._center(root)
+        self.win.deiconify()
         self.win.wait_visibility()
         self.win.grab_set()                   # модальне: головне вікно чекає
         self.win.focus_force()
@@ -330,23 +334,49 @@ class TrainerWindow:
         self._render()
 
     def _fit_text(self):
-        """Шрифт, ширина (як схема) і висота тексту — під поточний рядок, без прокрутки."""
+        """Шрифт, ширина (як схема) і висота тексту — без прокрутки. Висота — під найдовший
+        текст режиму (усі цитати, усі уривки свого тексту; у «Словах» — найдовший рядок,
+        відколи відкрито вікно), щоб схема під текстом не стрибала від рядка до рядка."""
+        font = (FONT, self.text_size)
+        lines = max(2, self._count_lines(self.session.text), self._reserved_lines())
+        self._sticky_lines[self._layout_key()] = lines
+        linespace = int(self.win.tk.call("font", "metrics", font, "-linespace"))
+        height = 2 * px(TEXT_PAD_Y) + lines * linespace + (lines - 1) * px(TEXT_SPACING) + px(4)
+        self.text.config(font=(FONT, self.text_size))
+        self.text_box.config(width=self.text_px, height=height)
+        self.text_lines = lines
+
+    def _count_lines(self, text: str) -> int:
+        """Скільки рядків займе text (перенос по словах) за поточного шрифту й ширини."""
         # міряємо командами Tk, не tkfont.Font: такі об'єкти, зібрані після закриття вікна,
         # валять процес (див. uiux/widgets.py)
         font = (FONT, self.text_size)
         measure = lambda t: int(self.win.tk.call("font", "measure", font, t))
         width_px = self.text_px - 2 * px(TEXT_PAD_X) - px(4)          # 4 — запас на внутрішні відступи Tk
         lines, cur = 1, 0
-        for word in self.session.text.split(" "):
+        for word in text.split(" "):
             if cur and cur + measure(word) > width_px:
                 lines, cur = lines + 1, 0
             cur += measure(word + " ")
-        lines = max(2, lines)
-        linespace = int(self.win.tk.call("font", "metrics", font, "-linespace"))
-        height = 2 * px(TEXT_PAD_Y) + lines * linespace + (lines - 1) * px(TEXT_SPACING) + px(4)
-        self.text.config(font=(FONT, self.text_size))
-        self.text_box.config(width=self.text_px, height=height)
-        self.text_lines = lines
+        return lines
+
+    def _layout_key(self):
+        own = self.own_file if self.mode == "own" else None
+        return (self.mode, self.text_size, self.text_px, self.caps.get(), self.punct.get(), own)
+
+    def _reserved_lines(self) -> int:
+        """Найбільша висота (у рядках) серед текстів режиму; рахується раз на вигляд."""
+        key = self._layout_key()
+        if key not in self._sticky_lines:
+            if self.mode == "quotes" and self.quote:
+                texts = [trainer.quote_text(q, self.caps.get(), self.punct.get()) for q in self.quotes
+                         if not trainer.missing_letters(q, self.order)]
+            elif self.mode == "own" and self.own_chunks:
+                texts = self.own_chunks[:MAX_RESERVE_CHUNKS]
+            else:
+                texts = []
+            self._sticky_lines[key] = max((self._count_lines(t) for t in texts), default=0)
+        return self._sticky_lines[key]
 
     def _text_tip(self):
         if self.mode == "quotes" and self.quote and trainer.quote_source(self.quote):
