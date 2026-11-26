@@ -49,7 +49,7 @@ def _naive(text, alpha):
     ids = [c if c in alpha.chars else " " for c in corpus.normalize_apostrophes(text.lower())]
     s = "".join(ids)
     uni = Counter(s)
-    bi = Counter(s[i:i + 2] for i in range(len(s) - 2))      # остання пара не рахується
+    bi = Counter(s[i:i + 2] for i in range(len(s) - 1))      # усі пари, і остання
     tri = Counter(s[i:i + 3] for i in range(len(s) - 2))
     skip = Counter(s[i] + s[i + 2] for i in range(len(s) - 2))
     return uni, bi, tri, skip
@@ -176,3 +176,16 @@ def test_cli_out_not_writable_clear_error(tmp_path):
     run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(tmp_path / "nothing"),
                           "--out", str(tmp_path / "out")], capture_output=True, text=True)
     assert run.returncode != 0 and not (tmp_path / "out").exists()
+
+
+def test_two_char_chunk_gives_bigram():
+    """QA 2026-11-26: ngram_counts рахував біграми лише з 3 символів (і без останньої пари) —
+    шматок «аб» не давав жодної. Поріг min_count у count_corpus тут не діє (його не чіпаємо)."""
+    alpha = corpus.Alphabet(corpus.LANGUAGES["uk"])
+    ids = alpha.to_ids("аб")
+    bi, tri, skip = corpus.ngram_counts(ids, alpha.size)
+    a, b = (alpha.chars.index(c) for c in "аб")
+    assert bi[a * alpha.size + b] == 1 and bi.sum() == 1
+    assert tri.sum() == 0 and skip.sum() == 0
+    bi, tri, skip = corpus.ngram_counts(alpha.to_ids("абв"), alpha.size)
+    assert bi.sum() == 2 and tri.sum() == 1 and skip.sum() == 1

@@ -131,20 +131,20 @@ class Alphabet:
 
 
 def ngram_counts(ids: np.ndarray, size: int):
-    """Бі/три/скіп-грами одного шматка (остання пара шматка не рахується —
-    нехтовно мало, як і раніше)."""
+    """Бі/три/скіп-грами одного шматка: біграми — усі пари (від 2 символів),
+    три- і скіп-грами — від 3 символів."""
     n = len(ids)
     bi = np.zeros(size ** 2, dtype=np.int64)
     tri = np.zeros(size ** 3, dtype=np.int64)
     skip = np.zeros(size ** 2, dtype=np.int64)
+    if n >= 2:
+        ab = ids[:n - 1].astype(np.uint32) * size + ids[1:].astype(np.uint32)
+        bi += np.bincount(ab, minlength=size ** 2)
     if n >= 3:
         a = ids[:n - 2].astype(np.uint32)
-        b = ids[1:n - 1].astype(np.uint32)
         c = ids[2:].astype(np.uint32)
-        ab = a * size + b
-        bi += np.bincount(ab, minlength=size ** 2)
         skip += np.bincount(a * size + c, minlength=size ** 2)
-        tri += np.bincount(ab * size + c, minlength=size ** 3)
+        tri += np.bincount(ab[:n - 2] * size + c, minlength=size ** 3)
     return bi, tri, skip
 
 
