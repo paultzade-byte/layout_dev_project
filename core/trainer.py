@@ -30,6 +30,7 @@ STEP літери за частотою. Нова (остання відкрит
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 from collections import Counter
@@ -51,6 +52,7 @@ PAUSE_S = 3.0            # довша пауза між натисканнями
 HARD_TOP = 12            # скільки найважчих поєднань тренує «Поєднання»
 REPEAT = (2, 3)          # скільки слів поспіль на одне поєднання
 STATS_FILE = "trainer_stats.json"
+STAT_FIELDS = ("hits", "misses", "ms", "timed")   # лічильники запису літери
 MIN_SAMPLES = 15         # менше натискань літери — в «слабкі» не беремо
 LEVEL_UP_LINES = 3       # «Сам підвищуй»: стільки останніх рядків рівня
 LEVEL_UP_ACCURACY = 95.0  # ... кожен з точністю не нижче, %
@@ -360,7 +362,17 @@ def load_stats(geometry_name: str) -> dict:
     except (OSError, ValueError):
         return {}
     stats = data.get(geometry_name, {}) if isinstance(data, dict) else {}
-    return stats if isinstance(stats, dict) else {}
+    if not isinstance(stats, dict):
+        return {}
+    out = {}
+    for ch, rec in stats.items():   # биті записи (не dict, лічильник не число) — відкидаємо
+        if not isinstance(rec, dict):
+            continue
+        rec = {f: rec.get(f, 0) for f in STAT_FIELDS}
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0
+               for v in rec.values()):   # Infinity / NaN у JSON — теж биті
+            out[ch] = rec
+    return out
 
 
 def save_stats(geometry_name: str, stats: dict) -> None:

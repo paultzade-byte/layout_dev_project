@@ -419,3 +419,21 @@ def test_own_text_over_limit_cut_mid_letter_stays_utf8(tmp_path, monkeypatch):
     old = tmp_path / "old.txt"
     old.write_bytes("Старий файл".encode("cp1251"))
     assert T.read_text_file(old) == "Старий файл"
+
+
+def test_load_stats_drops_broken_records(tmp_path, monkeypatch):
+    """QA 2026-11-26: битий запис у trainer_stats.json (літера не dict, hits рядком) валив
+    тренажер — load_stats перевіряв лише верхній рівень."""
+    import json
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    good = {"hits": 30, "misses": 2, "ms": 6000, "timed": 30}
+    (tmp_path / T.STATS_FILE).write_text(json.dumps({"corne_42": {
+        "а": good, "б": 5, "в": {"hits": "10", "misses": 0}, "г": None, "ґ": {"hits": True},
+        "д": {"hits": 12}, "е": {"hits": float("inf")}, "є": {"ms": float("nan")}}}), encoding="utf-8")
+    stats = T.load_stats("corne_42")
+    assert stats == {"а": good, "д": {"hits": 12, "misses": 0, "ms": 0, "timed": 0}}
+    T.weak_letters(stats)
+    s = T.Session("аб")
+    s.type("а", 1.0); s.type("б", 1.2)
+    T.merge_stats(stats, s)
+    assert stats["а"]["hits"] == 31
