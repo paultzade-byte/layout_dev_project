@@ -97,3 +97,25 @@ def test_export_all_writes_files(chars, tmp_path):
     assert sorted(p.name for p in paths) == sorted(
         ["ukr_optimized.klc", "ukr_optimized.xkb", "ukr_optimized.keylayout", "README.txt"])
     assert "MSKLC" in (tmp_path / "out" / "README.txt").read_text(encoding="utf-8")
+
+
+NASTY_NAME = 'A & <B> "C" \\ \'D\'\nE F'
+
+
+def test_name_is_escaped_in_every_format(km, tmp_path):
+    """QA 2026-11-26: назва (--name) з & < " ламала .keylayout (невалідний XML),
+    а лапки / переноси — рядок у лапках .klc і xkb."""
+    import xml.dom.minidom
+    xml_text = export.keylayout_text(km, NASTY_NAME)
+    plain = re.sub(r"&#x00[01][0-9A-F];", "X", xml_text.replace('version="1.1"', 'version="1.0"', 1))
+    doc = xml.dom.minidom.parseString(plain.encode())
+    assert doc.documentElement.getAttribute("name") == 'A & <B> "C" \\ \'D\' E F'
+
+    klc = export.klc_text(km, NASTY_NAME)
+    assert klc.splitlines()[0] == "KBD\tukropt\t\"A & <B> 'C' / 'D' E F\""
+    assert "0409\tA & <B> 'C' / 'D' E F\n" in klc
+
+    xkb = export.xkb_text(km, NASTY_NAME)
+    assert xkb.splitlines()[0].startswith("// A & <B> 'C' / 'D' E F — ")
+    assert "    name[Group1] = \"A & <B> 'C' / 'D' E F\";\n" in xkb
+    assert export.xkb_text(km, "\n") == export.xkb_text(km)   # порожня -> типова назва

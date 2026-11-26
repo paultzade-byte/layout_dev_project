@@ -16,6 +16,7 @@ import json
 import unicodedata
 from datetime import date
 from pathlib import Path
+from xml.sax.saxutils import quoteattr
 
 DEFAULT_NAME = "Ukrainian Optimized"
 
@@ -33,6 +34,22 @@ PUNCT_SHIFT = {",": ";", ".": ":", "'": "ʼ", "/": "?", "\\": "/"}
 # Shift+AltGr для AltGr-символу: велика літера, а для апострофа — ʼ (U+02BC,
 # «правильний» український апостроф; простий ' — на AltGr)
 ALTGR_SHIFT = {"'": "ʼ"}
+
+
+_BREAKING = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
+
+
+def _one_line_name(name: str) -> str:
+    """Назва розкладки (CLI --name) одним рядком: керівні символи (переноси,
+    таби…, U+2028/2029) -> пробіл. Порожня -> DEFAULT_NAME."""
+    name = "".join(" " if unicodedata.category(c) in _BREAKING else c for c in str(name)).strip()
+    return name or DEFAULT_NAME
+
+
+def _quoted_name(name: str) -> str:
+    """Назва для рядка в лапках .klc / xkb: екранування там нема (klc) або
+    воно своє (xkb, \\), тож лапки -> ', зворотна похила -> /."""
+    return _one_line_name(name).replace('"', "'").replace("\\", "/")
 
 
 def _upper(ch: str) -> str:
@@ -209,6 +226,7 @@ def klc_text(km: dict[str, list], name: str = DEFAULT_NAME, kbd_id: str = "ukrop
     rows.append("56\tOEM_102\t\t0\t005c\t007c\t001c\t-1\t-1 // \\, |")
     rows.append("39\tSPACE\t\t0\t0020\t0020\t0020\t-1\t-1")
     rows.append("53\tDECIMAL\t\t0\t002c\t002c\t-1\t-1\t-1 // ,")
+    name = _quoted_name(name)
     return f"""KBD\t{kbd_id}\t"{name}"
 
 COPYRIGHT\t"(c) {date.today().year}"
@@ -316,6 +334,7 @@ def xkb_text(km: dict[str, list], name: str = DEFAULT_NAME, variant: str = "basi
         rows.append(f'    key <{xname}> {{ type[Group1] = "{_xkb_type(levels)}", '
                     f"[ {syms} ] }};  // {shown}")
     body = "\n".join(rows)
+    name = _quoted_name(name)
     return f"""// {name} — згенеровано оптимізатором розкладки (core/export.py)
 // AltGr = правий Alt (level3(ralt_switch)).
 default partial alphanumeric_keys
@@ -412,7 +431,7 @@ def mac_keylayout_xml(name, group, kid, maps):
     km = "\n".join(mac_keymap_xml(i, m) for i, m in enumerate(maps))
     return f"""<?xml version="1.1" encoding="UTF-8"?>
 <!DOCTYPE keyboard SYSTEM "file://localhost/System/Library/DTDs/KeyboardLayout.dtd">
-<keyboard group="{group}" id="{kid}" name="{name}" maxout="1">
+<keyboard group="{group}" id="{kid}" name={quoteattr(_one_line_name(name))} maxout="1">
   <layouts>
     <layout first="0" last="255" modifiers="mods" mapSet="maps"/>
   </layouts>
