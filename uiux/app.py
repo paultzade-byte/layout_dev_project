@@ -121,6 +121,26 @@ def make_button(parent, text, command, small=False, color=None, row=False):
         padx=padx, pady=3 if small else 6, radius=6 if small else 8,
     )
 
+OTHER_KEYBOARD = "це розкладка для іншої клавіатури"
+
+
+def layout_data_problem(data, layout) -> str | None:
+    """Чи підходить файл розкладки до layout: ті самі позиції й той самий
+    набір літер (інакше — розкладка іншої клавіатури або зіпсований файл)."""
+    if not isinstance(data, list) or not all(isinstance(d, dict) for d in data):
+        return "очікується список клавіш"
+    ids = {k.position_id for k in layout.keys}
+    file_ids = {d["position_id"] for d in data}
+    if not file_ids <= ids:
+        return OTHER_KEYBOARD
+    letters = lambda chars: sorted(c for c in chars if len(c) == 1)
+    here = letters(k.char for k in layout.keys if k.position_id in file_ids)
+    there = letters(d["char"] for d in data)
+    if here != there:
+        return "набір символів не збігається з поточним режимом"
+    return None
+
+
 def make_score_display(statistic, moves_config, engine=None):
     """engine — уже підготовлений (prepare_statistics) — щоб не рахувати двічі."""
     engine_holder = {"engine": engine} if engine is not None else {}
@@ -281,8 +301,13 @@ class LayoutBuilderApp():
         self.current_file = None   # файл розкладки для «Зберегти» (None — ще не збережено)
         self._mode_layouts = {}    # розкладка кожного режиму в межах сесії (перемикач не губить її)
         self._load_geometry(geometry_name or ACTIVE, moves_config)
-        self.layout = (layout if layout is not None else start_layout(self.geometry_name))
+        start_file = None
+        if layout is None:
+            layout, start_file = self._session_start_layout(self.geometry_name)
+        self.layout = layout
         self.keys_by_position = {key.position_id: key for key in self.layout.keys}
+        if start_file:
+            self._set_current_file(start_file)   # «Зберегти» далі пише в той самий файл
 
         self.on_layout_changed = on_layout_changed
 
@@ -388,15 +413,18 @@ class LayoutBuilderApp():
             self.mode_buttons.get("corne_42"): "Розділена клавіатура Corne (42 клавіші).",
             self.button_ycuken: "Поставити на дошку стандартну ЙЦУКЕН. "
                                 "Спершу спитає, чи зберегти поточну розкладку.",
-            self.button_default: "Повернути розкладку, з якою програма стартує (рекомендовану). "
-                                 "Спершу спитає, чи зберегти поточну.",
+            self.button_default: "Повернути вбудовану рекомендовану розкладку. "
+                                 "Спершу спитає, чи зберегти поточну.\n"
+                                 "Програма стартує з останнього збереженого тобою файлу, "
+                                 "а вбудована лишається тут.",
             self.status_label: "Штраф — наскільки незручно друкувати українські тексти "
                                "цією розкладкою. Менше — краще.\n"
                                "Клавіші на дошці можна перетягувати мишкою; "
                                "права кнопка — заморозити клавішу на місці.",
             self.button_knobs: "Повзунки: що для тебе важливіше — домашній ряд, мізинці, перекати…\n"
                                "Повзунки лише перераховують штраф; щоб розкладка змінилась — Start.",
-            self.button_preset: "Готові набори повзунків. Свій набір можна зберегти під назвою.",
+            self.button_preset: "Готові набори повзунків. Свій набір можна зберегти під назвою, "
+                                "а непотрібний — прибрати: «Видалити пресет» у цьому ж меню.",
             self.button_cpu: "Скільки процесора бере пошук (Start): частка одного ядра. "
                              "Менше — комп'ютер тихіший і не гріється, але пошук повільніший.\n"
                              "Можна міняти й під час пошуку. Запам'ятовується.",
@@ -419,8 +447,10 @@ class LayoutBuilderApp():
                 "pain", "Теплова мапа незручності: що світліша клавіша, то більше штрафу набігає "
                         "через неї (стрибки одним пальцем, ножиці, мізинці…); на клавіші — % штрафу."),
             p.button_open: "Відкрити збережену розкладку (.json).",
-            p.button_save: "Зберегти розкладку в той самий файл (вперше — спитає куди).",
-            p.button_save_as: "Зберегти розкладку в новий файл.",
+            p.button_save: "Зберегти розкладку в той самий файл (вперше — спитає куди).\n"
+                           "Наступного запуску програма стартує з цього файлу.",
+            p.button_save_as: "Зберегти розкладку в новий файл.\n"
+                              "Наступного запуску програма стартує з нього.",
             p.button_screenshot: "Зберегти картинку розкладки (.png).",
             p.button_train: "Тренажер друку на розкладці, що зараз на дошці: слова з української "
                             "класики, складність — скільки літер відкрито. На звичайній клавіатурі "
@@ -564,7 +594,7 @@ class LayoutBuilderApp():
             return True
         self._mode_layouts[self.geometry_name] = (self.layout, self.current_file)
         layout, current_file = ((layout, None) if layout is not None
-                                else self._mode_layouts.get(name) or (start_layout(name), None))
+                                else self._mode_layouts.get(name) or self._session_start_layout(name))
         self._load_geometry(name)
         self._set_current_file(current_file)  # файл — свого режиму
         self.layout = layout
@@ -656,6 +686,29 @@ class LayoutBuilderApp():
     def on_ycuken(self):
         """Дошка -> ЙЦУКЕН (`default` позицій)."""
         self._reset_board(build_layout(self.geometry), "↺ ЙЦУКЕН", "ЙЦУКЕН")
+
+    @staticmethod
+    def _session_start_layout(name: str):
+        """Розкладка режиму на старті сесії -> (layout, файл або None).
+        Останній файл, збережений «Зберегти»/«Зберегти як…» у цьому режимі
+        (settings.json → start_files), якщо він є і підходить; інакше —
+        вбудована за замовчуванням (сам її файл не чіпаємо)."""
+        layout = start_layout(name)
+        path = (settings.load().get("start_files") or {}).get(name)
+        if not path:
+            return layout, None
+        try:
+            data = OptimizationProcessor.layout_load(path)
+            if layout_data_problem(data, layout) is None:
+                by_id = {d["position_id"]: d for d in data}
+                for key in layout.keys:
+                    if key.position_id in by_id:
+                        key.char = by_id[key.position_id]["char"]
+                        key.is_frozen = bool(by_id[key.position_id].get("is_frozen"))
+                return layout, Path(path)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return start_layout(name), None   # файл зник/зіпсований — вбудована
 
     def on_default_layout(self):
         """Дошка -> розкладка за замовчуванням (з неї режим стартує)."""
@@ -1156,8 +1209,12 @@ class LayoutBuilderApp():
                 item(name, state)
         menu.add_separator()
         menu.add_command(label="    Зберегти пресет…", command=self.on_preset_save)
-        if current in custom:
-            menu.add_command(label=f"    Видалити «{current}»", command=lambda: self.on_preset_delete(current))
+        if custom:
+            delete_menu = tk.Menu(menu, tearoff=0, bg=BUTTON, fg=TEXT, activebackground=ACCENT,
+                                  activeforeground=KEY_TEXT, font=(FONT, 10), bd=0)
+            for name in custom:
+                delete_menu.add_command(label=name, command=lambda n=name: self.on_preset_delete(n))
+            menu.add_cascade(label="    Видалити пресет", menu=delete_menu)
         b = self.button_preset
         menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
 
@@ -1207,8 +1264,6 @@ class LayoutBuilderApp():
         self.knob_bar.pack(fill="x", padx=px(20), pady=(0, px(6)), before=self.button_panel.button_frame)
         self.button_knobs = make_button(self.knob_bar, "Детальніше ▸", self.toggle_knobs, small=True)
         self.button_knobs.pack(side="left")
-        self.button_preset = make_button(self.knob_bar, "Пресет: ▾", self.show_preset_menu, small=True)
-        self.button_preset.pack(side="left", padx=(px(8), 0))
         self.button_cpu = make_button(self.knob_bar, "", self.show_cpu_menu, small=True)
         self.button_cpu.pack(side="left", padx=(px(8), 0))
         self._update_cpu_button()
@@ -1218,14 +1273,21 @@ class LayoutBuilderApp():
         self.button_knobs_reset = make_button(self.knob_bar, "Скинути до рекомендованих",
                                               self.on_knobs_reset, small=True)
         self.knob_frame = tk.Frame(self.root, bg=PANEL)
+        # пресети — всередині панелі повзунків: поки повзунків не видно, вони не потрібні
+        preset_row = tk.Frame(self.knob_frame, bg=PANEL)
+        preset_row.pack(fill="x", padx=px(12), pady=(px(8), px(2)))
+        self.button_preset = make_button(preset_row, "Пресет: ▾", self.show_preset_menu, small=True)
+        self.button_preset.pack(side="left")
+        self.knob_grid = tk.Frame(self.knob_frame, bg=PANEL)
+        self.knob_grid.pack(fill="x")
         self.knob_rows = {}
         self._build_knob_rows()
 
     def _build_knob_rows(self):
         """Рядки повзунків поточного режиму (близькість — лише «Звичайна»)."""
-        if not hasattr(self, "knob_frame"):
+        if not hasattr(self, "knob_grid"):
             return
-        for widget in self.knob_frame.winfo_children():
+        for widget in self.knob_grid.winfo_children():
             widget.destroy()
         self.knob_rows = {}
         state = self._knob_state()
@@ -1233,7 +1295,7 @@ class LayoutBuilderApp():
         label_opts = dict(bg=PANEL, font=(FONT, 10, "bold"))
         for row, knob in enumerate(knobs.knobs_for(self.geometry_name)):
             # назва, під нею дрібно — цифра, на яку повзунок впливає
-            cell = tk.Frame(self.knob_frame, bg=PANEL)
+            cell = tk.Frame(self.knob_grid, bg=PANEL)
             cell.grid(row=row, column=0, sticky="w", padx=(px(12), px(10)), pady=(px(4), px(2)))
             if knob.id == "closeness":
                 title = tk.Checkbutton(cell, text=knob.title, variable=self.closeness_var,
@@ -1248,9 +1310,9 @@ class LayoutBuilderApp():
             metric = tk.Label(cell, fg=TEXT_DIM, anchor="w", bg=PANEL, font=(FONT, 9))
             metric.pack(anchor="w")
             tooltip.add(metric, "Як зараз у розкладці на дошці (за текстами корпусу).")
-            left = tk.Label(self.knob_frame, text=knob.left, fg=TEXT_DIM, **label_opts)
+            left = tk.Label(self.knob_grid, text=knob.left, fg=TEXT_DIM, **label_opts)
             left.grid(row=row, column=1, sticky="e")
-            scale = tk.Scale(self.knob_frame, from_=-knobs.LIMIT, to=knobs.LIMIT, resolution=0.05,
+            scale = tk.Scale(self.knob_grid, from_=-knobs.LIMIT, to=knobs.LIMIT, resolution=0.05,
                              orient="horizontal", showvalue=0, length=px(220), sliderlength=px(18), width=px(12),
                              bg=PANEL, fg=TEXT, troughcolor=SLOT, activebackground=ACCENT,
                              highlightthickness=0, bd=0,
@@ -1258,9 +1320,9 @@ class LayoutBuilderApp():
             scale.set(state["values"].get(knob.id, 0.0))
             scale.grid(row=row, column=2, padx=px(6))
             scale.bind("<ButtonRelease-1>", lambda _e, k=knob.id: self.on_knob_release(k))
-            right = tk.Label(self.knob_frame, text=knob.right, fg=TEXT_DIM, **label_opts)
+            right = tk.Label(self.knob_grid, text=knob.right, fg=TEXT_DIM, **label_opts)
             right.grid(row=row, column=3, sticky="w")
-            step_label = tk.Label(self.knob_frame, fg=ACCENT, width=14, anchor="w", **label_opts)
+            step_label = tk.Label(self.knob_grid, fg=ACCENT, width=14, anchor="w", **label_opts)
             step_label.grid(row=row, column=4, sticky="w", padx=(px(10), px(12)))
             for widget in (left, right):
                 tooltip.add(widget, tip)
@@ -1448,6 +1510,9 @@ class LayoutBuilderApp():
             messagebox.showerror("Зберегти", f"Не вдалося зберегти:\n{error}")
             return False
         self._set_current_file(saved)
+        # наступний сеанс цього режиму стартує з цього файлу (вбудована лишається на «↺ За замовчуванням»)
+        start_files = settings.load().get("start_files") or {}
+        settings.save(start_files={**start_files, self.geometry_name: str(Path(saved).resolve())})
         self.status_var.set(f"Збережено: {saved}")
         self.toasts.show(f"Збережено: {saved}")
         return True
@@ -1473,21 +1538,12 @@ class LayoutBuilderApp():
         self.status_var.set(f"Відкрито: {path} · {self.status_var.get()}")
 
     def layout_file_problem(self, data) -> str | None:
-        """Чи підходить файл до поточного режиму: ті самі позиції й той самий
-        набір літер (інакше — розкладка іншої клавіатури або зіпсований файл)."""
-        if not isinstance(data, list) or not all(isinstance(d, dict) for d in data):
-            return "очікується список клавіш"
-        ids = {k.position_id for k in self.layout.keys}
-        file_ids = {d["position_id"] for d in data}
-        if not file_ids <= ids:
+        """Чи підходить файл до поточного режиму (див. layout_data_problem)."""
+        problem = layout_data_problem(data, self.layout)
+        if problem == OTHER_KEYBOARD:
             return (f"це розкладка для іншої клавіатури (режим зараз — "
                     f"{GEOMETRY_TITLES.get(self.geometry_name, self.geometry_name)})")
-        letters = lambda chars: sorted(c for c in chars if len(c) == 1)
-        here = letters(k.char for k in self.layout.keys if k.position_id in file_ids)
-        there = letters(d["char"] for d in data)
-        if here != there:
-            return "набір символів не збігається з поточним режимом"
-        return None
+        return problem
 
     def _apply_recorded_state(self, data: list[dict]):
         state_by_position = {

@@ -469,3 +469,34 @@ def test_toast_timeout_capped_and_hover_keeps(monkeypatch):
         assert calls == [toast.MAX_MS, 1000, toast.MAX_MS]
     finally:
         root.destroy()
+
+
+def test_saved_layout_is_next_session_start(tmp_path, monkeypatch):
+    """«Зберегти як…» -> наступний сеанс режиму стартує з цього файлу;
+    «↺ За замовчуванням» лишається вбудованою, зіпсований файл — теж вбудована."""
+    from uiux import app as A
+    from config import settings
+    old = settings.load().get("start_files")
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                on_layout_changed=lambda *_: None, geometry_name="generic_105_alpha")
+        builtin = {k.position_id: k.char for k in A.start_layout("generic_105_alpha").keys}
+        a, b = ui.layout.keys[0], ui.layout.keys[1]
+        a.char, b.char = b.char, a.char
+        a.is_frozen = True
+        saved = tmp_path / "mine.json"
+        monkeypatch.setattr(A.filedialog, "asksaveasfilename", lambda *x, **k: str(saved))
+        assert ui.on_save_as()
+        layout, path = ui._session_start_layout("generic_105_alpha")
+        assert path == saved.resolve()
+        got = {k.position_id: k for k in layout.keys}
+        assert got[a.position_id].char == a.char and got[a.position_id].is_frozen
+        assert {k.position_id: k.char for k in A.start_layout("generic_105_alpha").keys} == builtin
+        saved.write_text("зіпсовано", encoding="utf-8")
+        layout, path = ui._session_start_layout("generic_105_alpha")
+        assert path is None
+        assert {k.position_id: k.char for k in layout.keys} == builtin
+    finally:
+        settings.save(start_files=old)
+        root.destroy()
