@@ -103,14 +103,22 @@ def style_key(widget, border: str | None = None, finger: Finger | None = None) -
             homing.place_forget()
 
 
-def make_button(parent, text, command, small=False, color=None):
+# Нижній ряд кнопок на Linux: шрифт Ubuntu ширший за Segoe UI, і ряд Corne (9 кнопок)
+# виходив 995 px при дошці 860 — вікно ширшало, праворуч порожньо. Тут дрібніший шрифт
+# і вужчі поля (ряд ~854 px); Windows / macOS — як було (11 pt, поля 16).
+ROW_FONT_SIZE, ROW_PADX = (10, 12) if sys.platform.startswith("linux") else (11, 16)
+
+
+def make_button(parent, text, command, small=False, color=None, row=False):
     """Кнопка апки: заокруглена (uiux.widgets.RoundButton), hover — сама.
-    color — кнопка групи: рамка і текст цього кольору, hover — його відтінок."""
+    color — кнопка групи: рамка і текст цього кольору, hover — його відтінок.
+    row — кнопка нижнього ряду (ButtonPanel): розмір під ОС, див. ROW_FONT_SIZE."""
+    size, padx = (9, 8) if small else (ROW_FONT_SIZE, ROW_PADX) if row else (11, 16)
     return RoundButton(
-        parent, text=text, command=command, font=(FONT, 9 if small else 11, "bold"),
+        parent, text=text, command=command, font=(FONT, size, "bold"),
         bg=BUTTON, fg=color or TEXT, outline=color,
         activebackground=blend(color, BUTTON, 0.25) if color else BUTTON_HOVER, disabledforeground=TEXT_DIM,
-        padx=8 if small else 16, pady=3 if small else 6, radius=6 if small else 8,
+        padx=padx, pady=3 if small else 6, radius=6 if small else 8,
     )
 
 def make_score_display(statistic, moves_config, engine=None):
@@ -194,22 +202,22 @@ class ButtonPanel:
 
          # клавіатура: шари <-> розкладка на екрані (scripts/zmk/keyboard_sync.py)
          self.keyboard_frame = kb
-         self.button_kb_write = make_button(kb, "На клаву", self.logic.on_keyboard_write, color=GROUP_COLORS["keyboard"])
-         self.button_kb_read = make_button(kb, "З клави", self.logic.on_keyboard_read, color=GROUP_COLORS["keyboard"])
-         self.button_start = make_button(run, "Start", self.logic.toggle_optimization, color=GROUP_COLORS["run"])
+         self.button_kb_write = make_button(kb, "На клаву", self.logic.on_keyboard_write, color=GROUP_COLORS["keyboard"], row=True)
+         self.button_kb_read = make_button(kb, "З клави", self.logic.on_keyboard_read, color=GROUP_COLORS["keyboard"], row=True)
+         self.button_start = make_button(run, "Start", self.logic.toggle_optimization, color=GROUP_COLORS["run"], row=True)
          self.button_reheat = make_button(
              run, "Reheat",
              lambda: self.logic.processor.optimizer.reheat() if self.logic.processor.optimizer else None,
-             color=GROUP_COLORS["run"])
+             color=GROUP_COLORS["run"], row=True)
          # тренажер друку на розкладці з дошки (uiux/trainer.py), модальне вікно
-         self.button_train = make_button(train, "Тренування", self.logic.on_train, color=GROUP_COLORS["train"])
+         self.button_train = make_button(train, "Тренування", self.logic.on_train, color=GROUP_COLORS["train"], row=True)
          # файли: розкладка (json) і картинка — завжди через діалог, юзер бачить куди
-         self.button_open = make_button(open_, "Відкрити…", self.logic.on_open, color=GROUP_COLORS["open"])
-         self.button_save = make_button(save, "Зберегти", self.logic.on_save, color=GROUP_COLORS["save"])
-         self.button_save_as = make_button(save, "Зберегти як…", self.logic.on_save_as, color=GROUP_COLORS["save"])
-         self.button_screenshot = make_button(picture, "Скрін", self.logic.on_screenshot, color=GROUP_COLORS["picture"])
+         self.button_open = make_button(open_, "Відкрити…", self.logic.on_open, color=GROUP_COLORS["open"], row=True)
+         self.button_save = make_button(save, "Зберегти", self.logic.on_save, color=GROUP_COLORS["save"], row=True)
+         self.button_save_as = make_button(save, "Зберегти як…", self.logic.on_save_as, color=GROUP_COLORS["save"], row=True)
+         self.button_screenshot = make_button(picture, "Скрін", self.logic.on_screenshot, color=GROUP_COLORS["picture"], row=True)
          # експорт в ОС (.klc / xkb / .keylayout) — лише «Звичайна» (core/export.py)
-         self.button_export = make_button(picture, "Експорт…", self.logic.on_export, color=GROUP_COLORS["picture"])
+         self.button_export = make_button(picture, "Експорт…", self.logic.on_export, color=GROUP_COLORS["picture"], row=True)
          for g in self.groups:
              buttons = g.winfo_children()
              for b in buttons:
