@@ -48,6 +48,17 @@ MODES = (("words", "Слова", "Слова з цитат українсько�
 TEXT_MODES = ("quotes", "own")     # усі літери, рівень не діє, діють «Великі» / «Розділові»
 
 
+def _saved_dict(name: str, saved: dict | None = None) -> dict:
+    """Словник із settings (рівні, місця в текстах); зіпсоване значення — порожній."""
+    value = (settings.load() if saved is None else saved).get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def _saved_int(value, default: int = 0) -> int:
+    """Ціле із settings; рядок, дріб, None… — типове."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
 def _button(parent, text, command, small=True):
     return RoundButton(parent, text=text, command=command, font=(FONT, 9 if small else 11, "bold"),
                        bg=BUTTON, fg=TEXT, activebackground=BUTTON_HOVER, disabledforeground=TEXT_DIM,
@@ -69,7 +80,8 @@ class TrainerWindow:
         saved = settings.load()
         self.can_translate = trainer.can_translate(geometry)
         self.translate = self.can_translate and saved.get("trainer_translate", True)
-        self.level = min(saved.get("trainer_levels", {}).get(geometry_name, 0), self.levels - 1)
+        level = _saved_int(_saved_dict("trainer_levels", saved).get(geometry_name))
+        self.level = max(0, min(level, self.levels - 1))
         self.hard_ngrams = hard_ngrams or []
         self.mode = saved.get("trainer_mode", "words")
         if self.mode not in ("words", "ngrams", "quotes", "own") or (self.mode == "ngrams" and not self.hard_ngrams):
@@ -77,7 +89,8 @@ class TrainerWindow:
         self.auto_level = saved.get("trainer_auto_level", True)
         self.caps = tk.BooleanVar(value=saved.get("trainer_caps", False))
         self.punct = tk.BooleanVar(value=saved.get("trainer_punct", False))
-        self.own_file = saved.get("trainer_own_file")
+        own_file = saved.get("trainer_own_file")
+        self.own_file = own_file if isinstance(own_file, str) and own_file else None   # зіпсоване — нема
         self.own_chunks, self.own_idx = [], 0
         if self.mode == "own" and not self._load_own(self.own_file):
             self.mode = "words"
@@ -246,7 +259,7 @@ class TrainerWindow:
                 old, idx = self.own_chunks, self.own_idx
                 if self._load_own(self.own_file):       # уривки інші — лишаємось на тому ж місці тексту
                     self.own_idx = trainer.same_place(old, idx, self.own_chunks)
-                    pos = {**settings.load().get("trainer_own_pos", {}), self.own_file: self.own_idx}
+                    pos = {**_saved_dict("trainer_own_pos"), self.own_file: self.own_idx}
                     settings.save(trainer_own_pos=pos)
             if self.mode in TEXT_MODES:
                 self._new_line(keep_quote=True)      # та сама цитата, лише в новому вигляді
@@ -361,7 +374,7 @@ class TrainerWindow:
         if not chunks:
             return False
         self.own_file, self.own_chunks = str(path), chunks
-        self.own_idx = settings.load().get("trainer_own_pos", {}).get(self.own_file, 0) % len(chunks)
+        self.own_idx = _saved_int(_saved_dict("trainer_own_pos").get(self.own_file)) % len(chunks)
         return True
 
     def _choose_own(self) -> bool:
@@ -430,7 +443,7 @@ class TrainerWindow:
             return
         self.level = level
         self.level_lines = []
-        levels = {**settings.load().get("trainer_levels", {}), self.geometry_name: level}
+        levels = {**_saved_dict("trainer_levels"), self.geometry_name: level}
         settings.save(trainer_levels=levels)
         if hasattr(self, "session"):
             self._new_line(keep_quote=True)
@@ -446,7 +459,7 @@ class TrainerWindow:
             if self.own_idx >= len(self.own_chunks):
                 self.own_idx = 0
                 self.toasts.show("Текст закінчився — знову з початку")
-            pos = {**settings.load().get("trainer_own_pos", {}), self.own_file: self.own_idx}
+            pos = {**_saved_dict("trainer_own_pos"), self.own_file: self.own_idx}
             settings.save(trainer_own_pos=pos)
         self.allowed = trainer.letters_at(self.order, self.level)
         self.focus = self.allowed[-1] if self.level > 0 else None

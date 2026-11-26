@@ -454,3 +454,58 @@ def test_load_quotes_other_structure_and_broken_quotes(tmp_path):
     quotes = T.load_quotes(path)
     assert [q["text"] for q in quotes] == ["Без автора.", "Твір числом.", "Повна."]
     assert [T.quote_source(q) for q in quotes] == ["", "Хтось", "А — «Б»"]
+
+
+@needs_display
+def test_bad_saved_level_and_own_pos_fall_back(tmp_path, monkeypatch):
+    """QA 2026-11-26: від'ємний / завеликий / нечисловий рівень із settings не обрізався,
+    trainer_own_pos зі значенням-рядком -> TypeError, trainer_own_file не рядком -> TypeError."""
+    import tkinter as tk
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from config import settings
+    from uiux import app as A
+    own = tmp_path / "own.txt"
+    own.write_text("Свій текст для тренування. " * 30, encoding="utf-8")
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        for saved, expected in ((-3, 0), (10 ** 6, "max"), ("2", 0), (None, 0), (True, 0), (1.5, 0)):
+            settings.save(trainer_levels={"generic_105_alpha": saved}, trainer_mode="words")
+            tw = ui.on_train()
+            root.update()
+            top = tw.levels - 1
+            assert tw.level == (top if expected == "max" else expected)
+            assert int(float(tw.scale.get())) == tw.level
+            tw.close()
+        settings.save(trainer_levels=[1, 2], trainer_mode="own", trainer_own_file=str(own),
+                      trainer_own_pos={str(own): "1"})
+        tw = ui.on_train()
+        root.update()
+        assert tw.level == 0 and tw.mode == "own" and tw.own_idx == 0
+        tw._new_line(advance=True)
+        assert settings.load()["trainer_own_pos"][str(own)] == 1
+        tw.close()
+        settings.save(trainer_own_pos=["x"])
+        tw = ui.on_train()
+        root.update()
+        assert tw.mode == "own" and tw.own_idx == 0
+        tw.close()
+        # trainer_own_file не рядок -> «Слова» (open(5) читав би й закривав дескриптор 5)
+        for bad in (["x"], {"a": 1}, "", 5):
+            settings.save(trainer_own_file=bad, trainer_mode="own")
+            tw = ui.on_train()
+            root.update()
+            assert tw.mode == "words" and tw.own_file is None
+            monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kw: "")
+            assert tw._choose_own() is False          # «Свій текст…» — без Path(5).parent
+            tw.close()
+        settings.save(trainer_own_file=str(own), trainer_mode="own")
+        tw = ui.on_train()
+        root.update()
+        tw._on_level(1)                          # у «Своєму тексті» повзунок вимкнено
+        assert settings.load()["trainer_levels"] == {"generic_105_alpha": 1}
+        tw.close()
+    finally:
+        root.destroy()
