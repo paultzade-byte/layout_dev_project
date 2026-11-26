@@ -102,3 +102,56 @@ def test_search_window_selects_quote(tmp_path, monkeypatch):
         tw.close()
     finally:
         root.destroy()
+
+
+def _find(widget, cls):
+    for child in widget.winfo_children():
+        if isinstance(child, cls):
+            return child
+        found = _find(child, cls)
+        if found is not None:
+            return found
+    return None
+
+
+@needs_display
+def test_search_window_double_click_and_stale_row_tip(tmp_path, monkeypatch):
+    """Подвійний клік по лупі — одне вікно; прокрутка / новий пошук ховають підказку рядка
+    (інакше вона лишається над іншою цитатою: на Windows коліщатко — не ButtonPress)."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    from uiux import quote_search as QS
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        tw = ui.on_train()
+        root.update()
+        button = _find(tw.win, QS.SearchButton)
+        for _ in range(2):                     # друга подія приходить, поки перше вікно з'являється
+            button.event_generate("<ButtonRelease-1>", x=2, y=2, when="tail")
+        root.update()
+        opened = [w for w in tw.win.winfo_children() if isinstance(w, tk.Toplevel) and w.winfo_exists()]
+        assert len(opened) == 1
+        qs = tw.quote_search
+        assert qs.win is opened[0] and qs.win.grab_current() == qs.win
+
+        tip = qs.row_tip
+        for change in (lambda: qs.listbox.yview_scroll(5, "units"), lambda: qs.entry.insert("end", "л")):
+            tip.row = 3
+            tip._show()
+            assert tip._tip is not None
+            change()
+            root.update()
+            assert tip._tip is None and tip.row is None
+        qs.close()
+        root.update()
+        assert tw.win.grab_current() == tw.win
+        QS.open_search(tw)                     # після закриття — відкривається знову
+        root.update()
+        assert tw.quote_search.win.winfo_exists() and tw.quote_search is not qs
+        tw.quote_search.close()
+        tw.close()
+    finally:
+        root.destroy()

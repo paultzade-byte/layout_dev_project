@@ -120,7 +120,7 @@ class TrainerWindow:
                 b.config(state="disabled")
             tooltip.add(b, tip)
             self.mode_buttons[mode] = b
-        quote_search.search_button(top, lambda: quote_search.QuoteSearch(self)).pack(side="left", padx=(px(6), 0))
+        quote_search.search_button(top, lambda: quote_search.open_search(self)).pack(side="left", padx=(px(6), 0))
 
         self.button_translate = _button(top, "", self._toggle_translate)
         self.button_translate.pack(side="right")

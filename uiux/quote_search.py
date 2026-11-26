@@ -2,7 +2,8 @@
 
     search_button(parent, command)  — лупа у верхньому ряду тренажера (Canvas, без емодзі:
                                       Tk на X11 падає на кольорових емодзі-шрифтах)
-    QuoteSearch(trainer_window)     — вікно пошуку поверх тренажера (uiux/trainer.py)
+    open_search(trainer_window)     — вікно пошуку поверх тренажера (uiux/trainer.py);
+                                      вже відкрите (подвійний клік по лупі) — лише на передній план
 
 Пошук — core.trainer.search_quotes (початки слів тексту, автора, твору). Вибір —
 TrainerWindow._select_quote(quote). Поки вікно відкрите, тренажер чекає (grab); після
@@ -78,8 +79,17 @@ class RowTooltip(tooltip.Tooltip):
     def __init__(self, listbox: tk.Listbox, text_for_row, empty_text: str):
         self.listbox, self.text_for_row, self.empty_text = listbox, text_for_row, empty_text
         self.row = None
+        self._showing = False
         super().__init__(listbox, self._text)
         listbox.bind("<Motion>", self._on_motion, add="+")
+
+    def view_changed(self):
+        """Список прокручено чи заповнено заново (коліщатко, ↑ ↓, новий пошук): під курсором
+        уже інша цитата — підказку сховати (на Windows коліщатко — не ButtonPress)."""
+        if self._showing:              # update_idletasks усередині _show — не ховати свою ж
+            return
+        self.row = None
+        self._hide()
 
     def _row_at(self, y) -> int | None:
         lb = self.listbox
@@ -105,7 +115,11 @@ class RowTooltip(tooltip.Tooltip):
         return self.empty_text if self.row is None else self.text_for_row(self.row)
 
     def _show(self):
-        super()._show()
+        self._showing = True
+        try:
+            super()._show()
+        finally:
+            self._showing = False
         if self._tip is None or self.row is None:
             return
         box = self.listbox.bbox(self.row)          # під рядком, а не під усім списком
@@ -130,6 +144,7 @@ class QuoteSearch:
         self.sel = None              # індекс вибраного рядка в self.shown
 
         self.win = tk.Toplevel(tw.win)
+        tw.quote_search = self        # одразу: другий клік по лупі, поки вікно з'являється
         self.win.title("Пошук цитати")
         self.win.configure(bg=BG)
         self.win.resizable(False, False)
@@ -179,9 +194,13 @@ class QuoteSearch:
         bar = tk.Scrollbar(mid, orient="vertical", command=self.listbox.yview, bg=BUTTON,
                            troughcolor=BG, activebackground=BUTTON_HOVER, highlightthickness=0, bd=0)
         bar.pack(side="left", fill="y")
-        self.listbox.config(yscrollcommand=bar.set)
-        RowTooltip(self.listbox, self._row_tip,
-                   "Цитати, що підходять під пошук. Двічі клацни чи Enter — друкувати.")
+        self.row_tip = RowTooltip(self.listbox, self._row_tip,
+                                  "Цитати, що підходять під пошук. Двічі клацни чи Enter — друкувати.")
+
+        def scrolled(*args):
+            bar.set(*args)
+            self.row_tip.view_changed()
+        self.listbox.config(yscrollcommand=scrolled)
         tooltip.add(bar, "Прокрутка списку (або коліщатко миші над ним).")
 
         bottom = tk.Frame(w, bg=BG)
@@ -325,3 +344,15 @@ class QuoteSearch:
             self.tw.win.focus_force()
         except tk.TclError:
             pass
+
+
+def open_search(tw) -> QuoteSearch:
+    """Лупа тренажера: нове вікно пошуку або вже відкрите (не друге поверх першого)."""
+    qs = getattr(tw, "quote_search", None)
+    try:
+        if qs is not None and qs.win.winfo_exists():
+            qs.win.lift()
+            return qs
+    except tk.TclError:
+        pass
+    return QuoteSearch(tw)
