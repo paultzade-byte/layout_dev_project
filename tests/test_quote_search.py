@@ -20,6 +20,13 @@ def test_search_prefix_and_empty():
     assert T.search_quotes(QUOTES, "лісі") == [QUOTES[2]]
 
 
+def test_search_latin_finds_nothing():
+    """QA 2026-11-26: «lis» нормалізувався в порожній запит і показував усі цитати."""
+    assert T.search_quotes(QUOTES, "lis") == []
+    assert T.search_quotes(QUOTES, "франко lis") == []
+    assert T.search_quotes(QUOTES, "франко ,") == [QUOTES[0]]     # розділові — не слово
+
+
 def test_search_all_words_case_apostrophes_author_work():
     assert T.search_quotes(QUOTES, "ліс гриб") == [QUOTES[2]]
     assert T.search_quotes(QUOTES, "ліс серц") == [QUOTES[1]]

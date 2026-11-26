@@ -185,7 +185,10 @@ def _search_words(text: str) -> list[str]:
 def search_quotes(quotes: list[dict], query: str) -> list[dict]:
     """Цитати, де КОЖНЕ слово запиту — початок якогось слова тексту, автора чи твору
     («ліс» знайде «лісова», «лісі»; «франко лис» — лише Франкові з «лис…»). Регістр і
-    апострофи не важать. Порожній запит — усі. Порядок — як у quotes."""
+    апострофи не важать. Порожній запит — усі. Слово запиту з літерами, яких у цитатах
+    нема (латиниця), нічого не знаходить. Порядок — як у quotes."""
+    if any(not _search_words(t) and any(ch.isalpha() for ch in t) for t in query.split()):
+        return []
     words = _search_words(query)
     if not words:
         return list(quotes)
