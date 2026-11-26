@@ -1574,7 +1574,7 @@ class LayoutBuilderApp():
 
     def _apply_recorded_state(self, data: list[dict]):
         state_by_position = {
-            p["position_id"]: (p["char"], p["is_frozen"]) for p in data
+            p["position_id"]: (p["char"], bool(p.get("is_frozen", False))) for p in data
         }
         # rewrite the layout
         for key in self.layout.keys:

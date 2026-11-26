@@ -520,3 +520,27 @@ def test_start_with_all_frozen_returns_to_idle():
         assert "менше двох" in ui.toasts.items[-1].winfo_children()[0].cget("text")
     finally:
         root.destroy()
+
+
+def test_open_layout_without_is_frozen(tmp_path, monkeypatch):
+    """QA 2026-11-26: файл без поля is_frozen -> KeyError поза try в «Відкрити…»."""
+    import json
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        data = [{"position_id": k.position_id, "char": k.char} for k in ui.layout.keys]
+        a, b = [i for i, d in enumerate(data) if len(d["char"]) == 1 and d["char"].isalpha()][:2]
+        data[a]["char"], data[b]["char"] = data[b]["char"], data[a]["char"]
+        path = tmp_path / "no_frozen.json"
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kw: str(path))
+        ui.on_open()
+        root.update()
+        chars = {k.position_id: k.char for k in ui.layout.keys}
+        assert chars[data[a]["position_id"]] == data[a]["char"]
+        assert not any(k.is_frozen for k in ui.layout.keys if k.position_id in (data[a]["position_id"], data[b]["position_id"]))
+    finally:
+        root.destroy()
