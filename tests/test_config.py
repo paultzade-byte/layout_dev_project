@@ -61,3 +61,93 @@ def test_start_layout_keeps_char_set(geometry_name):
     from core.layout_factory import build_layout
     chars = sorted(k.char for k in start_layout(geometry_name).keys)
     assert chars == sorted(k.char for k in build_layout(geometry_config(geometry_name)).keys)
+
+
+@pytest.mark.parametrize("meta", [["uk"], "uk", 5])
+def test_stats_file_with_bad_meta_does_not_break_start(tmp_path, monkeypatch, meta):
+    """QA 2026-11-26: meta не-об'єкт -> AttributeError у startup_statistic і меню «Статистика»."""
+    import json
+    from config import settings, stats_files
+    from uiux import app as A
+    bad = tmp_path / "ukr_bad.json"
+    bad.write_text(json.dumps({**{k: {} for k in stats_files.NGRAM_KEYS}, "meta": meta}), encoding="utf-8")
+    assert stats_files.read_meta(bad) is None and stats_files.language(bad) is None
+    assert stats_files.load(bad)["unigrams"] == {}
+    old = settings.load().get("statistic_file")
+    try:
+        settings.save(statistic_file=str(bad))
+        statistic, path = A.startup_statistic()
+        assert path in (None, bad)
+    finally:
+        settings.save(statistic_file=old)
+    broken = tmp_path / "ukr_broken.json"
+    broken.write_text(json.dumps({**{k: [] for k in stats_files.NGRAM_KEYS}, "meta": {}}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        stats_files.load(broken)
+
+
+def test_schema_requires_column_multiplier_other():
+    """QA 2026-11-26: engine читає column_multiplier.other, а схема — ні -> сирий KeyError."""
+    moves = load_moves("corne_42")
+    del moves["base_effort"]["column_multiplier"]["other"]
+    with pytest.raises(ValueError, match="column_multiplier.other"):
+        validate_moves_config(moves)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"),
+                                 pytest.param(10**400, id="10**400")])
+def test_schema_rejects_non_finite_weights(bad):
+    """QA 2026-11-26: NaN / inf у вагах проходили validate_moves_config."""
+    moves = load_moves("corne_42")
+    moves["base_effort"]["row_multiplier"]["top"] = bad
+    with pytest.raises(ValueError, match="row_multiplier.top"):
+        validate_moves_config(moves)
+    moves = load_moves("corne_42")
+    moves["hand"]["left_mult"] = bad
+    with pytest.raises(ValueError, match="left_mult"):
+        validate_moves_config(moves)
+
+
+@pytest.mark.parametrize("bad", [None, 5, "x"])
+def test_build_layout_non_dict_position(bad):
+    """QA 2026-11-26: null у positions -> AttributeError з обробника помилки замість ValueError."""
+    geometry = geometry_config("corne_42")
+    geometry = {**geometry, "positions": [*geometry["positions"], bad]}
+    with pytest.raises(ValueError, match="invalid geometry position unknown"):
+        build_layout(geometry)
+
+
+@pytest.mark.parametrize("bad", [["corne_42"], {"a": 1}, 5, True])
+def test_settings_bad_types_fall_back_to_defaults(tmp_path, monkeypatch, bad):
+    """QA 2026-11-26: "mode" — список у settings.json -> TypeError unhashable на старті;
+    cpu_percent 25.0 / true — не з меню; save(Path(...)) -> TypeError."""
+    from pathlib import Path
+    from config import settings
+    from core import throttle
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    monkeypatch.delenv("LAYOUT_GEOMETRY", raising=False)
+    settings.save(mode=bad, cpu_percent=bad)
+    assert settings.initial_mode(GEOMETRIES) in GEOMETRIES
+    assert settings.cpu_percent() == throttle.DEFAULT
+    settings.save(cpu_percent=50.0)
+    assert settings.cpu_percent() == throttle.DEFAULT and type(settings.cpu_percent()) is int
+    settings.save(cpu_percent=50, stats_out=Path("/x/y"))
+    assert settings.cpu_percent() == 50
+    assert settings.load()["stats_out"] == str(Path("/x/y"))
+
+
+@pytest.mark.parametrize("bad", [True, 1, ["x.json"], {"p": 1}])
+def test_statistic_file_not_a_string_uses_builtin(tmp_path, monkeypatch, bad):
+    """QA 2026-11-26: "statistic_file": true -> open(True) відкривав fd 1 (stdout), with його
+    закривав, і процес виходив з кодом 120. Шлях — лише рядок, інакше вбудована статистика."""
+    import os
+    from config import settings, stats_files
+    from config.main_config import STATISTIC
+    from uiux import app as A
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    settings.save(statistic_file=bad)
+    assert A.startup_statistic() == (STATISTIC, stats_files.BUILTIN)
+    assert stats_files.read_meta(bad) is None and stats_files.language(bad) is None
+    with pytest.raises(ValueError):
+        stats_files.load(bad)
+    os.fstat(1)   # stdout живий

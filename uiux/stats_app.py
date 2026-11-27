@@ -58,10 +58,16 @@ class StatsApp:
         root.configure(bg=BG)
         root.resizable(False, False)
         saved = settings.load()
-        self.corpus_dir = Path(corpus_dir) if corpus_dir else (
-            Path(saved["stats_corpus"]) if saved.get("stats_corpus") else None)
-        self.out_dir = Path(saved.get("stats_out") or stats_dir())
-        self.cpu = saved.get("stats_cpu", 25)
+
+        def saved_path(key):
+            # лише непорожній рядок: true / число / список у settings.json — як не збережено
+            value = saved.get(key)
+            return Path(value) if isinstance(value, str) and value else None
+
+        self.corpus_dir = Path(corpus_dir) if corpus_dir else saved_path("stats_corpus")
+        self.out_dir = saved_path("stats_out") or stats_dir()
+        cpu = saved.get("stats_cpu")
+        self.cpu = cpu if type(cpu) is int and cpu in CPU_CHOICES else 25
         self.lang = AUTO
         self.detected: str | None = None
         self.files: list[Path] = []
@@ -148,7 +154,9 @@ class StatsApp:
 
     def _out_name(self) -> str:
         lang = self._lang_code() or "uk"
-        return corpus.statistic_file_name(lang, self.corpus_dir.name if self.corpus_dir else "тексти")
+        # те саме ім'я, що дасть write_statistic_file (з суфіксом _2, _3…, якщо зайнято)
+        return corpus.statistic_file_path(self.out_dir, lang,
+                                          self.corpus_dir.name if self.corpus_dir else "тексти").name
 
     def _lang_code(self) -> str | None:
         return self.detected if self.lang == AUTO else self.lang

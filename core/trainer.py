@@ -30,6 +30,7 @@ STEP літери за частотою. Нова (остання відкрит
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 from collections import Counter
@@ -51,6 +52,7 @@ PAUSE_S = 3.0            # довша пауза між натисканнями
 HARD_TOP = 12            # скільки найважчих поєднань тренує «Поєднання»
 REPEAT = (2, 3)          # скільки слів поспіль на одне поєднання
 STATS_FILE = "trainer_stats.json"
+STAT_FIELDS = ("hits", "misses", "ms", "timed")   # лічильники запису літери
 MIN_SAMPLES = 15         # менше натискань літери — в «слабкі» не беремо
 LEVEL_UP_LINES = 3       # «Сам підвищуй»: стільки останніх рядків рівня
 LEVEL_UP_ACCURACY = 95.0  # ... кожен з точністю не нижче, %
@@ -66,6 +68,7 @@ PUNCT_FOCUS = 0.30                     # ... якщо це нова (у фоку
 _PUNCT_MAP = str.maketrans({"—": "-", "–": "-", "‑": "-", "„": '"', "“": '"', "”": '"', "«": '"',
                             "»": '"', "…": "..."})
 SHIFT_MASK = 0x01         # біт Shift у event.state (X11 і Windows)
+LOCK_MASK = 0x02          # біт Caps Lock у event.state (X11 і Windows)
 
 
 # ----------------------------------------------------------------------
@@ -76,7 +79,24 @@ def load_quotes(path: Path | str = QUOTES_FILE) -> list[dict]:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    return [q for q in data.get("quotes", []) if q.get("text")]
+    quotes = data.get("quotes") if isinstance(data, dict) else None
+    if not isinstance(quotes, list):
+        return []
+    out = []
+    for q in quotes:   # биті цитати (не dict, без тексту) — відкидаємо; author / work — рядки
+        if isinstance(q, dict) and isinstance(q.get("text"), str) and q["text"].strip():
+            out.append({**q, "author": _str_or_empty(q.get("author")), "work": _str_or_empty(q.get("work"))})
+    return out
+
+
+def _str_or_empty(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def quote_source(quote: dict) -> str:
+    """Підпис цитати для тултіпа: «автор — «твір»» (без порожніх частин)."""
+    author, work = quote.get("author", ""), quote.get("work", "")
+    return " — ".join(part for part in (author, f"«{work}»" if work else "") if part)
 
 
 def normalize(text: str) -> str:
@@ -115,6 +135,14 @@ def read_text_file(path: Path | str) -> str:
     """Текст .txt: UTF-8 (з BOM чи без), інакше cp1251 (старі Windows-файли)."""
     with open(path, "rb") as f:
         raw = f.read(OWN_MAX_BYTES)
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as e:
+        if len(raw) == OWN_MAX_BYTES and e.start >= len(raw) - 3:
+            try:   # межа OWN_MAX_BYTES розрізала останню літеру — це все ще UTF-8
+                return raw[:e.start].decode("utf-8-sig")
+            except UnicodeDecodeError:
+                pass
     for enc in ("utf-8-sig", "cp1251"):
         try:
             return raw.decode(enc)
@@ -177,7 +205,10 @@ def _search_words(text: str) -> list[str]:
 def search_quotes(quotes: list[dict], query: str) -> list[dict]:
     """Цитати, де КОЖНЕ слово запиту — початок якогось слова тексту, автора чи твору
     («ліс» знайде «лісова», «лісі»; «франко лис» — лише Франкові з «лис…»). Регістр і
-    апострофи не важать. Порожній запит — усі. Порядок — як у quotes."""
+    апострофи не важать. Порожній запит — усі. Слово запиту з літерами, яких у цитатах
+    нема (латиниця), нічого не знаходить. Порядок — як у quotes."""
+    if any(not _search_words(t) and any(ch.isalpha() for ch in t) for t in query.split()):
+        return []
     words = _search_words(query)
     if not words:
         return list(quotes)
@@ -349,7 +380,17 @@ def load_stats(geometry_name: str) -> dict:
     except (OSError, ValueError):
         return {}
     stats = data.get(geometry_name, {}) if isinstance(data, dict) else {}
-    return stats if isinstance(stats, dict) else {}
+    if not isinstance(stats, dict):
+        return {}
+    out = {}
+    for ch, rec in stats.items():   # биті записи (не dict, лічильник не число) — відкидаємо
+        if not isinstance(rec, dict):
+            continue
+        rec = {f: rec.get(f, 0) for f in STAT_FIELDS}
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0
+               for v in rec.values()):   # Infinity / NaN у JSON — теж биті
+            out[ch] = rec
+    return out
 
 
 def save_stats(geometry_name: str, stats: dict) -> None:
@@ -384,9 +425,9 @@ def weak_letters(stats: dict, letters=None, n: int = 5) -> list[tuple[str, float
         if letters is not None and ch not in letters:
             continue
         total = rec.get("hits", 0) + rec.get("misses", 0)
-        if rec.get("hits", 0) < MIN_SAMPLES or ch == " ":
+        if total < MIN_SAMPLES or ch == " ":
             continue
-        acc = 100.0 * rec["hits"] / total
+        acc = 100.0 * rec.get("hits", 0) / total
         ms = rec["ms"] / rec["timed"] if rec.get("timed") else None
         out.append((ch, acc, ms))
     slow = sorted(ms for _, _, ms in out if ms is not None)
@@ -480,7 +521,7 @@ class Translator:
         return table.get(keycode) or BY_CHAR.get(char)
 
     def translate(self, keycode: int, char: str, state: int) -> str | None:
-        """Символ нової розкладки для натискання (з урахуванням Shift і AltGr)
+        """Символ нової розкладки для натискання (з урахуванням Shift, Caps Lock і AltGr)
         або None (клавіша без символу: Shift, Ctrl…)."""
         if char == " " or keycode == SPACE_KEYCODE.get(self.windowing):
             return " "
@@ -488,9 +529,25 @@ class Translator:
         levels = self.levels.get(key) if key else None
         if not levels:
             return None
-        level = (1 if state & SHIFT_MASK else 0) + (2 if state & ALTGR_MASK.get(self.windowing, 0) else 0)
+        shift = bool(state & SHIFT_MASK)
+        altgr = bool(state & ALTGR_MASK.get(self.windowing, 0))
+        if state & LOCK_MASK and _caps_applies(levels, altgr):
+            if self.windowing == "aqua":      # macOS (і наш .keylayout): Shift+Caps — теж велика
+                shift = shift or not altgr    # на Option-рівнях Caps не діє
+            else:
+                shift = not shift             # Caps — як Shift для літер (Shift+Caps — мала)
+        level = (1 if shift else 0) + (2 if altgr else 0)
         ch = levels[level] or (levels[level - 1] if level == 3 else None)
         return ch or None
+
+
+def _caps_applies(levels: list, altgr: bool) -> bool:
+    """Чи діє Caps Lock на клавішу — як в експорті (.klc: прапорці 1 / 4, xkb: *_ALPHABETIC):
+    на літерну клавішу; на рівні AltGr — лише якщо й там літера (ї -> Ї)."""
+    base = levels[0] or ""
+    if not base.isalpha():
+        return False
+    return not altgr or bool(levels[2] and levels[2].isalpha())
 
 
 def as_is(char: str) -> str | None:

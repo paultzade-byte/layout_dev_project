@@ -53,7 +53,8 @@ def build_layout(geometry: Dict[str, Any]) -> Layout:
         try:
             keys.append(build_key_from_position(position))
         except (KeyError, TypeError, ValueError) as error:
-            position_id = position.get("id", "unknown")
+            # position може бути не dict (null, число) — тоді .get сам упав би
+            position_id = position.get("id", "unknown") if isinstance(position, dict) else "unknown"
             raise ValueError(f"invalid geometry position {position_id}: {error}") from error
     if len({key.position_id for key in keys}) != len(keys):
         raise ValueError("geometry position ids must be unique")

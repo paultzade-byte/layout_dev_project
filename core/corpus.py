@@ -59,11 +59,14 @@ LANGUAGES = {
 # ' 22 435, ’ 7 610, ‘ 689, ʼ 101, ` 70 — між двома літерами). Зводимо до "'"
 # лише між літерами: ‘лапки’ навколо слова лишаються лапками (-> пробіл).
 APOSTROPHE_VARIANTS = "’‘ʼ`´ʹʻ′＇‛"
-_APOSTROPHE_RE = re.compile(rf"(?<=[^\W\d_])[{APOSTROPHE_VARIANTS}](?=[^\W\d_])")
+# «літера» — без апострофів: ʼ ʹ ʻ у Unicode — літери-модифікатори (Lm) і інакше
+# рахувалися б межею слова. Кілька апострофів підряд (п’’ять, пʼ’ять, п'’ять) -> один "'".
+_LETTER = rf"[^\W\d_{APOSTROPHE_VARIANTS}]"
+_APOSTROPHE_RE = re.compile(rf"(?<={_LETTER})['{APOSTROPHE_VARIANTS}]+(?={_LETTER})")
 
 
 def normalize_apostrophes(text: str) -> str:
-    """’ ‘ ʼ ` ´ … між двома літерами -> "'"."""
+    """’ ‘ ʼ ` ´ … (одна чи кілька підряд) між двома літерами -> "'"."""
     return _APOSTROPHE_RE.sub("'", text)
 
 
@@ -79,6 +82,21 @@ def detect_language(files: list[Path], sample_bytes: int = 1_000_000) -> str | N
     if not hits or hits.most_common(1)[0][1] == 0:
         return None
     return hits.most_common(1)[0][0]
+
+
+def check_utf8(files, sample_bytes: int = 1 << 16) -> None:
+    """ValueError, якщо початок якогось файлу — не UTF-8 (напр. cp1251): інакше
+    decode(errors="ignore") мовчки викинув би всю кирилицю і статистика була б порожня."""
+    for path in map(Path, files):
+        with open(path, "rb") as f:
+            raw = f.read(sample_bytes)
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError as e:
+            if len(raw) == sample_bytes and e.start >= len(raw) - 3:
+                continue  # вибірка розрізала останню літеру — це не помилка кодування
+            raise ValueError(f"{path.name}: файл не в UTF-8 (може, cp1251?) — "
+                             "збережи його в кодуванні UTF-8") from None
 
 
 def find_corpus_files(paths) -> list[Path]:
@@ -116,20 +134,20 @@ class Alphabet:
 
 
 def ngram_counts(ids: np.ndarray, size: int):
-    """Бі/три/скіп-грами одного шматка (остання пара шматка не рахується —
-    нехтовно мало, як і раніше)."""
+    """Бі/три/скіп-грами одного шматка: біграми — усі пари (від 2 символів),
+    три- і скіп-грами — від 3 символів."""
     n = len(ids)
     bi = np.zeros(size ** 2, dtype=np.int64)
     tri = np.zeros(size ** 3, dtype=np.int64)
     skip = np.zeros(size ** 2, dtype=np.int64)
+    if n >= 2:
+        ab = ids[:n - 1].astype(np.uint32) * size + ids[1:].astype(np.uint32)
+        bi += np.bincount(ab, minlength=size ** 2)
     if n >= 3:
         a = ids[:n - 2].astype(np.uint32)
-        b = ids[1:n - 1].astype(np.uint32)
         c = ids[2:].astype(np.uint32)
-        ab = a * size + b
-        bi += np.bincount(ab, minlength=size ** 2)
         skip += np.bincount(a * size + c, minlength=size ** 2)
-        tri += np.bincount(ab * size + c, minlength=size ** 3)
+        tri += np.bincount(ab[:n - 2] * size + c, minlength=size ** 3)
     return bi, tri, skip
 
 
@@ -249,6 +267,7 @@ def count_corpus(files, lang_code: str, cpu_share: float = 0.25,
     files = [Path(f) for f in files]
     if not files:
         raise ValueError("немає .txt файлів")
+    check_utf8(files)
     alpha = Alphabet(LANGUAGES[lang_code])
     tasks = build_tasks(files)
     total_bytes = sum(e - s for _, s, e in tasks)
@@ -282,6 +301,9 @@ def count_corpus(files, lang_code: str, cpu_share: float = 0.25,
         pool.terminate()
         pool.join()
 
+    if not chars[:len(alpha.lang.letters)].any():
+        raise ValueError(f"у корпусі немає жодної літери мови «{lang_code}» — "
+                         "перевір файли й мову; нічого не записано")
     min_count = max(2, round(int(chars.sum()) * MIN_NGRAM_SHARE))
     for arr in (bi, tri, skip):
         arr[arr <= min_count] = 0
@@ -329,15 +351,28 @@ def statistic_file_name(lang_code: str, corpus_name: str, day: str | None = None
     return f"{LANGUAGES[lang_code].tag}_{safe}_{day or date.today().isoformat()}.json"
 
 
+def statistic_file_path(out_dir, lang_code: str, corpus_name: str) -> Path:
+    """Куди write_statistic_file запише файл сьогодні. Той самий корпус — той самий
+    файл (перезапис). Назва корпусу в імені обрізана до 40 символів: інший корпус
+    з тим самим початком назви не затирає чужий файл, а отримує суфікс _2, _3…"""
+    from config.stats_files import read_meta
+    first = Path(out_dir) / statistic_file_name(lang_code, corpus_name)
+    path, n = first, 1
+    while path.exists() and (read_meta(path) or {}).get("corpus") != corpus_name:
+        n += 1
+        path = first.with_name(f"{first.stem}_{n}{first.suffix}")
+    return path
+
+
 def write_statistic_file(result: dict, out_dir, corpus_name: str) -> Path:
     """Один файл: n-грами + words + meta (мова, корпус, дата). Такі файли
     оптимізатор показує в меню «Статистика ▾» (config/stats_files.py).
-    Той самий день і корпус — файл перезаписується."""
+    Ім'я — statistic_file_path (той самий день і корпус — перезапис)."""
     from datetime import datetime
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {**result["meta"], "corpus": corpus_name, "created": datetime.now().isoformat(timespec="minutes")}
-    path = out_dir / statistic_file_name(meta["language"], corpus_name)
+    path = statistic_file_path(out_dir, meta["language"], corpus_name)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"meta": meta, **result["statistic"], "words": result["words"]}, f, ensure_ascii=False)
     return path

@@ -263,17 +263,20 @@ class LayoutOptimizerSA:
         iterations: int = 10000,
         ui_callback: Optional[Callable[..., None]] = None,
     ) -> Layout:
-        self.current_layout = copy.deepcopy(layout)
+        # аргументи — до будь-якої зміни стану: після ValueError best
+        # попереднього прогону має лишитися (QA 2026-11-26)
+        if iterations < 1:
+            raise ValueError("iterations must be at least 1")
+        current = copy.deepcopy(layout)
+        self._require_mutable_keys(self._unfrozen(current), 2)
+
+        self.current_layout = current
         self.best_layout = copy.deepcopy(layout)
         # delta і порівняння з best мають рахуватися від переданого layout,
         # а не від score, що залишився з __init__ / попереднього запуску
         self.current_score = self.best_score = self._load(self.current_layout)
 
         # state_hasher(self.current_layout, f"run_optimization.{a} Score from mutator._score(): {self.current_score}")
-
-        if iterations < 1:
-            raise ValueError("iterations must be at least 1")
-        self._require_mutable_keys(self._unfrozen(self.current_layout), 2)
 
         # перший запуск калібрує і стартує з start_temp; продовження після
         # Stop/Start тягне температуру далі до end_temp за новий прогін

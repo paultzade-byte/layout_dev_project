@@ -41,6 +41,7 @@ scripts) — they rebuild everything from scratch every call, same as before.
 Do NOT use them inside a hot loop.
 """
 
+import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -67,7 +68,7 @@ _REQUIRED_MOVES_SCHEMA = {
     "base_effort": {
         "row_multiplier": ("top", "home_row", "bottom", "other"),
         "finger_multiplier": ("pinky", "ring", "middle", "index", "thumb"),
-        "column_multiplier": ("home_col", "col_index", "col_pinky"),
+        "column_multiplier": ("home_col", "col_index", "col_pinky", "other"),
     },
     # None = числовий лист; tuple = вкладена секція з числовими листами
     "same_finger": {
@@ -131,8 +132,8 @@ def _validate_section(value: Any, spec: Any, path: str) -> None:
     """spec: dict -> секція з іменованими полями, tuple -> секція з числовими
     листами, None -> одне числове значення."""
     if spec is None:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"moves config value '{path}' must be numeric")
+        if not _is_finite_number(value):
+            raise ValueError(f"moves config value '{path}' must be a finite number")
         return
     if not isinstance(value, dict):
         raise ValueError(f"moves config section '{path}' must be a mapping")
@@ -145,8 +146,18 @@ def _validate_section(value: Any, spec: Any, path: str) -> None:
 def _validate_numeric_values(values: Dict[str, Any], names: Tuple[str, ...], path: str) -> None:
     for name in names:
         value = values.get(name)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"moves config value '{path}.{name}' must be numeric")
+        if not _is_finite_number(value):
+            raise ValueError(f"moves config value '{path}.{name}' must be a finite number")
+
+
+def _is_finite_number(value: Any) -> bool:
+    """Число, але не bool і не NaN/inf (YAML .nan / .inf ламають усі штрафи)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:   # int, більший за float (10**400), — теж не скінченне для штрафів
+        return False
 
 def calculate_total_penalty(
     layout: Layout,

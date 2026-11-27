@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import unicodedata
 from datetime import date
 from pathlib import Path
+from xml.sax.saxutils import quoteattr
 
 DEFAULT_NAME = "Ukrainian Optimized"
 
@@ -33,6 +35,22 @@ PUNCT_SHIFT = {",": ";", ".": ":", "'": "ʼ", "/": "?", "\\": "/"}
 # Shift+AltGr для AltGr-символу: велика літера, а для апострофа — ʼ (U+02BC,
 # «правильний» український апостроф; простий ' — на AltGr)
 ALTGR_SHIFT = {"'": "ʼ"}
+
+
+_BREAKING = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
+
+
+def _one_line_name(name: str) -> str:
+    """Назва розкладки (CLI --name) одним рядком: керівні символи (переноси,
+    таби…, U+2028/2029) -> пробіл. Порожня -> DEFAULT_NAME."""
+    name = "".join(" " if unicodedata.category(c) in _BREAKING else c for c in str(name)).strip()
+    return name or DEFAULT_NAME
+
+
+def _quoted_name(name: str) -> str:
+    """Назва для рядка в лапках .klc / xkb: екранування там нема (klc) або
+    воно своє (xkb, \\), тож лапки -> ', зворотна похила -> /."""
+    return _one_line_name(name).replace('"', "'").replace("\\", "/")
 
 
 def _upper(ch: str) -> str:
@@ -71,12 +89,29 @@ def keymap(chars: dict[int, str], geometry: dict) -> dict[str, list]:
     missing = set(altgr) - set(seen)
     if missing:
         raise ValueError(f"AltGr-символи для літер, яких нема на розкладці: {sorted(missing)}")
+    # без полів key (напр. corne_42) лишився б сирий KeyError десь у klc_text
+    absent = set(WIN_KEYS) - set(out)
+    if absent:
+        raise ValueError(f"геометрія описує не всі фізичні клавіші (поле key; бракує, напр., "
+                         f"{min(absent)}) — експорт лише для звичайної клавіатури (generic_105_alpha)")
     return out
 
 
 def load_chars(path) -> dict[int, str]:
-    with open(path, "r", encoding="utf-8") as file:
-        return {d["position_id"]: d["char"] for d in json.load(file)}
+    """{position_id: символ} з JSON розкладки (формат «Зберегти»); биті файли -> ValueError."""
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: файл не в UTF-8 ({error})") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: битий JSON ({error})") from error
+    if not isinstance(data, list) or not all(
+            isinstance(d, dict) and type(d.get("position_id")) is int   # bool — теж int, тож type()
+            and isinstance(d.get("char", 0), (str, type(None))) for d in data):
+        raise ValueError(f"{path}: не розкладка — очікується список "
+                         '{"position_id": ціле, "char": рядок}')
+    return {d["position_id"]: d["char"] for d in data}
 
 
 def chars_from_keys(keys) -> dict[int, str]:
@@ -209,6 +244,7 @@ def klc_text(km: dict[str, list], name: str = DEFAULT_NAME, kbd_id: str = "ukrop
     rows.append("56\tOEM_102\t\t0\t005c\t007c\t001c\t-1\t-1 // \\, |")
     rows.append("39\tSPACE\t\t0\t0020\t0020\t0020\t-1\t-1")
     rows.append("53\tDECIMAL\t\t0\t002c\t002c\t-1\t-1\t-1 // ,")
+    name = _quoted_name(name)
     return f"""KBD\t{kbd_id}\t"{name}"
 
 COPYRIGHT\t"(c) {date.today().year}"
@@ -316,6 +352,7 @@ def xkb_text(km: dict[str, list], name: str = DEFAULT_NAME, variant: str = "basi
         rows.append(f'    key <{xname}> {{ type[Group1] = "{_xkb_type(levels)}", '
                     f"[ {syms} ] }};  // {shown}")
     body = "\n".join(rows)
+    name = _quoted_name(name)
     return f"""// {name} — згенеровано оптимізатором розкладки (core/export.py)
 // AltGr = правий Alt (level3(ralt_switch)).
 default partial alphanumeric_keys
@@ -412,7 +449,7 @@ def mac_keylayout_xml(name, group, kid, maps):
     km = "\n".join(mac_keymap_xml(i, m) for i, m in enumerate(maps))
     return f"""<?xml version="1.1" encoding="UTF-8"?>
 <!DOCTYPE keyboard SYSTEM "file://localhost/System/Library/DTDs/KeyboardLayout.dtd">
-<keyboard group="{group}" id="{kid}" name="{name}" maxout="1">
+<keyboard group="{group}" id="{kid}" name={quoteattr(_one_line_name(name))} maxout="1">
   <layouts>
     <layout first="0" last="255" modifiers="mods" mapSet="maps"/>
   </layouts>
@@ -499,7 +536,8 @@ def export_all(chars: dict[int, str], geometry: dict, out_dir, name: str = DEFAU
         paths.append(path)
     altgr = ", ".join(f"{k} → {v}" for k, v in geometry.get("altgr", {}).items()) or "—"
     readme = out / "README.txt"
-    readme.write_text(README.format(name=name, line="=" * (len(name) + 18), altgr=altgr,
+    name = _one_line_name(name)   # перенос у назві ламав би заголовок і підкреслення
+    readme.write_text(README.format(name=name, line="=" * (len(name) + len(" — як встановити")), altgr=altgr,
                                     stem=FILE_STEM, kbd="ukropt"), encoding="utf-8")
     paths.append(readme)
     return paths
@@ -513,7 +551,13 @@ def main(argv=None):
     parser.add_argument("--geometry", default="generic_105_alpha")
     parser.add_argument("--name", default=DEFAULT_NAME)
     args = parser.parse_args(argv)
-    for path in export_all(load_chars(args.layout), geometry_config(args.geometry), args.out_dir, args.name):
+    try:
+        paths = export_all(load_chars(args.layout), geometry_config(args.geometry), args.out_dir, args.name)
+    except (OSError, ValueError, KeyError) as error:
+        # поганий ввід — зрозуміле повідомлення і код 1, а не traceback
+        message = error.args[0] if isinstance(error, KeyError) and error.args else error
+        sys.exit(f"помилка: {message}")
+    for path in paths:
         print("записано", path)
 
 

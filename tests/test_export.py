@@ -97,3 +97,69 @@ def test_export_all_writes_files(chars, tmp_path):
     assert sorted(p.name for p in paths) == sorted(
         ["ukr_optimized.klc", "ukr_optimized.xkb", "ukr_optimized.keylayout", "README.txt"])
     assert "MSKLC" in (tmp_path / "out" / "README.txt").read_text(encoding="utf-8")
+
+
+NASTY_NAME = 'A & <B> "C" \\ \'D\'\nE F'
+
+
+def test_name_is_escaped_in_every_format(km, tmp_path):
+    """QA 2026-11-26: назва (--name) з & < " ламала .keylayout (невалідний XML),
+    а лапки / переноси — рядок у лапках .klc і xkb."""
+    import xml.dom.minidom
+    xml_text = export.keylayout_text(km, NASTY_NAME)
+    plain = re.sub(r"&#x00[01][0-9A-F];", "X", xml_text.replace('version="1.1"', 'version="1.0"', 1))
+    doc = xml.dom.minidom.parseString(plain.encode())
+    assert doc.documentElement.getAttribute("name") == 'A & <B> "C" \\ \'D\' E F'
+
+    klc = export.klc_text(km, NASTY_NAME)
+    assert klc.splitlines()[0] == "KBD\tukropt\t\"A & <B> 'C' / 'D' E F\""
+    assert "0409\tA & <B> 'C' / 'D' E F\n" in klc
+
+    xkb = export.xkb_text(km, NASTY_NAME)
+    assert xkb.splitlines()[0].startswith("// A & <B> 'C' / 'D' E F — ")
+    assert "    name[Group1] = \"A & <B> 'C' / 'D' E F\";\n" in xkb
+    assert export.xkb_text(km, "\n") == export.xkb_text(km)   # порожня -> типова назва
+
+
+def test_readme_underline_matches_title(chars, tmp_path):
+    """QA 2026-11-26: підкреслення заголовка README було на 2 символи довше за заголовок."""
+    export.export_all(chars, geometry_config(GEOMETRY), tmp_path, name="Моя")
+    title, line = (tmp_path / "README.txt").read_text(encoding="utf-8").splitlines()[:2]
+    assert title == "Моя — як встановити"
+    assert line == "=" * len(title)
+    export.export_all(chars, geometry_config(GEOMETRY), tmp_path, name="Моя\nдруга")
+    title, line = (tmp_path / "README.txt").read_text(encoding="utf-8").splitlines()[:2]
+    assert title == "Моя друга — як встановити"
+    assert line == "=" * len(title)
+
+
+@pytest.mark.parametrize("case", ["bad_json", "cp1251", "not_layout", "bad_id", "bool_id", "bad_char",
+                                  "corne_geometry", "missing"])
+def test_cli_bad_input_clear_error(tmp_path, capsys, case):
+    """QA 2026-11-26: CLI експорту на поганому вводі показував сирий traceback."""
+    layout, argv = tmp_path / "l.json", []
+    if case == "bad_json":
+        layout.write_text("{bad", encoding="utf-8")
+    elif case == "cp1251":
+        layout.write_bytes('[{"position_id": 1, "char": "а"}]'.encode("cp1251"))
+    elif case == "not_layout":
+        layout.write_text('{"a": 1}', encoding="utf-8")
+    elif case == "bad_id":
+        layout.write_text('[{"position_id": [1], "char": "а"}]', encoding="utf-8")
+    elif case in ("bool_id", "bad_char"):
+        import json
+        data = json.loads((CONFIG_DIR / "layout_standard_A.json").read_text(encoding="utf-8"))
+        letter = next(d for d in data if d["char"] == "а")
+        if case == "bool_id":
+            data = [d for d in data if d["position_id"] != 1]
+            letter["position_id"] = True               # True == 1 — тихо став би позицією 1
+        else:
+            letter["char"] = 5
+        layout.write_text(json.dumps(data), encoding="utf-8")
+    elif case == "corne_geometry":
+        layout = CONFIG_DIR / "layout_standard_A.json"
+        argv = ["--geometry", "corne_42"]
+    with pytest.raises(SystemExit) as exit_info:
+        export.main([str(layout), str(tmp_path / "out"), *argv])
+    assert str(exit_info.value.code).startswith("помилка: ")
+    assert "Traceback" not in capsys.readouterr().err

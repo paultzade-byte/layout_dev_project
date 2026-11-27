@@ -49,7 +49,7 @@ def _naive(text, alpha):
     ids = [c if c in alpha.chars else " " for c in corpus.normalize_apostrophes(text.lower())]
     s = "".join(ids)
     uni = Counter(s)
-    bi = Counter(s[i:i + 2] for i in range(len(s) - 2))      # остання пара не рахується
+    bi = Counter(s[i:i + 2] for i in range(len(s) - 1))      # усі пари, і остання
     tri = Counter(s[i:i + 3] for i in range(len(s) - 2))
     skip = Counter(s[i] + s[i + 2] for i in range(len(s) - 2))
     return uni, bi, tri, skip
@@ -114,3 +114,105 @@ def test_windows_line_endings_same_as_unix(tmp_path):
     a = corpus.count_corpus([unix], "uk", 1.0)
     b = corpus.count_corpus([win], "uk", 1.0)
     assert a["statistic"] == b["statistic"] and a["words"] == b["words"]
+
+
+def test_cp1251_corpus_is_refused(tmp_path):
+    """QA 2026-11-26: cp1251 + decode(errors="ignore") -> статистика без жодної літери, rc=0."""
+    import subprocess, sys
+    from pathlib import Path
+    bad = tmp_path / "cp.txt"
+    bad.write_bytes(TEXT_UK.replace("ʼ", "'").replace("’", "'").replace("‘", "'").encode("cp1251"))
+    with pytest.raises(ValueError, match="UTF-8"):
+        corpus.count_corpus([bad], "uk", 1.0)
+    # UTF-8, розрізаний межею вибірки посеред літери, — не помилка
+    cut = tmp_path / "cut.txt"
+    cut.write_bytes(b"a" * 9 + "ї".encode())
+    corpus.check_utf8([cut], sample_bytes=10)
+    root = Path(__file__).resolve().parents[1]
+    run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(bad), "--lang", "uk",
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert run.returncode != 0 and "UTF-8" in run.stderr
+    assert not (tmp_path / "out" / "statistic.json").exists()
+
+
+@pytest.mark.parametrize("content", ["", "12345 !!! ... \n", "only latin words here"])
+def test_corpus_without_letters_writes_nothing(tmp_path, content):
+    """QA 2026-11-26: порожній корпус (чи без літер мови) записував порожній statistic.json;
+    з --out config — поверх вбудованої статистики."""
+    import subprocess, sys
+    from pathlib import Path
+    src = tmp_path / "empty.txt"
+    src.write_text(content, encoding="utf-8")
+    with pytest.raises(ValueError, match="жодної літери"):
+        corpus.count_corpus([src], "uk", 1.0)
+    root = Path(__file__).resolve().parents[1]
+    run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(src), "--lang", "uk",
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert run.returncode != 0 and "жодної літери" in run.stderr
+    assert not (tmp_path / "out" / "statistic.json").exists()
+
+
+def test_cli_out_not_writable_clear_error(tmp_path):
+    """QA 2026-11-26: тека --out без права на запис -> traceback PermissionError
+    (і лише після всього підрахунку)."""
+    import os, subprocess, sys
+    from pathlib import Path
+    if os.geteuid() == 0:
+        pytest.skip("root пише куди завгодно")
+    src = tmp_path / "uk.txt"
+    src.write_text(TEXT_UK, encoding="utf-8")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        root = Path(__file__).resolve().parents[1]
+        run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(src), "--lang", "uk",
+                              "--out", str(locked / "out")], capture_output=True, text=True)
+    finally:
+        locked.chmod(0o700)
+    assert run.returncode != 0 and "помилка:" in run.stderr
+    assert "Traceback" not in run.stderr
+    # вихід ще до підрахунку (немає .txt) — тека --out не створюється
+    run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(tmp_path / "nothing"),
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+    assert run.returncode != 0 and not (tmp_path / "out").exists()
+
+
+def test_two_char_chunk_gives_bigram():
+    """QA 2026-11-26: ngram_counts рахував біграми лише з 3 символів (і без останньої пари) —
+    шматок «аб» не давав жодної. Поріг min_count у count_corpus тут не діє (його не чіпаємо)."""
+    alpha = corpus.Alphabet(corpus.LANGUAGES["uk"])
+    ids = alpha.to_ids("аб")
+    bi, tri, skip = corpus.ngram_counts(ids, alpha.size)
+    a, b = (alpha.chars.index(c) for c in "аб")
+    assert bi[a * alpha.size + b] == 1 and bi.sum() == 1
+    assert tri.sum() == 0 and skip.sum() == 0
+    bi, tri, skip = corpus.ngram_counts(alpha.to_ids("абв"), alpha.size)
+    assert bi.sum() == 2 and tri.sum() == 1 and skip.sum() == 1
+
+
+def test_repeated_and_mixed_apostrophes_become_one():
+    """QA 2026-11-26: «п’’ять» лишалось як є, а ʼ (U+02BC, Lm) вважався літерою, тож
+    «пʼ’ять» давало «пʼ'ять». Тепер послідовність апострофів між літерами -> один "'"."""
+    norm = corpus.normalize_apostrophes
+    for text in ("п’’ять", "пʼ’ять", "п'’ять", "п’ʼ`ять", "пʼʼять", "п''ять"):
+        assert norm(text) == "п'ять", text
+    assert norm("ʼп’ять’") == "ʼп'ять’"          # на краях слова — не між літерами
+    assert norm("5’’ять п’’ 7") == "5’’ять п’’ 7"
+
+
+def test_statistic_files_with_same_name_prefix_do_not_overwrite(tmp_path):
+    """QA 2026-11-26: назва корпусу в імені файлу обрізається до 40 символів — два корпуси
+    з однаковим початком назви за один день перезаписували один одного."""
+    from config import stats_files
+    (tmp_path / "uk.txt").write_text(TEXT_UK * 30, encoding="utf-8")
+    result = corpus.count_corpus([tmp_path / "uk.txt"], "uk", 1.0)
+    out, base = tmp_path / "stats", "н" * 40
+    a = corpus.write_statistic_file(result, out, base + "_перший")
+    b = corpus.write_statistic_file(result, out, base + "_другий")
+    c = corpus.write_statistic_file(result, out, base + "_третій")
+    assert len({a, b, c}) == 3 and b.name == a.stem + "_2.json" and c.name == a.stem + "_3.json"
+    assert [stats_files.read_meta(p)["corpus"] for p in (a, b, c)] == \
+        [base + "_перший", base + "_другий", base + "_третій"]
+    assert corpus.write_statistic_file(result, out, base + "_другий") == b   # той самий — перезапис
+    assert len(list(out.glob("*.json"))) == 3

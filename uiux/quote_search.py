@@ -20,9 +20,9 @@ from uiux.theme import ACCENT, BG, BUTTON, BUTTON_HOVER, FONT, KEY_TEXT, PANEL, 
 from uiux.toast import Toasts
 from uiux.widgets import _rounded
 
-LIST_W = 640            # ширина списку, px (до масштабу)
+LIST_W = 760            # ширина списку, px (до масштабу)
 LIST_ROWS = 16
-LIST_FONT = (FONT, 10)
+LIST_FONT = (FONT, 12)
 ENTRY_FONT = (FONT, 11)
 BUTTON_TIP = ("Пошук цитати…\nЗа словами з тексту, автором чи назвою твору: досить початку слова "
               "(«ліс» знайде «лісова», «лісі»), кілька слів — мають бути всі. Вибрана цитата "
@@ -309,12 +309,12 @@ class QuoteSearch:
         if not 0 <= i < len(self.shown):
             return ""
         q = self.shown[i]
-        tip = f"{q['author']} — «{q['work']}»"
+        parts = [trainer.quote_source(q)]
         if i in self.truncated:
-            tip += "\n\n" + " ".join(q["text"].split())
+            parts.append(" ".join(q["text"].split()))
         if self._blocked(i):
-            tip += "\n\n" + self._blocked_text(i) + "."
-        return tip
+            parts.append(self._blocked_text(i) + ".")
+        return "\n\n".join(p for p in parts if p)
 
     # ------------------------------------------------------------------
     def choose(self):

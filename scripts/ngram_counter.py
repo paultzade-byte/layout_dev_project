@@ -15,6 +15,7 @@ scripts/word_counter.py — тепер обидва в одному проход
 
 import argparse
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -34,9 +35,20 @@ def main(argv=None):
     files = corpus.find_corpus_files(args.paths)
     if not files:
         sys.exit("немає файлів .txt")
+    try:
+        corpus.check_utf8(files)
+    except ValueError as e:
+        sys.exit(f"помилка: {e}")
     lang = corpus.detect_language(files) if args.lang == "auto" else args.lang
     if lang is None:
         sys.exit("мову не визначено — вкажіть --lang")
+    # тека --out без права на запис — до підрахунку, а не traceback після годин роботи;
+    # після перевірок вводу, щоб не лишати теку, коли скрипт одразу виходить
+    try:
+        Path(args.out).mkdir(parents=True, exist_ok=True)
+        tempfile.TemporaryFile(dir=args.out).close()
+    except OSError as e:
+        sys.exit(f"помилка: у теку --out {args.out} не записати: {e}")
     workers, duty = corpus.worker_plan(args.cpu / 100)
     print(f"{len(files)} файлів, мова {lang}, воркерів {workers} по {duty:.0%}", flush=True)
 
@@ -46,9 +58,17 @@ def main(argv=None):
               f"{p.elapsed / 60:.1f} хв", end="", flush=True)
 
     t0 = time.perf_counter()
-    result = corpus.count_corpus(files, lang, args.cpu / 100, progress)
+    try:
+        result = corpus.count_corpus(files, lang, args.cpu / 100, progress)
+    except ValueError as e:
+        print()
+        sys.exit(f"помилка: {e}")
     print()
-    for path in corpus.write_outputs(result, args.out):
+    try:
+        paths = corpus.write_outputs(result, args.out)
+    except OSError as e:
+        sys.exit(f"помилка: не вдалося записати статистику в {args.out}: {e}")
+    for path in paths:
         print("записано", path)
     print(result["meta"], f"\nчас {(time.perf_counter() - t0) / 60:.1f} хв")
 
