@@ -130,7 +130,7 @@ def test_cp1251_corpus_is_refused(tmp_path):
     corpus.check_utf8([cut], sample_bytes=10)
     root = Path(__file__).resolve().parents[1]
     run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(bad), "--lang", "uk",
-                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True, encoding="utf-8")
     assert run.returncode != 0 and "UTF-8" in run.stderr
     assert not (tmp_path / "out" / "statistic.json").exists()
 
@@ -147,7 +147,7 @@ def test_corpus_without_letters_writes_nothing(tmp_path, content):
         corpus.count_corpus([src], "uk", 1.0)
     root = Path(__file__).resolve().parents[1]
     run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(src), "--lang", "uk",
-                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True, encoding="utf-8")
     assert run.returncode != 0 and "жодної літери" in run.stderr
     assert not (tmp_path / "out" / "statistic.json").exists()
 
@@ -157,6 +157,8 @@ def test_cli_out_not_writable_clear_error(tmp_path):
     (і лише після всього підрахунку)."""
     import os, subprocess, sys
     from pathlib import Path
+    if sys.platform == "win32":
+        pytest.skip("на Windows chmod не забороняє запис у теку")
     if os.geteuid() == 0:
         pytest.skip("root пише куди завгодно")
     src = tmp_path / "uk.txt"
@@ -167,14 +169,14 @@ def test_cli_out_not_writable_clear_error(tmp_path):
     try:
         root = Path(__file__).resolve().parents[1]
         run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(src), "--lang", "uk",
-                              "--out", str(locked / "out")], capture_output=True, text=True)
+                              "--out", str(locked / "out")], capture_output=True, text=True, encoding="utf-8")
     finally:
         locked.chmod(0o700)
     assert run.returncode != 0 and "помилка:" in run.stderr
     assert "Traceback" not in run.stderr
     # вихід ще до підрахунку (немає .txt) — тека --out не створюється
     run = subprocess.run([sys.executable, str(root / "scripts/ngram_counter.py"), str(tmp_path / "nothing"),
-                          "--out", str(tmp_path / "out")], capture_output=True, text=True)
+                          "--out", str(tmp_path / "out")], capture_output=True, text=True, encoding="utf-8")
     assert run.returncode != 0 and not (tmp_path / "out").exists()
 
 
