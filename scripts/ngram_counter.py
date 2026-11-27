@@ -25,6 +25,10 @@ from core import corpus  # noqa: E402
 
 
 def main(argv=None):
+    # Windows-консоль/пайп типово cp1252 -> кирилиця в повідомленнях падала б UnicodeEncodeError.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("paths", nargs="+", help="теки з .txt (з підтеками) або .txt-файли")
     ap.add_argument("--lang", default="auto", choices=["auto", *corpus.LANGUAGES])

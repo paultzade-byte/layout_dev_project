@@ -588,3 +588,45 @@ def test_nav_prev_restart_next(tmp_path, monkeypatch):
         tw.close()
     finally:
         root.destroy()
+
+
+def tw_sizes():
+    from uiux.trainer import TEXT_SIZES
+    return TEXT_SIZES
+
+
+@needs_display
+def test_window_does_not_jump(tmp_path, monkeypatch):
+    """Вікно з'являється одразу на місці, а в «Класиці» висота тексту не міняється від цитати
+    до цитати (схема під текстом не стрибає)."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        tw = ui.on_train()
+        root.update()
+        assert tw.win.winfo_ismapped()
+        tw._set_mode("quotes")
+        root.update()
+        heights = set()
+        for _ in range(30):
+            tw._go(+1)
+            root.update()
+            heights.add((tw.win.winfo_height(), tw.text_lines))
+        assert len(heights) == 1
+        longest = max(tw._count_lines(T.quote_text(q, False, False)) for q in tw.quotes
+                      if not T.missing_letters(q, tw.order))
+        assert tw.text_lines == max(2, longest)
+        # кожен розмір тексту — швидко (було ~20 с: міряли шрифтом, якого ще не мав віджет)
+        import time
+        for step in [+1] * len(tw_sizes()) + [-1] * len(tw_sizes()):
+            t = time.perf_counter()
+            tw._resize("text", step)
+            root.update()
+            assert time.perf_counter() - t < 2
+        tw.close()
+    finally:
+        root.destroy()
