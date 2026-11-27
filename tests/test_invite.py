@@ -1,4 +1,4 @@
-"""Інвітейшн при вході: фраза за номером запуску, лічильник, вікно закривається кліком."""
+"""Інвітейшн при вході: фраза за номером дня з запуском, лічильник, вікно закривається кліком."""
 import os
 
 import pytest
@@ -17,7 +17,11 @@ def test_phrases_by_launch():
 
 def test_launch_counter(tmp_path, monkeypatch):
     monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
-    assert [I.next_launch() for _ in range(3)] == [1, 2, 3]
+    from datetime import date
+    d1, d2, d5 = date(2026, 11, 26), date(2026, 11, 27), date(2026, 11, 30)
+    assert [I.next_launch(d1) for _ in range(3)] == [1, 1, 1]      # 3 запуски за день — одне гасло
+    assert I.next_launch(d2) == 2 and I.next_launch(d2) == 2         # наступний день — наступне
+    assert I.next_launch(d5) == 3                                    # дні без запусків не рахуються
 
 
 tk = pytest.importorskip("tkinter")
@@ -32,6 +36,34 @@ def test_invite_closes_on_click():
         assert inv.alive and inv.win.winfo_viewable()
         inv.win.event_generate("<Button-1>", x=5, y=5)
         root.update()
+        assert not inv.alive
+    finally:
+        root.destroy()
+
+
+@pytest.mark.skipif(not os.environ.get("DISPLAY") and os.name != "nt", reason="немає дисплея (xvfb-run)")
+def test_invite_closes_itself_unless_hovered(monkeypatch):
+    """Не закрили кліком — зникає сама за CLOSE_MS; поки над нею курсор — ні."""
+    import time
+    from uiux import toast
+    monkeypatch.setattr(I, "CLOSE_MS", 50)
+    monkeypatch.setattr(toast, "AFTER_HOVER_MS", 50)
+    hovered = {"on": True}
+    monkeypatch.setattr(toast, "_hovered", lambda w: hovered["on"])
+    root = tk.Tk()
+    root.withdraw()
+
+    def spin(sec):
+        end = time.time() + sec
+        while time.time() < end:
+            root.update()
+            time.sleep(0.01)
+    try:
+        inv = I.Invite(root, 1)
+        spin(0.4)
+        assert inv.alive                  # курсор над плашкою — тримається
+        hovered["on"] = False
+        spin(0.6)
         assert not inv.alive
     finally:
         root.destroy()

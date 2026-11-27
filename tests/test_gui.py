@@ -453,3 +453,227 @@ def test_statistic_menu_switch_and_remember(tmp_path, monkeypatch):
         assert settings.load()["statistic_file"] is None
     finally:
         root.destroy()
+
+
+def test_toast_timeout_capped_and_hover_keeps(monkeypatch):
+    """Плашки — не довше MAX_MS (навіть із ms=12000); курсор над плашкою — не зникає."""
+    from uiux import toast
+    calls = []
+    monkeypatch.setattr(toast, "auto_close", lambda w, ms, close: calls.append(ms))
+    root = tk.Tk()
+    try:
+        t = toast.Toasts(root)
+        t.show("довгий\nтекст", ms=12000)
+        t.show("коротко", ms=1000)
+        t.show("типово")
+        assert calls == [toast.MAX_MS, 1000, toast.MAX_MS]
+    finally:
+        root.destroy()
+
+
+def test_saved_layout_is_next_session_start(tmp_path, monkeypatch):
+    """«Зберегти як…» -> наступний сеанс режиму стартує з цього файлу;
+    «↺ За замовчуванням» лишається вбудованою, зіпсований файл — теж вбудована."""
+    from uiux import app as A
+    from config import settings
+    old = settings.load().get("start_files")
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                on_layout_changed=lambda *_: None, geometry_name="generic_105_alpha")
+        builtin = {k.position_id: k.char for k in A.start_layout("generic_105_alpha").keys}
+        a, b = ui.layout.keys[0], ui.layout.keys[1]
+        a.char, b.char = b.char, a.char
+        a.is_frozen = True
+        saved = tmp_path / "mine.json"
+        monkeypatch.setattr(A.filedialog, "asksaveasfilename", lambda *x, **k: str(saved))
+        assert ui.on_save_as()
+        layout, path = ui._session_start_layout("generic_105_alpha")
+        assert path == saved.resolve()
+        got = {k.position_id: k for k in layout.keys}
+        assert got[a.position_id].char == a.char and got[a.position_id].is_frozen
+        assert {k.position_id: k.char for k in A.start_layout("generic_105_alpha").keys} == builtin
+        saved.write_text("зіпсовано", encoding="utf-8")
+        layout, path = ui._session_start_layout("generic_105_alpha")
+        assert path is None
+        assert {k.position_id: k.char for k in layout.keys} == builtin
+    finally:
+        settings.save(start_files=old)
+        root.destroy()
+
+
+def test_start_with_all_frozen_returns_to_idle():
+    """QA 2026-11-26: рухомих літер < 2 -> ValueError у воркері; GUI висів на «Оптимізую...»."""
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        for key in ui.layout.keys:
+            key.is_frozen = True
+        ui.toggle_optimization()
+        _wait(root, lambda: not ui.processor.is_running and ui.toasts.items)
+        root.update()
+        assert ui.button_panel.button_start.cget("text") == "Start"
+        assert "Оптимізую" not in ui.status_var.get()
+        assert "менше двох" in ui.toasts.items[-1].winfo_children()[0].cget("text")
+    finally:
+        root.destroy()
+
+
+def test_open_layout_without_is_frozen(tmp_path, monkeypatch):
+    """QA 2026-11-26: файл без поля is_frozen -> KeyError поза try в «Відкрити…»."""
+    import json
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        data = [{"position_id": k.position_id, "char": k.char} for k in ui.layout.keys]
+        a, b = [i for i, d in enumerate(data) if len(d["char"]) == 1 and d["char"].isalpha()][:2]
+        data[a]["char"], data[b]["char"] = data[b]["char"], data[a]["char"]
+        path = tmp_path / "no_frozen.json"
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kw: str(path))
+        ui.on_open()
+        root.update()
+        chars = {k.position_id: k.char for k in ui.layout.keys}
+        assert chars[data[a]["position_id"]] == data[a]["char"]
+        assert not any(k.is_frozen for k in ui.layout.keys if k.position_id in (data[a]["position_id"], data[b]["position_id"]))
+    finally:
+        root.destroy()
+
+
+def test_editor_tab_keeps_start_off_while_weights_rebuild():
+    """QA 2026-11-26 (Corne): під час фонового _rebuild_weights вкладка «Редактор»
+    знову вмикала Start, а done() потім підміняв processor під живим пошуком."""
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.MOVES_CONFIG,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, A.MOVES_CONFIG),
+                                geometry_name="corne_42")
+        root.update()
+        if not ui._zmk_mode():
+            pytest.skip("немає вкладок шарів")
+        engine = ui.engine
+        ui._rebuild_weights("тест")
+        ui.show_tab("Редактор")
+        assert ui.button_panel.button_start.cget("state") == "disabled"
+        ui.toggle_optimization()                      # напр. гаряча клавіша — теж ні
+        assert not ui.processor.is_running
+        _wait(root, lambda: ui.engine is not engine)
+        assert ui.button_panel.button_start.cget("state") == "normal"
+    finally:
+        root.destroy()
+
+
+def test_worker_never_calls_tk_after_window_closed():
+    """QA 2026-11-26: воркер кликав root.after з потоку -> закрили вікно під час пошуку ->
+    RuntimeError у потоці. Тепер усе з потоків іде через чергу (_from_worker)."""
+    import threading
+    from uiux import app as A
+    errors = []
+    old_hook = threading.excepthook
+    threading.excepthook = lambda a: errors.append(repr(a.exc_value))
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        ui.toggle_optimization()
+        _wait(root, lambda: "ітерація" in ui.status_var.get())   # прогрес доходить до UI
+        processor = ui.processor
+        root.destroy()
+        time.sleep(1.0)                                          # воркер ще шле прогрес
+        processor.stop()
+        processor._thread.join(30)
+        assert not processor._thread.is_alive()
+        assert errors == []
+    finally:
+        threading.excepthook = old_hook
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+
+def test_search_stop_returns_result_through_queue():
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        moves = A.load_moves("generic_105_alpha")
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, moves,
+                                on_layout_changed=A.make_score_display(A.STATISTIC, moves),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        ui.toggle_optimization()
+        _wait(root, lambda: "ітерація" in ui.status_var.get())
+        ui.toggle_optimization()                                  # Stop
+        _wait(root, lambda: ui.button_panel.button_start.cget("text") == "Start")
+        assert not ui.processor.is_running and "Оптимізую" not in ui.status_var.get()
+    finally:
+        root.destroy()
+
+
+def test_keyboard_label_and_layer_board_have_tooltips(tmp_path, monkeypatch):
+    """QA 2026-11-26: без тултіпа були мітка «Клавіатура:» і дошка вкладок шарів."""
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("corne_42"), geometry_name="corne_42")
+        root.update()
+        assert ui.mode_label.cget("text") == "Клавіатура:" and ui.mode_label.bind("<Enter>")
+        ui.mode_label.event_generate("<Enter>")
+        root.after(A.tooltip.DELAY_MS + 100, root.quit)
+        root.mainloop()
+        shown = [w for w in root.winfo_children() if isinstance(w, tk.Label) and w.winfo_manager() == "place"
+                 and "клавіатур" in w.cget("text")]
+        assert shown
+        lv = ui.layer_view
+        assert lv.canvas.bind("<Enter>")
+        assert "Дампу ще нема" in lv._tip_text() if lv.dump is None else lv._tip_text()
+        if lv.dump is not None:
+            for name in A.layer_view.lh.ORDER:
+                ui.show_tab(name)
+                assert name in lv._tip_text()
+            ui.show_tab("Редактор")
+        # QA: біля курсора, а не під усією дошкою (курсор підставний — справжню мишу не рухаємо)
+        lv.canvas.winfo_pointerxy = lambda: (root.winfo_rootx() + 200, root.winfo_rooty() + 150)
+        lv.tip._show()
+        assert lv.tip._tip is not None
+        info = lv.tip._tip.place_info()
+        assert int(info["y"]) == 150 + A.px(20) and int(info["x"]) == 200 + A.px(12)
+        lv._drag_start(type("E", (), {"x": -100, "y": -100})())   # клік ховає підказку
+        assert lv.tip._tip is None
+    finally:
+        root.destroy()
+
+
+def test_corne_file_in_standard_mode_is_other_keyboard(tmp_path, monkeypatch):
+    """QA 2026-11-26: файл Corne у режимі «Звичайна» відхилявся як «набір символів не
+    збігається», а не «розкладка для іншої клавіатури» (позиції Corne — підмножина ANSI)."""
+    import json
+    monkeypatch.setenv("LAYOUT_USER_DIR", str(tmp_path))
+    from config.main_config import CONFIG_DIR
+    from uiux import app as A
+    root = tk.Tk()
+    try:
+        ui = A.LayoutBuilderApp(root, A.STATISTIC, A.load_moves("generic_105_alpha"),
+                                geometry_name="generic_105_alpha")
+        root.update()
+        corne = json.loads((CONFIG_DIR / "layout_seed5.json").read_text(encoding="utf-8"))
+        assert len(corne) == len(A.geometry_config("corne_42")["positions"])
+        assert "іншої клавіатури" in ui.layout_file_problem(corne)
+        own = json.loads((CONFIG_DIR / "layout_standard_A.json").read_text(encoding="utf-8"))
+        assert ui.layout_file_problem(own) is None
+        old = own[:38]                     # старий файл режиму з меншою кількістю позицій
+        assert A.layout_data_problem(old, ui.layout) != A.OTHER_KEYBOARD
+        assert ui.set_geometry("corne_42")
+        assert ui.layout_file_problem(corne) is None
+        assert "іншої клавіатури" in ui.layout_file_problem(own)
+    finally:
+        root.destroy()

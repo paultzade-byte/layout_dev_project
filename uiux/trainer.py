@@ -19,7 +19,7 @@ from tkinter import filedialog, messagebox
 
 from config import settings
 from core import trainer
-from uiux import tooltip
+from uiux import quote_search, tooltip
 from uiux import render
 from uiux.render import key_cells
 from uiux.toast import Toasts
@@ -48,6 +48,17 @@ MODES = (("words", "Слова", "Слова з цитат українсько�
 TEXT_MODES = ("quotes", "own")     # усі літери, рівень не діє, діють «Великі» / «Розділові»
 
 
+def _saved_dict(name: str, saved: dict | None = None) -> dict:
+    """Словник із settings (рівні, місця в текстах); зіпсоване значення — порожній."""
+    value = (settings.load() if saved is None else saved).get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def _saved_int(value, default: int = 0) -> int:
+    """Ціле із settings; рядок, дріб, None… — типове."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
 def _button(parent, text, command, small=True):
     return RoundButton(parent, text=text, command=command, font=(FONT, 9 if small else 11, "bold"),
                        bg=BUTTON, fg=TEXT, activebackground=BUTTON_HOVER, disabledforeground=TEXT_DIM,
@@ -62,6 +73,8 @@ class TrainerWindow:
         self.rng = random.Random()
         self.quotes = trainer.load_quotes()
         self.quote = None
+        self.quote_hist: list[dict] = []   # цитати «Класики» в порядку показу (для ← →)
+        self.quote_at = -1                 # поточна в quote_hist
         self.source = trainer.WordSource(trainer.quote_words(self.quotes),
                                          statistic.get("bigrams", {}), self.rng)
         self.order = trainer.make_order(self.chars, geometry, statistic.get("unigrams", {}))
@@ -69,7 +82,8 @@ class TrainerWindow:
         saved = settings.load()
         self.can_translate = trainer.can_translate(geometry)
         self.translate = self.can_translate and saved.get("trainer_translate", True)
-        self.level = min(saved.get("trainer_levels", {}).get(geometry_name, 0), self.levels - 1)
+        level = _saved_int(_saved_dict("trainer_levels", saved).get(geometry_name))
+        self.level = max(0, min(level, self.levels - 1))
         self.hard_ngrams = hard_ngrams or []
         self.mode = saved.get("trainer_mode", "words")
         if self.mode not in ("words", "ngrams", "quotes", "own") or (self.mode == "ngrams" and not self.hard_ngrams):
@@ -77,7 +91,8 @@ class TrainerWindow:
         self.auto_level = saved.get("trainer_auto_level", True)
         self.caps = tk.BooleanVar(value=saved.get("trainer_caps", False))
         self.punct = tk.BooleanVar(value=saved.get("trainer_punct", False))
-        self.own_file = saved.get("trainer_own_file")
+        own_file = saved.get("trainer_own_file")
+        self.own_file = own_file if isinstance(own_file, str) and own_file else None   # зіпсоване — нема
         self.own_chunks, self.own_idx = [], 0
         if self.mode == "own" and not self._load_own(self.own_file):
             self.mode = "words"
@@ -120,6 +135,7 @@ class TrainerWindow:
                 b.config(state="disabled")
             tooltip.add(b, tip)
             self.mode_buttons[mode] = b
+        quote_search.search_button(top, lambda: quote_search.open_search(self)).pack(side="left", padx=(px(6), 0))
 
         self.button_translate = _button(top, "", self._toggle_translate)
         self.button_translate.pack(side="right")
@@ -185,12 +201,25 @@ class TrainerWindow:
         self.text.bind("<Button-1>", lambda e: "break")
         tooltip.add(self.text, self._text_tip)
 
+        nav = tk.Frame(w, bg=BG)                 # ← ↻ → посередині, під текстом
+        nav.pack(pady=(0, px(8)))
+        self.button_prev = _button(nav, "←", lambda: self._go(-1), small=False)
+        self.button_prev.pack(side="left")
+        tooltip.add(self.button_prev, self._prev_tip)
+        again_same = _button(nav, "↻", lambda: self._go(0), small=False)
+        again_same.pack(side="left", padx=px(8))
+        tooltip.add(again_same, "Почати цей самий рядок заново (набране й помилки скидаються).")
+        self.button_next = _button(nav, "→", lambda: self._go(+1), small=False)
+        self.button_next.pack(side="left")
+        tooltip.add(self.button_next, self._next_tip)
+
         self.board = tk.Canvas(w, bg=BG, highlightthickness=0)
         self.board.pack(padx=px(16), pady=(0, px(8)))
         self._draw_board()
         tooltip.add(self.board, "Розкладка з дошки головного вікна. Синім — клавіша, яку натиснути "
                                 "зараз; сірі — літери, яких ще нема у вправах. Риски — F і J "
-                                "(на справжній клавіатурі там пухирці): тут лежать вказівні.")
+                                "(на справжній клавіатурі там пухирці): тут лежать вказівні.",
+                    at_pointer=True)
 
         bottom = tk.Frame(w, bg=BG)
         bottom.pack(fill="x", padx=px(16), pady=(0, px(14)))
@@ -207,7 +236,7 @@ class TrainerWindow:
         close = _button(bottom, "Закрити", self.close, small=False)
         close.pack(side="right")
         tooltip.add(close, "Закрити тренування (Esc). Рівень і переклад запам'ятовуються.")
-        again = _button(bottom, "Інший рядок", lambda: self._new_line(advance=True), small=False)
+        again = _button(bottom, "Інший рядок", lambda: self._go(+1), small=False)
         again.pack(side="right", padx=(0, px(8)))
         tooltip.add(again, "Пропустити цей рядок і взяти новий.")
         reset = _button(bottom, "Скинути статистику", self._reset_stats, small=False)
@@ -241,10 +270,14 @@ class TrainerWindow:
     def _check(self, parent, text, var, key, tip):
         def changed():
             settings.save(**{key: var.get()})
-            if self.mode == "own":
-                self._load_own(self.own_file)
+            if self.own_chunks:                         # і з «Класики»: інакше «Свій текст» лишиться старим
+                old, idx = self.own_chunks, self.own_idx
+                if self._load_own(self.own_file):       # уривки інші — лишаємось на тому ж місці тексту
+                    self.own_idx = trainer.same_place(old, idx, self.own_chunks)
+                    pos = {**_saved_dict("trainer_own_pos"), self.own_file: self.own_idx}
+                    settings.save(trainer_own_pos=pos)
             if self.mode in TEXT_MODES:
-                self._new_line()
+                self._new_line(keep_quote=True)      # та сама цитата, лише в новому вигляді
         c = tk.Checkbutton(parent, text=text, variable=var, command=changed, bg=BG, fg=TEXT,
                            selectcolor=PANEL, activebackground=BG, activeforeground=TEXT,
                            disabledforeground=TEXT_DIM, highlightthickness=0, bd=0, font=(FONT, 10))
@@ -316,8 +349,8 @@ class TrainerWindow:
         self.text_lines = lines
 
     def _text_tip(self):
-        if self.mode == "quotes" and self.quote:
-            return f"{self.quote['author']} — «{self.quote['work']}»"
+        if self.mode == "quotes" and self.quote and trainer.quote_source(self.quote):
+            return trainer.quote_source(self.quote)
         if self.mode == "own" and self.own_chunks:
             return f"{Path(self.own_file).name} — уривок {self.own_idx + 1} з {len(self.own_chunks)}"
         return ("Друкуй підсвічену літеру. Помилка — літера червоніє, курсор чекає "
@@ -356,7 +389,7 @@ class TrainerWindow:
         if not chunks:
             return False
         self.own_file, self.own_chunks = str(path), chunks
-        self.own_idx = settings.load().get("trainer_own_pos", {}).get(self.own_file, 0) % len(chunks)
+        self.own_idx = _saved_int(_saved_dict("trainer_own_pos").get(self.own_file)) % len(chunks)
         return True
 
     def _choose_own(self) -> bool:
@@ -377,11 +410,69 @@ class TrainerWindow:
     def _set_mode(self, mode):
         if mode == "own" and (self.mode == "own" or not self.own_chunks) and not self._choose_own():
             return                              # файл не вибрано — режим не міняємо
+        keep = mode == self.mode                # повторний клік по «Класиці» цитату не міняє
         self.mode = mode
         settings.save(trainer_mode=mode)
         self._update_mode_buttons()
         self._update_checks()
-        self._new_line()
+        self._new_line(keep_quote=keep)
+
+    def _select_quote(self, quote):
+        """Цитата з пошуку (uiux/quote_search.py) — друкувати саме її, у «Класиці»."""
+        self.mode = "quotes"
+        settings.save(trainer_mode=self.mode)
+        self._update_mode_buttons()
+        self._update_checks()
+        self.quote = quote
+        self._new_line(keep_quote=True)
+
+    def _go(self, step: int):
+        """← (step −1) / ↻ (0) / → (+1). «Класика» — по історії показаних цитат (далі за
+        останню — нова випадкова), «Свій текст» — по уривках, «Слова»/«Поєднання» — ←
+        нема, → — новий рядок. ↻ — той самий текст з початку в будь-якому режимі."""
+        if step == 0:
+            self._new_line(keep_quote=True, same_text=True)
+        elif self.mode == "quotes" and 0 <= self.quote_at + step < len(self.quote_hist):
+            self.quote_at += step
+            self.quote = self.quote_hist[self.quote_at]
+            self._new_line(keep_quote=True)
+        elif step < 0 and self.mode == "own" and self.own_chunks:
+            if self.own_idx > 0:
+                self.own_idx -= 1
+                settings.save(trainer_own_pos={**_saved_dict("trainer_own_pos"), self.own_file: self.own_idx})
+                self._new_line()
+        elif step > 0:
+            self._new_line(advance=True)
+
+    def _can_prev(self) -> bool:
+        if self.mode == "quotes":
+            return self.quote_at > 0
+        return self.mode == "own" and bool(self.own_chunks) and self.own_idx > 0
+
+    def _prev_tip(self):
+        if self.mode == "quotes":
+            return ("Попередня цитата." if self._can_prev()
+                    else "Попередня цитата — це перша, яку показано в цьому вікні.")
+        if self.mode == "own":
+            return "Попередній уривок тексту." if self._can_prev() else "Це перший уривок тексту."
+        return "Назад — лише в «Класиці» та «Своєму тексті»; тут рядки щоразу нові."
+
+    def _next_tip(self):
+        if self.mode == "quotes":
+            return ("Наступна цитата (вперед після «←»)." if self.quote_at < len(self.quote_hist) - 1
+                    else "Наступна цитата — нова випадкова.")
+        if self.mode == "own":
+            return "Наступний уривок тексту."
+        return "Новий рядок."
+
+    def _remember_quote(self, quote):
+        """Нова показана цитата -> історія (як у браузері: після «←» гілку вперед замінює)."""
+        if quote is None or (0 <= self.quote_at < len(self.quote_hist) and self.quote_hist[self.quote_at] is quote):
+            return
+        self.quote_hist = self.quote_hist[:self.quote_at + 1] + [quote]
+        if len(self.quote_hist) > 200:
+            self.quote_hist = self.quote_hist[-200:]
+        self.quote_at = len(self.quote_hist) - 1
 
     def _reset_stats(self):
         if not messagebox.askyesno("Статистика", "Забути статистику по літерах для цієї клавіатури?",
@@ -415,26 +506,32 @@ class TrainerWindow:
             return
         self.level = level
         self.level_lines = []
-        levels = {**settings.load().get("trainer_levels", {}), self.geometry_name: level}
+        levels = {**_saved_dict("trainer_levels"), self.geometry_name: level}
         settings.save(trainer_levels=levels)
         if hasattr(self, "session"):
-            self._new_line()
+            self._new_line(keep_quote=True)
 
     # ------------------------------------------------------------------
-    def _new_line(self, advance: bool = False):
-        """advance — до наступного уривка «Свого тексту» (рядок дописано чи «Інший рядок»)."""
+    def _new_line(self, advance: bool = False, keep_quote: bool = False, same_text: bool = False):
+        """advance — до наступного уривка «Свого тексту» (рядок дописано чи «Інший рядок»).
+        keep_quote — у «Класиці» лишити поточну цитату (змінено лише вигляд: «Великі»,
+        «Розділові», рівень…): той самий текст у новому вигляді, набір — з початку.
+        same_text — «Слова»/«Поєднання»: той самий рядок з початку (↻)."""
+        old_text = self.session.text if same_text and hasattr(self, "session") else None
         self._merge_session()
         if advance and self.mode == "own" and self.own_chunks:
             self.own_idx += 1
             if self.own_idx >= len(self.own_chunks):
                 self.own_idx = 0
                 self.toasts.show("Текст закінчився — знову з початку")
-            pos = {**settings.load().get("trainer_own_pos", {}), self.own_file: self.own_idx}
+            pos = {**_saved_dict("trainer_own_pos"), self.own_file: self.own_idx}
             settings.save(trainer_own_pos=pos)
         self.allowed = trainer.letters_at(self.order, self.level)
         self.focus = self.allowed[-1] if self.level > 0 else None
-        quote = (trainer.pick_quote(self.quotes, self.order, self.rng, self.quote)
-                 if self.mode == "quotes" else None)
+        quote = None
+        if self.mode == "quotes":
+            quote = (self.quote if keep_quote and self.quote
+                     else trainer.pick_quote(self.quotes, self.order, self.rng, self.quote))
         own = self.mode == "own" and bool(self.own_chunks)
         self.scale.config(state="disabled" if quote or own else "normal")
         n, total = len(self.allowed), len(self.order)
@@ -445,14 +542,15 @@ class TrainerWindow:
             n, info = total, f" · {Path(self.own_file).name}: {self.own_idx + 1} з {len(self.own_chunks)}"
         elif quote:
             self.quote, self.allowed, self.focus = quote, list(self.order), None
+            self._remember_quote(quote)
             text = trainer.quote_text(quote, self.caps.get(), self.punct.get())
             n, info = total, " · цитата: усі літери"
         elif targets:
-            text = self.source.ngram_line(targets, self.allowed)
+            text = old_text or self.source.ngram_line(targets, self.allowed)
             info = " · " + " ".join(g for g, _ in targets[:6]) + ("…" if len(targets) > 6 else "")
         else:
             weak = [ch for ch, _, _ in trainer.weak_letters(self.stats, set(self.allowed), trainer.WEAK_TOP)]
-            text = self.source.line(self.allowed, self.focus, weak=weak)
+            text = old_text or self.source.line(self.allowed, self.focus, weak=weak)
             info = f" · нова: «{self.focus}»" if self.focus else " · домашній ряд"
             if self.mode == "ngrams":
                 info += " · важких поєднань з цих літер нема"
@@ -466,6 +564,7 @@ class TrainerWindow:
         self._render()
         self._show_stats()
         self._show_weak()
+        self.button_prev.config(state="normal" if self._can_prev() else "disabled")
 
     def _paint_board(self):
         nxt = self.session.text[self.session.pos] if not self.session.done else ""
@@ -530,13 +629,14 @@ class TrainerWindow:
             if self.mode not in TEXT_MODES:          # цитата / свій текст — усі літери, рівень не міряє
                 self.level_lines.append(line)
             if self.mode not in TEXT_MODES and self.auto_level and self.level < self.levels - 1 and trainer.should_level_up(self.level_lines):
-                self.scale.set(self.level + 1)       # -> _on_level -> новий рядок
+                level = self.level + 1
+                self.scale.set(level)                # може сам викликати _on_level
                 self.win.update_idletasks()
-                self._on_level(self.level + 1)
+                self._on_level(level)                # повторний виклик з тим самим рівнем — no-op
                 self.toasts.show(f"Рівень вище: нова літера «{self.allowed[-1]}»"
                                  if self.focus else "Рівень вище")
                 return "break"
-            self._new_line(advance=True)
+            self._go(+1)
             return "break"
         self._paint_board()
         self._render()

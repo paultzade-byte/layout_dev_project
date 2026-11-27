@@ -25,10 +25,18 @@ def load() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _jsonable(value):
+    """Шляхи (Path) — рядком; решта невідомого — помилка, як у json.dumps."""
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    raise TypeError(f"{type(value).__name__} не зберігається в settings.json")
+
+
 def save(**changes) -> None:
     data = {**load(), **changes}
     try:
-        _path().write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _path().write_text(json.dumps(data, ensure_ascii=False, indent=2, default=_jsonable),
+                           encoding="utf-8")
     except OSError:
         pass  # не змогли запам'ятати — не привід падати
 
@@ -37,7 +45,9 @@ def cpu_percent() -> int:
     """Скільки відсотків ядра бере пошук (меню «CPU» в GUI)."""
     from core import throttle
     value = load().get("cpu_percent")
-    return value if value in throttle.CHOICES else throttle.DEFAULT
+    # лише ціле з меню: 25.0 / true / рядок у файлі — типове значення
+    ok = isinstance(value, int) and not isinstance(value, bool) and value in throttle.CHOICES
+    return value if ok else throttle.DEFAULT
 
 
 def initial_mode(geometries) -> str:
@@ -45,6 +55,6 @@ def initial_mode(geometries) -> str:
     Типовий — «Звичайна» в exe (для інших людей), у репо — з geometry.json."""
     from config.main_config import DEFAULT_GEOMETRY
     for mode in (os.environ.get("LAYOUT_GEOMETRY"), load().get("mode")):
-        if mode in geometries:
+        if isinstance(mode, str) and mode in geometries:   # список у файлі — не TypeError
             return mode
     return "generic_105_alpha" if getattr(sys, "frozen", False) else DEFAULT_GEOMETRY
